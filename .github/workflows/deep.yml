@@ -4,24 +4,249 @@ name: reusable-deep
 on:
   workflow_call:
     inputs:
+      profile:
+        required: false
+        default: go-strict
+        type: string
+      config-path:
+        required: false
+        default: .github/github-ci.yaml
+        type: string
       go-version:
         required: false
         default: "1.26.6"
+        type: string
+      previous-go-version:
+        required: false
+        default: "1.25.13"
+        type: string
+      fuzz-time:
+        required: false
+        default: 30s
         type: string
 
 permissions:
   contents: read
 
 jobs:
-  deep:
-    name: deep assurance
+  portability:
+    name: ${{ matrix.os }} / Go ${{ matrix.go-version }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        go-version: ["${{ inputs.go-version }}", "${{ inputs.previous-go-version }}"]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    steps:
+      - name: Check out consumer
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
+        with:
+          go-version: ${{ matrix.go-version }}
+          cache: false
+      - name: Build, test, and vet
+        shell: bash
+        run: |
+          set -euo pipefail
+          go build ./...
+          go test ./... -count=1
+          go vet ./...
+
+  fuzz-benchmark:
+    name: fuzz and benchmarks
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
       - name: Harden runner
         uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c
         with:
-          egress-policy: audit
+          egress-policy: block
+          disable-telemetry: true
+          allowed-endpoints: |
+            api.github.com:443
+            github.com:443
+            *.github.com:443
+            *.githubusercontent.com:443
+            go.dev:443
+            proxy.golang.org:443
+            sum.golang.org:443
+            storage.googleapis.com:443
+      - name: Check out consumer
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          path: source
+      - name: Check out workflow helpers
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: gomaja/github-ci
+          ref: ${{ github.workflow_sha }}
+          persist-credentials: false
+          path: github-ci
+      - name: Bootstrap policy CLI
+        uses: ./github-ci/actions/bootstrap
+        with:
+          go-version: ${{ inputs.go-version }}
+          install-tools: "false"
+      - name: Run every fuzz target and benchmark
+        env:
+          CLI: ${{ runner.temp }}/github-ci-bin/github-ci
+          CONFIG_PATH: ${{ inputs.config-path }}
+          FUZZ_TIME: ${{ inputs.fuzz-time }}
+          SOURCE_DIR: ${{ github.workspace }}/source
+        shell: bash
+        run: |
+          set -euo pipefail
+          while IFS= read -r module; do
+            directory="$SOURCE_DIR"
+            [[ "$module" == "." ]] || directory="$SOURCE_DIR/$module"
+            while IFS= read -r target; do
+              [[ -z "$target" ]] || (cd "$directory" && go test ./... -run '^$' -fuzz "^${target}$" -fuzztime "$FUZZ_TIME")
+            done < <(cd "$directory" && go test ./... -list '^Fuzz' | grep '^Fuzz' || true)
+            (cd "$directory" && go test ./... -run '^$' -bench . -benchtime=1s)
+          done < <("$CLI" modules --repository "$SOURCE_DIR" --config "$CONFIG_PATH" | jq -r '.modules[]')
+
+  mutation:
+    name: mutation testing
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c
+        with:
+          egress-policy: block
+          disable-telemetry: true
+          allowed-endpoints: |
+            api.github.com:443
+            github.com:443
+            *.github.com:443
+            *.githubusercontent.com:443
+            go.dev:443
+            proxy.golang.org:443
+            sum.golang.org:443
+            storage.googleapis.com:443
+      - name: Check out consumer
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+          path: source
+      - name: Check out workflow helpers
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: gomaja/github-ci
+          ref: ${{ github.workflow_sha }}
+          persist-credentials: false
+          path: github-ci
+      - name: Bootstrap policy CLI
+        uses: ./github-ci/actions/bootstrap
+        with:
+          go-version: ${{ inputs.go-version }}
+          install-tools: "false"
+      - name: Install mutation tool
+        env:
+          BIN_DIR: ${{ runner.temp }}/github-ci-bin
+          CENTRAL_DIR: ${{ github.workspace }}/github-ci
+        shell: bash
+        run: bash "$CENTRAL_DIR/scripts/install-scanners.sh" deep
+      - name: Require complete mutation efficacy
+        env:
+          CLI: ${{ runner.temp }}/github-ci-bin/github-ci
+          CONFIG_PATH: ${{ inputs.config-path }}
+          SOURCE_DIR: ${{ github.workspace }}/source
+        shell: bash
+        run: |
+          set -euo pipefail
+          export PATH="$RUNNER_TEMP/github-ci-bin:$PATH"
+          while IFS= read -r module; do
+            directory="$SOURCE_DIR"
+            [[ "$module" == "." ]] || directory="$SOURCE_DIR/$module"
+            (cd "$directory" && gremlins unleash --silent --workers 2 --threshold-efficacy 100 --threshold-mcover 100 .)
+          done < <("$CLI" modules --repository "$SOURCE_DIR" --config "$CONFIG_PATH" | jq -r '.modules[]')
+
+  history-refresh:
+    name: history and dependency refresh
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c
+        with:
+          egress-policy: block
+          disable-telemetry: true
+          allowed-endpoints: |
+            api.github.com:443
+            github.com:443
+            *.github.com:443
+            *.githubusercontent.com:443
+            go.dev:443
+            proxy.golang.org:443
+            sum.golang.org:443
+            storage.googleapis.com:443
+      - name: Check out consumer
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          path: source
+      - name: Check out workflow helpers
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: gomaja/github-ci
+          ref: ${{ github.workflow_sha }}
+          persist-credentials: false
+          path: github-ci
+      - name: Bootstrap policy CLI
+        uses: ./github-ci/actions/bootstrap
+        with:
+          go-version: ${{ inputs.go-version }}
+          install-tools: "false"
+      - name: Install history scanner
+        env:
+          BIN_DIR: ${{ runner.temp }}/github-ci-bin
+          CENTRAL_DIR: ${{ github.workspace }}/github-ci
+        shell: bash
+        run: bash "$CENTRAL_DIR/scripts/install-scanners.sh" deep
+      - name: Scan full history and dependency updates
+        env:
+          CLI: ${{ runner.temp }}/github-ci-bin/github-ci
+          CONFIG_PATH: ${{ inputs.config-path }}
+          SOURCE_DIR: ${{ github.workspace }}/source
+        shell: bash
+        run: |
+          set -euo pipefail
+          export PATH="$RUNNER_TEMP/github-ci-bin:$PATH"
+          gitleaks git --no-banner --redact=100 "$SOURCE_DIR"
+          while IFS= read -r module; do
+            directory="$SOURCE_DIR"
+            [[ "$module" == "." ]] || directory="$SOURCE_DIR/$module"
+            updates=$(cd "$directory" && go list -m -u -json all | jq -s '[.[] | select(.Update != null)] | length')
+            [[ "$updates" == 0 ]]
+          done < <("$CLI" modules --repository "$SOURCE_DIR" --config "$CONFIG_PATH" | jq -r '.modules[]')
+          if grep -qx 'module github.com/gomaja/github-ci' "$SOURCE_DIR/go.mod"; then
+            "$CLI" verify-generated --root "$SOURCE_DIR"
+          fi
+
+  services:
+    name: integration services
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    services:
+      postgres:
+        image: postgres:18.1@sha256:1090bc3a8ccfb0b55f78a494d76f8d603434f7e4553543d6e807bc7bd6bbd17f
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+      redis:
+        image: redis:8.6.1@sha256:315270d166080f537bbdf1b489b603aaaa213cb55a544acfa51feb7481abb1c0
+        ports:
+          - 6379:6379
+    steps:
       - name: Check out consumer
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
@@ -31,18 +256,32 @@ jobs:
         with:
           go-version: ${{ inputs.go-version }}
           cache: false
-      - name: Validate toolchain
+      - name: Run integration-tagged tests
+        env:
+          POSTGRES_DSN: postgres://postgres:postgres@localhost:5432/postgres?sslmode=disable
+          REDIS_ADDR: localhost:6379
         shell: bash
-        run: go version
+        run: go test ./... -count=1 -tags integration
 
   gate:
     name: gate
     if: ${{ always() }}
-    needs: [deep]
+    needs: [portability, fuzz-benchmark, mutation, history-refresh, services]
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
-      - name: Require deep assurance
+      - name: Require every deep assurance job
         env:
-          RESULT: ${{ needs.deep.result }}
+          FUZZ_RESULT: ${{ needs.fuzz-benchmark.result }}
+          HISTORY_RESULT: ${{ needs.history-refresh.result }}
+          MUTATION_RESULT: ${{ needs.mutation.result }}
+          PORTABILITY_RESULT: ${{ needs.portability.result }}
+          SERVICES_RESULT: ${{ needs.services.result }}
         shell: bash
-        run: test "$RESULT" = success
+        run: |
+          set -euo pipefail
+          [[ "$FUZZ_RESULT" == success ]]
+          [[ "$HISTORY_RESULT" == success ]]
+          [[ "$MUTATION_RESULT" == success ]]
+          [[ "$PORTABILITY_RESULT" == success ]]
+          [[ "$SERVICES_RESULT" == success ]]

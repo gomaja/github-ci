@@ -118,10 +118,20 @@ install_repository() {
 	"$BIN_DIR/yamllint" --version 2>&1 | grep -F '1.38.0'
 }
 
+install_deep() {
+	install_release_asset gitleaks \
+		https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_x64.tar.gz \
+		sha256:551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb tar.gz gitleaks
+	GOBIN="$BIN_DIR" go install github.com/go-gremlins/gremlins/cmd/gremlins@v0.6.0
+	"$BIN_DIR/gitleaks" version 2>&1 | grep -F '8.30.1'
+	"$BIN_DIR/gremlins" --version 2>&1 | grep -F '0.6.0'
+}
+
 case "$group" in
 security) install_security ;;
 supply-chain) install_supply_chain ;;
 repository) install_repository ;;
+deep) install_deep ;;
 *)
 	printf 'unsupported scanner group: %s\n' "$group" >&2
 	exit 2

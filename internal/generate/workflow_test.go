@@ -106,6 +106,46 @@ func TestScannerInventory(t *testing.T) {
 	}
 }
 
+func TestDeepWorkflowContract(t *testing.T) {
+	data, err := os.ReadFile("../../.github/workflows/deep.yml")
+	if err != nil {
+		t.Fatalf("read deep workflow: %v", err)
+	}
+	text := string(data)
+	for _, required := range []string{
+		"portability:", "fuzz-benchmark:", "mutation:", "history-refresh:", "services:",
+		"gremlins unleash", "gitleaks git", "go list -m -u", "-bench .", "-fuzz",
+		"postgres:18.1@sha256:", "redis:8.6.1@sha256:",
+	} {
+		if !strings.Contains(text, required) {
+			t.Errorf("deep workflow is missing %q", required)
+		}
+	}
+	if strings.Contains(text, "egress-policy: audit") {
+		t.Error("deep workflow contains audit-only egress")
+	}
+	assertImmutableUses(t, text)
+}
+
+func TestReleaseWorkflowProducesEvidenceWithoutPublishing(t *testing.T) {
+	data, err := os.ReadFile("../../.github/workflows/release.yml")
+	if err != nil {
+		t.Fatalf("read release workflow: %v", err)
+	}
+	text := string(data)
+	for _, required := range []string{"release-manifest.json", "SHA256SUMS", "sbom.spdx.json", "sbom.cdx.json", "attest-build-provenance"} {
+		if !strings.Contains(text, required) {
+			t.Errorf("release workflow is missing %q", required)
+		}
+	}
+	for _, forbidden := range []string{"gh release", "git tag", "egress-policy: audit"} {
+		if strings.Contains(text, forbidden) {
+			t.Errorf("release workflow contains forbidden %q", forbidden)
+		}
+	}
+	assertImmutableUses(t, text)
+}
+
 func TestGeneratedCallerHasRequiredEvents(t *testing.T) {
 	data, err := os.ReadFile("../../templates/callers/generated/github-ci.yml")
 	if err != nil {

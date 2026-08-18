@@ -27,6 +27,7 @@ import (
 	"github.com/gomaja/github-ci/internal/exceptions"
 	"github.com/gomaja/github-ci/internal/gate"
 	"github.com/gomaja/github-ci/internal/generate"
+	releaseevidence "github.com/gomaja/github-ci/internal/release"
 	"github.com/gomaja/github-ci/internal/reports"
 )
 
@@ -59,7 +60,7 @@ func Run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 		return exitError
 	}
 	if len(args) == 0 {
-		writeError(stderr, errors.New("usage: github-ci <preflight|modules|files|applicable|aggregate|parse|record|gate|generate|verify-generated>"))
+		writeError(stderr, errors.New("usage: github-ci <preflight|modules|files|applicable|aggregate|parse|record|gate|generate|verify-generated|release-evidence|verify-release-evidence>"))
 		return exitError
 	}
 
@@ -85,11 +86,64 @@ func Run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 		code = runGenerate(ctx, args[1:], stderr, false)
 	case "verify-generated":
 		code = runGenerate(ctx, args[1:], stderr, true)
+	case "release-evidence":
+		code = runReleaseEvidence(args[1:], stderr)
+	case "verify-release-evidence":
+		code = runVerifyReleaseEvidence(args[1:], stderr)
 	default:
 		writeError(stderr, fmt.Errorf("unknown command %q", args[0]))
 		code = exitError
 	}
 	return code
+}
+
+func runReleaseEvidence(args []string, stderr io.Writer) int {
+	flags := newFlagSet("release-evidence", stderr)
+	root := flags.String("root", ".", "repository root")
+	subject := flags.String("subject-sha", "", "release commit SHA")
+	sourceDate := flags.String("source-date", "", "release source date in RFC3339")
+	manifest := flags.String("manifest", "", "release manifest output")
+	checksums := flags.String("checksums", "", "SHA256SUMS output")
+	var assets repeatedFlag
+	flags.Var(&assets, "asset", "repository-relative release asset (repeatable)")
+	if err := flags.Parse(args); err != nil {
+		return exitError
+	}
+	if err := requireFlags(flagValue{"--subject-sha", *subject}, flagValue{"--source-date", *sourceDate}, flagValue{"--manifest", *manifest}, flagValue{"--checksums", *checksums}); err != nil {
+		writeError(stderr, err)
+		return exitError
+	}
+	parsedDate, err := time.Parse(time.RFC3339, *sourceDate)
+	if err != nil {
+		writeError(stderr, fmt.Errorf("parse --source-date: %w", err))
+		return exitError
+	}
+	if err := releaseevidence.WriteEvidence(releaseevidence.Input{
+		Root: *root, SubjectSHA: *subject, SourceDate: parsedDate, Assets: slices.Clone(assets),
+	}, *manifest, *checksums); err != nil {
+		writeError(stderr, err)
+		return exitError
+	}
+	return exitSuccess
+}
+
+func runVerifyReleaseEvidence(args []string, stderr io.Writer) int {
+	flags := newFlagSet("verify-release-evidence", stderr)
+	root := flags.String("root", ".", "repository root")
+	manifest := flags.String("manifest", "", "release manifest path")
+	checksums := flags.String("checksums", "", "SHA256SUMS path")
+	if err := flags.Parse(args); err != nil {
+		return exitError
+	}
+	if err := requireFlags(flagValue{"--manifest", *manifest}, flagValue{"--checksums", *checksums}); err != nil {
+		writeError(stderr, err)
+		return exitError
+	}
+	if err := releaseevidence.Verify(*root, *manifest, *checksums); err != nil {
+		writeError(stderr, err)
+		return exitError
+	}
+	return exitSuccess
 }
 
 func runFiles(ctx context.Context, args []string, stdout, stderr io.Writer) int {

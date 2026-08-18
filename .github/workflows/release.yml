@@ -8,41 +8,113 @@ on:
         required: false
         default: "1.26.6"
         type: string
+      tag:
+        required: false
+        default: ""
+        type: string
 
 permissions:
   contents: read
 
 jobs:
-  release-policy:
-    name: release policy
+  release-evidence:
+    name: release evidence
+    permissions:
+      # Attestations require an OIDC identity bound to this workflow run.
+      id-token: write
+      # The attestation action writes provenance without creating a release.
+      attestations: write
+      # Checkout and metadata generation read the tagged source.
+      contents: read
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 60
     steps:
       - name: Harden runner
         uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c
         with:
-          egress-policy: audit
+          egress-policy: block
+          disable-telemetry: true
+          allowed-endpoints: |
+            api.github.com:443
+            github.com:443
+            *.github.com:443
+            *.githubusercontent.com:443
+            go.dev:443
+            proxy.golang.org:443
+            sum.golang.org:443
+            storage.googleapis.com:443
+            sigstore-tuf-root.storage.googleapis.com:443
+            fulcio.sigstore.dev:443
+            rekor.sigstore.dev:443
       - name: Check out consumer
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
+          fetch-depth: 0
           persist-credentials: false
-      - name: Set up Go
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
+          path: source
+      - name: Check out workflow helpers
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: gomaja/github-ci
+          ref: ${{ github.workflow_sha }}
+          persist-credentials: false
+          path: github-ci
+      - name: Bootstrap policy CLI
+        uses: ./github-ci/actions/bootstrap
         with:
           go-version: ${{ inputs.go-version }}
-          cache: false
-      - name: Validate clean release source
+          install-tools: "false"
+      - name: Install SBOM generators
+        env:
+          BIN_DIR: ${{ runner.temp }}/github-ci-bin
+          CENTRAL_DIR: ${{ github.workspace }}/github-ci
         shell: bash
-        run: test -z "$(git status --porcelain=v1)"
+        run: bash "$CENTRAL_DIR/scripts/install-scanners.sh" supply-chain
+      - name: Validate tag and build deterministic evidence
+        env:
+          CLI: ${{ runner.temp }}/github-ci-bin/github-ci
+          EVENT_SHA: ${{ github.sha }}
+          REF_NAME: ${{ github.ref_name }}
+          REQUESTED_TAG: ${{ inputs.tag }}
+          SOURCE_DIR: ${{ github.workspace }}/source
+        shell: bash
+        run: |
+          set -euo pipefail
+          export PATH="$RUNNER_TEMP/github-ci-bin:$PATH"
+          tag="$REQUESTED_TAG"
+          [[ -n "$tag" ]] || tag="$REF_NAME"
+          [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          tagged_sha=$(git -C "$SOURCE_DIR" rev-parse "refs/tags/$tag^{commit}")
+          [[ "$tagged_sha" == "$EVENT_SHA" ]]
+          mkdir -p "$SOURCE_DIR/dist"
+          git -C "$SOURCE_DIR" archive --format=tar.gz --prefix="${GITHUB_REPOSITORY##*/}-$tag/" -o "$SOURCE_DIR/dist/source-$tag.tar.gz" "$tag"
+          syft "dir:$SOURCE_DIR" --quiet --output "spdx-json=$SOURCE_DIR/dist/sbom.spdx.json" --output "cyclonedx-json=$SOURCE_DIR/dist/sbom.cdx.json"
+          source_date=$(git -C "$SOURCE_DIR" show -s --format=%cI "$EVENT_SHA")
+          "$CLI" release-evidence --root "$SOURCE_DIR" --subject-sha "$EVENT_SHA" --source-date "$source_date" \
+            --asset "dist/source-$tag.tar.gz" --asset dist/sbom.spdx.json --asset dist/sbom.cdx.json \
+            --manifest "$SOURCE_DIR/dist/release-manifest.json" --checksums "$SOURCE_DIR/dist/SHA256SUMS"
+          "$CLI" verify-release-evidence --root "$SOURCE_DIR" --manifest "$SOURCE_DIR/dist/release-manifest.json" --checksums "$SOURCE_DIR/dist/SHA256SUMS"
+      - name: Attest release evidence
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8
+        with:
+          subject-path: source/dist/*
+      - name: Upload release evidence
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: github-ci-release-evidence
+          path: source/dist
+          if-no-files-found: error
+          retention-days: 30
 
   gate:
     name: gate
     if: ${{ always() }}
-    needs: [release-policy]
+    needs: [release-evidence]
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
-      - name: Require release policy
+      - name: Require release evidence
         env:
-          RESULT: ${{ needs.release-policy.result }}
+          RESULT: ${{ needs.release-evidence.result }}
         shell: bash
         run: test "$RESULT" = success
