@@ -70,7 +70,7 @@ func TestParserToolBindsCatalogIdentity(t *testing.T) {
 		"golangci-lint-json/v1": "golangci-lint",
 		"govulncheck-json/v1":   "govulncheck",
 		"staticcheck-jsonl/v1":  "staticcheck",
-		"shellcheck-json1/v1":   "shellcheck",
+		"shellcheck-json/v1":    "shellcheck",
 		"gitleaks-json/v1":      "gitleaks",
 		"osv-json/v1":           "osv-scanner",
 		"trivy-json/v1":         "trivy",

@@ -92,6 +92,47 @@ func TestRunHonorsCancelledContext(t *testing.T) {
 	}
 }
 
+func TestRunFilesClassifiesTrackedRepository(t *testing.T) {
+	repository := newRepository(t)
+	files := map[string]string{
+		"data/config.json":         "{}\n",
+		"deploy/main.tf":           "terraform {}\n",
+		"docs/guide.md":            "# Guide\n",
+		"images/Dockerfile":        "FROM scratch\n",
+		"scripts/check.sh":         "#!/bin/sh\ntrue\n",
+		"settings/config.yaml":     "enabled: true\n",
+		".github/workflows/ci.yml": "on: push\n",
+	}
+	for name, contents := range files {
+		path := filepath.Join(repository, filepath.FromSlash(name))
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatalf("create fixture directory: %v", err)
+		}
+		mustWrite(t, path, contents)
+	}
+	command := exec.Command("git", "add", ".")
+	command.Dir = repository
+	if output, err := command.CombinedOutput(); err != nil {
+		t.Fatalf("git add fixtures: %v: %s", err, output)
+	}
+
+	want := map[string]string{
+		"docker":    "images/Dockerfile\x00",
+		"json":      "data/config.json\x00",
+		"markdown":  "README.md\x00docs/guide.md\x00",
+		"shell":     "scripts/check.sh\x00",
+		"terraform": "deploy/main.tf\x00",
+		"workflow":  ".github/workflows/ci.yml\x00",
+		"yaml":      ".github/github-ci.yaml\x00.github/workflows/ci.yml\x00settings/config.yaml\x00",
+	}
+	for kind, expected := range want {
+		code, stdout, stderr := runForTest(t, []string{"files", "--repository", repository, "--config", ".github/github-ci.yaml", "--kind", kind})
+		if code != 0 || stdout != expected {
+			t.Errorf("files %s: code = %d, stdout = %q, stderr = %q; want %q", kind, code, stdout, stderr, expected)
+		}
+	}
+}
+
 func TestDiagnosticsAreDeterministic(t *testing.T) {
 	run := func() string {
 		var stdout, stderr bytes.Buffer
@@ -140,7 +181,7 @@ func TestPreflightRecordAndGateEndToEnd(t *testing.T) {
 	}
 
 	markdownReport := filepath.Join(artifacts, "markdownlint.json")
-	mustWrite(t, markdownReport, "[]")
+	mustWrite(t, markdownReport, `{"schema_version":"1","paths":[]}`)
 	markdownRecord := filepath.Join(artifacts, "markdownlint-record.json")
 	code, _, stderr = runForTest(t, []string{
 		"record", "--plan", planPath, "--tool", "markdownlint",
@@ -155,7 +196,7 @@ func TestPreflightRecordAndGateEndToEnd(t *testing.T) {
 		"--command-id", "markdownlint/documents", "--tool-version", "0.23.2",
 		"--parser-tool", "sarif", "--report", markdownReport, "--output", markdownRecord,
 	})
-	if code != 2 || !strings.Contains(stderr, "must be \"markdownlint\"") {
+	if code != 2 || !strings.Contains(stderr, "must be \"path-list\"") {
 		t.Fatalf("wrong parser code = %d, stderr = %q", code, stderr)
 	}
 
@@ -281,6 +322,9 @@ func cleanNativeReport(t *testing.T, tool string) string {
 		"grype":         "grype.json",
 		"semgrep":       "semgrep.json",
 		"checkov":       "checkov.json",
+		"actionlint":    "actionlint.json",
+		"spdx":          "spdx.json",
+		"license":       "license.json",
 	}
 	if fixture, ok := fixtures[tool]; ok {
 		data, err := os.ReadFile(filepath.Join("..", "..", "testdata", "reports", "clean", fixture))

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strings"
 )
 
 func countGolangCILint(data []byte) (int, error) {
@@ -178,12 +179,18 @@ func countOSVScanner(data []byte) (int, error) {
 	var report struct {
 		Results              *[]json.RawMessage `json:"results"`
 		ExperimentalAnalysis json.RawMessage    `json:"experimentalAnalysis,omitempty"`
+		ExperimentalConfig   json.RawMessage    `json:"experimental_config,omitempty"`
 	}
 	if err := decodeStrictJSON(data, &report); err != nil {
 		return 0, err
 	}
 	if report.Results == nil {
 		return 0, errors.New("OSV-Scanner report has no results array")
+	}
+	if report.ExperimentalConfig != nil {
+		if err := requireJSONObjectAllowEmpty(report.ExperimentalConfig, "OSV-Scanner experimental_config"); err != nil {
+			return 0, err
+		}
 	}
 	findings := 0
 	for resultIndex, rawResult := range *report.Results {
@@ -316,6 +323,7 @@ func countSemgrep(data []byte) (int, error) {
 		Time                   json.RawMessage    `json:"time,omitempty"`
 		EngineRequested        string             `json:"engine_requested,omitempty"`
 		InterfileLanguagesUsed []string           `json:"interfile_languages_used,omitempty"`
+		ProfilingResults       []json.RawMessage  `json:"profiling_results,omitempty"`
 	}
 	if err := decodeStrictJSON(data, &report); err != nil {
 		return 0, err
@@ -346,6 +354,30 @@ func countCheckov(data []byte) (int, error) {
 			return 0, errors.New("checkov report array is empty")
 		}
 		return countCheckovReports(reports)
+	}
+	var shape map[string]json.RawMessage
+	if err := json.Unmarshal(trimmed, &shape); err != nil {
+		return 0, fmt.Errorf("decode Checkov report shape: %w", err)
+	}
+	if _, summaryOnly := shape["checkov_version"]; summaryOnly {
+		var summary struct {
+			Passed         int    `json:"passed"`
+			Failed         int    `json:"failed"`
+			Skipped        int    `json:"skipped"`
+			ParsingErrors  int    `json:"parsing_errors"`
+			ResourceCount  int    `json:"resource_count"`
+			CheckovVersion string `json:"checkov_version"`
+		}
+		if err := decodeStrictJSON(trimmed, &summary); err != nil {
+			return 0, err
+		}
+		if summary.Passed < 0 || summary.Failed < 0 || summary.Skipped < 0 || summary.ParsingErrors < 0 || summary.ResourceCount < 0 || strings.TrimSpace(summary.CheckovVersion) == "" {
+			return 0, errors.New("invalid Checkov summary")
+		}
+		if summary.ParsingErrors != 0 {
+			return 0, fmt.Errorf("checkov summary contains %d parsing errors", summary.ParsingErrors)
+		}
+		return summary.Failed, nil
 	}
 	var report checkovReport
 	if err := decodeStrictJSON(trimmed, &report); err != nil {

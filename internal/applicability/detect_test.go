@@ -116,6 +116,7 @@ func TestDetectRepositoryShapes(t *testing.T) {
 				"hadolint/hadolint/dockerfiles":       evidence.Applicable,
 				"actionlint/actionlint/workflows":     evidence.Applicable,
 				"checkov/checkov/infrastructure":      evidence.Applicable,
+				"json/json/documents":                 evidence.Applicable,
 				"markdownlint/markdownlint/documents": evidence.Applicable,
 			},
 		},

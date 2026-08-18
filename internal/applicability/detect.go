@@ -44,6 +44,7 @@ type repositoryShape struct {
 	terraform  bool
 	markdown   bool
 	yaml       bool
+	json       bool
 }
 
 // Detect builds a deterministic assurance plan from a tracked-only file system.
@@ -194,6 +195,9 @@ func inspect(files []trackedFile, generated []string) repositoryShape {
 		if extension == ".yml" || extension == ".yaml" {
 			shape.yaml = true
 		}
+		if extension == ".json" {
+			shape.json = true
+		}
 	}
 	slices.Sort(shape.modules)
 	return shape
@@ -248,6 +252,8 @@ func capabilityApplies(capability Capability, shape repositoryShape) bool {
 		return shape.markdown
 	case CapabilityYAML:
 		return shape.yaml
+	case CapabilityJSON:
+		return shape.json
 	default:
 		return false
 	}

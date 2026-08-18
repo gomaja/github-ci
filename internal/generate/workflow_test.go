@@ -32,7 +32,7 @@ func TestGoWorkflowContract(t *testing.T) {
 	}
 
 	jobs := mapping(t, workflow["jobs"], "jobs")
-	for _, name := range []string{"preflight", "formatting", "core", "tests", "analysis", "compatibility", "evidence", "gate"} {
+	for _, name := range []string{"preflight", "formatting", "core", "tests", "analysis", "compatibility", "codeql", "dependency-review", "security", "supply-chain", "repository", "scorecard", "evidence", "gate"} {
 		if _, exists := jobs[name]; !exists {
 			t.Errorf("required job %q is missing", name)
 		}
@@ -71,6 +71,39 @@ func TestGoWorkflowContract(t *testing.T) {
 		t.Error("workflow uses continue-on-error")
 	}
 	assertImmutableUses(t, text)
+}
+
+func TestScannerInventory(t *testing.T) {
+	data, err := os.ReadFile("../../.github/workflows/go.yml")
+	if err != nil {
+		t.Fatalf("read Go workflow: %v", err)
+	}
+	text := string(data)
+	identities := []string{
+		"codeql/actions", "codeql/go", "dependency-review/changes",
+		"gitleaks/content", "osv-scanner/dependencies", "trivy/filesystem",
+		"syft/sbom", "grype/sbom", "semgrep/source", "actionlint/workflows",
+		"zizmor/workflows", "scorecard/repository", "checkov/infrastructure",
+		"hadolint/dockerfiles", "shellcheck/scripts", "shfmt/scripts",
+		"yamllint/documents", "markdownlint/documents", "json/documents",
+		"license/dependencies", "apidiff/public-api",
+	}
+	for _, identity := range identities {
+		if !strings.Contains(text, identity) {
+			t.Errorf("scanner identity %q is missing", identity)
+		}
+	}
+	for _, query := range []string{"security-extended", "security-and-quality"} {
+		if !strings.Contains(text, query) {
+			t.Errorf("CodeQL query suite %q is missing", query)
+		}
+	}
+	if strings.Contains(text, "egress-policy: audit") {
+		t.Error("workflow contains audit-only runner egress")
+	}
+	if !strings.Contains(text, "egress-policy: block") || !strings.Contains(text, "allowed-endpoints:") {
+		t.Error("workflow does not enforce explicit block-mode egress")
+	}
 }
 
 func TestGeneratedCallerHasRequiredEvents(t *testing.T) {
@@ -147,7 +180,7 @@ func assertNoExpressionsInRun(t *testing.T, jobName string, job map[string]any) 
 
 func assertImmutableUses(t *testing.T, text string) {
 	t.Helper()
-	immutable := regexp.MustCompile(`^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+@[0-9a-f]{40}$`)
+	immutable := regexp.MustCompile(`^[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)+@[0-9a-f]{40}$`)
 	for _, line := range strings.Split(text, "\n") {
 		trimmed := strings.TrimSpace(line)
 		if !strings.HasPrefix(trimmed, "uses:") {

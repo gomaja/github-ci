@@ -1,0 +1,25 @@
+rules:
+  - id: go-dynamic-shell-command
+    languages: [go]
+    message: Do not execute a dynamically constructed shell command.
+    severity: ERROR
+    patterns:
+      - pattern-either:
+          - pattern: exec.Command("sh", "-c", $COMMAND)
+          - pattern: exec.Command("bash", "-c", $COMMAND)
+      - metavariable-pattern:
+          metavariable: $COMMAND
+          patterns:
+            - pattern-not: '"..."'
+  - id: go-insecure-tls-verification
+    languages: [go]
+    message: TLS certificate verification must remain enabled.
+    severity: ERROR
+    pattern: 'tls.Config{..., InsecureSkipVerify: true, ...}'
+  - id: go-weak-cryptographic-hash
+    languages: [go]
+    message: MD5 and SHA-1 are not permitted for security-sensitive hashing.
+    severity: ERROR
+    pattern-either:
+      - pattern: md5.New()
+      - pattern: sha1.New()

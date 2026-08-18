@@ -37,7 +37,29 @@ jobs:
       - name: Harden runner
         uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c
         with:
-          egress-policy: audit
+          egress-policy: block
+          disable-telemetry: true
+          allowed-endpoints: |
+            api.github.com:443
+            github.com:443
+            *.github.com:443
+            *.githubusercontent.com:443
+            go.dev:443
+            proxy.golang.org:443
+            sum.golang.org:443
+            storage.googleapis.com:443
+            files.pythonhosted.org:443
+            pypi.org:443
+            auth.docker.io:443
+            registry-1.docker.io:443
+            production.cloudflare.docker.com:443
+            ghcr.io:443
+            pkg-containers.githubusercontent.com:443
+            api.osv.dev:443
+            osv-vulnerabilities.storage.googleapis.com:443
+            mirror.gcr.io:443
+            toolbox-data.anchore.io:443
+            grype.anchore.io:443
       - name: Check out consumer
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
@@ -86,7 +108,29 @@ jobs:
       - name: Harden runner
         uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c
         with:
-          egress-policy: audit
+          egress-policy: block
+          disable-telemetry: true
+          allowed-endpoints: |
+            api.github.com:443
+            github.com:443
+            *.github.com:443
+            *.githubusercontent.com:443
+            go.dev:443
+            proxy.golang.org:443
+            sum.golang.org:443
+            storage.googleapis.com:443
+            files.pythonhosted.org:443
+            pypi.org:443
+            auth.docker.io:443
+            registry-1.docker.io:443
+            production.cloudflare.docker.com:443
+            ghcr.io:443
+            pkg-containers.githubusercontent.com:443
+            api.osv.dev:443
+            osv-vulnerabilities.storage.googleapis.com:443
+            mirror.gcr.io:443
+            toolbox-data.anchore.io:443
+            grype.anchore.io:443
       - name: Check out consumer
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
@@ -123,7 +167,7 @@ jobs:
         if: ${{ always() }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
-          name: go-formatting-evidence
+          name: github-ci-go-formatting-evidence
           path: ${{ runner.temp }}/github-ci-evidence
           if-no-files-found: error
           retention-days: 7
@@ -137,7 +181,29 @@ jobs:
       - name: Harden runner
         uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c
         with:
-          egress-policy: audit
+          egress-policy: block
+          disable-telemetry: true
+          allowed-endpoints: |
+            api.github.com:443
+            github.com:443
+            *.github.com:443
+            *.githubusercontent.com:443
+            go.dev:443
+            proxy.golang.org:443
+            sum.golang.org:443
+            storage.googleapis.com:443
+            files.pythonhosted.org:443
+            pypi.org:443
+            auth.docker.io:443
+            registry-1.docker.io:443
+            production.cloudflare.docker.com:443
+            ghcr.io:443
+            pkg-containers.githubusercontent.com:443
+            api.osv.dev:443
+            osv-vulnerabilities.storage.googleapis.com:443
+            mirror.gcr.io:443
+            toolbox-data.anchore.io:443
+            grype.anchore.io:443
       - name: Check out consumer
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
@@ -174,7 +240,7 @@ jobs:
         if: ${{ always() }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
-          name: go-core-evidence
+          name: github-ci-go-core-evidence
           path: ${{ runner.temp }}/github-ci-evidence
           if-no-files-found: error
           retention-days: 7
@@ -188,7 +254,29 @@ jobs:
       - name: Harden runner
         uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c
         with:
-          egress-policy: audit
+          egress-policy: block
+          disable-telemetry: true
+          allowed-endpoints: |
+            api.github.com:443
+            github.com:443
+            *.github.com:443
+            *.githubusercontent.com:443
+            go.dev:443
+            proxy.golang.org:443
+            sum.golang.org:443
+            storage.googleapis.com:443
+            files.pythonhosted.org:443
+            pypi.org:443
+            auth.docker.io:443
+            registry-1.docker.io:443
+            production.cloudflare.docker.com:443
+            ghcr.io:443
+            pkg-containers.githubusercontent.com:443
+            api.osv.dev:443
+            osv-vulnerabilities.storage.googleapis.com:443
+            mirror.gcr.io:443
+            toolbox-data.anchore.io:443
+            grype.anchore.io:443
       - name: Check out consumer
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
@@ -225,7 +313,7 @@ jobs:
         if: ${{ always() }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
-          name: go-test-evidence
+          name: github-ci-go-test-evidence
           path: ${{ runner.temp }}/github-ci-evidence
           if-no-files-found: error
           retention-days: 7
@@ -239,7 +327,29 @@ jobs:
       - name: Harden runner
         uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c
         with:
-          egress-policy: audit
+          egress-policy: block
+          disable-telemetry: true
+          allowed-endpoints: |
+            api.github.com:443
+            github.com:443
+            *.github.com:443
+            *.githubusercontent.com:443
+            go.dev:443
+            proxy.golang.org:443
+            sum.golang.org:443
+            storage.googleapis.com:443
+            files.pythonhosted.org:443
+            pypi.org:443
+            auth.docker.io:443
+            registry-1.docker.io:443
+            production.cloudflare.docker.com:443
+            ghcr.io:443
+            pkg-containers.githubusercontent.com:443
+            api.osv.dev:443
+            osv-vulnerabilities.storage.googleapis.com:443
+            mirror.gcr.io:443
+            toolbox-data.anchore.io:443
+            grype.anchore.io:443
       - name: Check out consumer
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
@@ -276,7 +386,7 @@ jobs:
         if: ${{ always() }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
-          name: go-analysis-evidence
+          name: github-ci-go-analysis-evidence
           path: ${{ runner.temp }}/github-ci-evidence
           if-no-files-found: error
           retention-days: 7
@@ -294,7 +404,29 @@ jobs:
       - name: Harden runner
         uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c
         with:
-          egress-policy: audit
+          egress-policy: block
+          disable-telemetry: true
+          allowed-endpoints: |
+            api.github.com:443
+            github.com:443
+            *.github.com:443
+            *.githubusercontent.com:443
+            go.dev:443
+            proxy.golang.org:443
+            sum.golang.org:443
+            storage.googleapis.com:443
+            files.pythonhosted.org:443
+            pypi.org:443
+            auth.docker.io:443
+            registry-1.docker.io:443
+            production.cloudflare.docker.com:443
+            ghcr.io:443
+            pkg-containers.githubusercontent.com:443
+            api.osv.dev:443
+            osv-vulnerabilities.storage.googleapis.com:443
+            mirror.gcr.io:443
+            toolbox-data.anchore.io:443
+            grype.anchore.io:443
       - name: Check out consumer
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
@@ -331,17 +463,517 @@ jobs:
             (cd "$directory" && go build ./... && go test ./... -count=1)
           done
 
+  codeql:
+    name: CodeQL ${{ matrix.language }}
+    needs: preflight
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - language: actions
+            build-mode: none
+            command-id: codeql/actions
+          - language: go
+            build-mode: manual
+            command-id: codeql/go
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c
+        with:
+          egress-policy: block
+          disable-telemetry: true
+          allowed-endpoints: |
+            api.github.com:443
+            github.com:443
+            *.github.com:443
+            *.githubusercontent.com:443
+            go.dev:443
+            proxy.golang.org:443
+            sum.golang.org:443
+            storage.googleapis.com:443
+      - name: Check out consumer
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          path: source
+      - name: Check out workflow helpers
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: gomaja/github-ci
+          ref: ${{ github.workflow_sha }}
+          persist-credentials: false
+          path: github-ci
+      - name: Bootstrap policy CLI
+        uses: ./github-ci/actions/bootstrap
+        with:
+          go-version: ${{ inputs.go-version }}
+          install-tools: "false"
+      - name: Download applicability plan
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: github-ci-plan
+          path: ${{ runner.temp }}/github-ci-plan
+      - name: Initialize CodeQL
+        if: ${{ matrix.language != 'go' || inputs.profile != 'repository-only' }}
+        uses: github/codeql-action/init@ff2f1c621b7f889edc0d3c761ac2e6a3f8cdb0dd
+        with:
+          languages: ${{ matrix.language }}
+          build-mode: ${{ matrix.build-mode }}
+          source-root: source
+          queries: security-extended,security-and-quality
+      - name: Build Go modules
+        if: ${{ matrix.language == 'go' && inputs.profile != 'repository-only' }}
+        env:
+          CLI: ${{ runner.temp }}/github-ci-bin/github-ci
+          CONFIG_PATH: ${{ inputs.config-path }}
+          SOURCE_DIR: ${{ github.workspace }}/source
+        shell: bash
+        run: |
+          set -euo pipefail
+          while IFS= read -r module; do
+            directory="$SOURCE_DIR"
+            [[ "$module" == "." ]] || directory="$SOURCE_DIR/$module"
+            (cd "$directory" && go build ./...)
+          done < <("$CLI" modules --repository "$SOURCE_DIR" --config "$CONFIG_PATH" | jq -r '.modules[]')
+      - name: Analyze CodeQL database
+        if: ${{ matrix.language != 'go' || inputs.profile != 'repository-only' }}
+        uses: github/codeql-action/analyze@ff2f1c621b7f889edc0d3c761ac2e6a3f8cdb0dd
+        with:
+          checkout_path: source
+          output: ${{ runner.temp }}/github-ci-codeql
+          upload: never
+      - name: Record CodeQL evidence
+        if: ${{ always() && (matrix.language != 'go' || inputs.profile != 'repository-only') }}
+        env:
+          CENTRAL_DIR: ${{ github.workspace }}/github-ci
+          COMMAND_ID: ${{ matrix.command-id }}
+          GITHUB_CI_CLI: ${{ runner.temp }}/github-ci-bin/github-ci
+          OUTPUT_DIR: ${{ runner.temp }}/github-ci-evidence
+          PLAN_PATH: ${{ runner.temp }}/github-ci-plan/plan.json
+          REPORT_PATH: ${{ runner.temp }}/github-ci-codeql/${{ matrix.language }}.sarif
+          TOOL: codeql
+          TOOL_VERSION: 4.37.7
+        shell: bash
+        run: bash "$CENTRAL_DIR/scripts/record-external.sh"
+      - name: Upload CodeQL evidence
+        if: ${{ always() && (matrix.language != 'go' || inputs.profile != 'repository-only') }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: github-ci-codeql-${{ matrix.language }}-evidence
+          path: ${{ runner.temp }}/github-ci-evidence
+          if-no-files-found: error
+          retention-days: 7
+
+  dependency-review:
+    name: dependency review
+    needs: preflight
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c
+        with:
+          egress-policy: block
+          disable-telemetry: true
+          allowed-endpoints: |
+            api.github.com:443
+            github.com:443
+            *.github.com:443
+            *.githubusercontent.com:443
+      - name: Check out workflow helpers
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: gomaja/github-ci
+          ref: ${{ github.workflow_sha }}
+          persist-credentials: false
+          path: github-ci
+      - name: Bootstrap policy CLI
+        uses: ./github-ci/actions/bootstrap
+        with:
+          go-version: ${{ inputs.go-version }}
+          install-tools: "false"
+      - name: Download applicability plan
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: github-ci-plan
+          path: ${{ runner.temp }}/github-ci-plan
+      - name: Enforce dependency-review/changes
+        if: ${{ github.event_name == 'pull_request' }}
+        id: dependency
+        uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294
+        with:
+          fail-on-severity: low
+          allow-licenses: Apache-2.0, BSD-2-Clause, BSD-3-Clause, CC0-1.0, ISC, MIT, MPL-2.0, Unlicense
+          retry-on-snapshot-warnings: false
+      - name: Build dependency-review report
+        if: ${{ always() }}
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          OUTCOME: ${{ steps.dependency.outcome }}
+          REPORT_PATH: ${{ runner.temp }}/github-ci-evidence/reports/dependency-review--dependency-review--changes.native
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$(dirname "$REPORT_PATH")"
+          successful=true
+          if [[ "$EVENT_NAME" == pull_request && "$OUTCOME" != success ]]; then successful=false; fi
+          jq -cn --argjson successful "$successful" '{schema_version:"1",execution_successful:$successful}' >"$REPORT_PATH"
+      - name: Record dependency-review evidence
+        if: ${{ always() }}
+        env:
+          CENTRAL_DIR: ${{ github.workspace }}/github-ci
+          COMMAND_ID: dependency-review/changes
+          GITHUB_CI_CLI: ${{ runner.temp }}/github-ci-bin/github-ci
+          OUTPUT_DIR: ${{ runner.temp }}/github-ci-evidence
+          PLAN_PATH: ${{ runner.temp }}/github-ci-plan/plan.json
+          REPORT_PATH: ${{ runner.temp }}/github-ci-evidence/reports/dependency-review--dependency-review--changes.native
+          TOOL: dependency-review
+          TOOL_VERSION: 5.0.0
+        shell: bash
+        run: bash "$CENTRAL_DIR/scripts/record-external.sh"
+      - name: Upload dependency-review evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: github-ci-dependency-review-evidence
+          path: ${{ runner.temp }}/github-ci-evidence
+          if-no-files-found: error
+          retention-days: 7
+
+  security:
+    name: security scanners
+    needs: preflight
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c
+        with:
+          egress-policy: block
+          disable-telemetry: true
+          allowed-endpoints: |
+            api.github.com:443
+            github.com:443
+            *.github.com:443
+            *.githubusercontent.com:443
+            go.dev:443
+            proxy.golang.org:443
+            sum.golang.org:443
+            storage.googleapis.com:443
+            api.osv.dev:443
+            osv-vulnerabilities.storage.googleapis.com:443
+            mirror.gcr.io:443
+            ghcr.io:443
+            pkg-containers.githubusercontent.com:443
+            auth.docker.io:443
+            registry-1.docker.io:443
+            production.cloudflare.docker.com:443
+      - name: Check out consumer
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          path: source
+      - name: Check out workflow helpers
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: gomaja/github-ci
+          ref: ${{ github.workflow_sha }}
+          persist-credentials: false
+          path: github-ci
+      - name: Bootstrap policy CLI
+        uses: ./github-ci/actions/bootstrap
+        with:
+          go-version: ${{ inputs.go-version }}
+          install-tools: "false"
+      - name: Download applicability plan
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: github-ci-plan
+          path: ${{ runner.temp }}/github-ci-plan
+      - name: Install security scanners
+        env:
+          BIN_DIR: ${{ runner.temp }}/github-ci-bin
+          CENTRAL_DIR: ${{ github.workspace }}/github-ci
+        shell: bash
+        run: bash "$CENTRAL_DIR/scripts/install-scanners.sh" security
+      - name: Run gitleaks/content, osv-scanner/dependencies, trivy/filesystem, semgrep/source
+        env:
+          BIN_DIR: ${{ runner.temp }}/github-ci-bin
+          CENTRAL_DIR: ${{ github.workspace }}/github-ci
+          CONFIG_PATH: ${{ inputs.config-path }}
+          GITHUB_CI_CLI: ${{ runner.temp }}/github-ci-bin/github-ci
+          OUTPUT_DIR: ${{ runner.temp }}/github-ci-evidence
+          PLAN_PATH: ${{ runner.temp }}/github-ci-plan/plan.json
+          SEMGREP_IMAGE: docker.io/semgrep/semgrep@sha256:67319956da3dcb58baf5b322899c15458e3963e7018a86aeeb5cd224e69cb77a
+          SOURCE_DIR: ${{ github.workspace }}/source
+        shell: bash
+        run: bash "$CENTRAL_DIR/scripts/run-scanners.sh" security
+      - name: Upload security evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: github-ci-security-evidence
+          path: ${{ runner.temp }}/github-ci-evidence
+          if-no-files-found: error
+          retention-days: 7
+
+  supply-chain:
+    name: supply chain
+    needs: preflight
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c
+        with:
+          egress-policy: block
+          disable-telemetry: true
+          allowed-endpoints: |
+            api.github.com:443
+            github.com:443
+            *.github.com:443
+            *.githubusercontent.com:443
+            go.dev:443
+            proxy.golang.org:443
+            sum.golang.org:443
+            storage.googleapis.com:443
+            toolbox-data.anchore.io:443
+            grype.anchore.io:443
+      - name: Check out consumer
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          path: source
+      - name: Check out workflow helpers
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: gomaja/github-ci
+          ref: ${{ github.workflow_sha }}
+          persist-credentials: false
+          path: github-ci
+      - name: Bootstrap policy CLI
+        uses: ./github-ci/actions/bootstrap
+        with:
+          go-version: ${{ inputs.go-version }}
+          install-tools: "false"
+      - name: Download applicability plan
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: github-ci-plan
+          path: ${{ runner.temp }}/github-ci-plan
+      - name: Install supply-chain scanners
+        env:
+          BIN_DIR: ${{ runner.temp }}/github-ci-bin
+          CENTRAL_DIR: ${{ github.workspace }}/github-ci
+        shell: bash
+        run: bash "$CENTRAL_DIR/scripts/install-scanners.sh" supply-chain
+      - name: Run syft/sbom, grype/sbom, license/dependencies, apidiff/public-api
+        env:
+          BIN_DIR: ${{ runner.temp }}/github-ci-bin
+          CENTRAL_DIR: ${{ github.workspace }}/github-ci
+          CONFIG_PATH: ${{ inputs.config-path }}
+          GITHUB_CI_CLI: ${{ runner.temp }}/github-ci-bin/github-ci
+          OUTPUT_DIR: ${{ runner.temp }}/github-ci-evidence
+          PLAN_PATH: ${{ runner.temp }}/github-ci-plan/plan.json
+          SOURCE_DIR: ${{ github.workspace }}/source
+        shell: bash
+        run: bash "$CENTRAL_DIR/scripts/run-scanners.sh" supply-chain
+      - name: Upload supply-chain evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: github-ci-supply-chain-evidence
+          path: ${{ runner.temp }}/github-ci-evidence
+          if-no-files-found: error
+          retention-days: 7
+
+  repository:
+    name: repository scanners
+    needs: preflight
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c
+        with:
+          egress-policy: block
+          disable-telemetry: true
+          allowed-endpoints: |
+            api.github.com:443
+            github.com:443
+            *.github.com:443
+            *.githubusercontent.com:443
+            go.dev:443
+            proxy.golang.org:443
+            sum.golang.org:443
+            storage.googleapis.com:443
+            files.pythonhosted.org:443
+            pypi.org:443
+            auth.docker.io:443
+            registry-1.docker.io:443
+            production.cloudflare.docker.com:443
+      - name: Check out consumer
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          path: source
+      - name: Check out workflow helpers
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: gomaja/github-ci
+          ref: ${{ github.workflow_sha }}
+          persist-credentials: false
+          path: github-ci
+      - name: Bootstrap policy CLI
+        uses: ./github-ci/actions/bootstrap
+        with:
+          go-version: ${{ inputs.go-version }}
+          install-tools: "false"
+      - name: Download applicability plan
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: github-ci-plan
+          path: ${{ runner.temp }}/github-ci-plan
+      - name: Install repository scanners
+        env:
+          BIN_DIR: ${{ runner.temp }}/github-ci-bin
+          CENTRAL_DIR: ${{ github.workspace }}/github-ci
+        shell: bash
+        run: bash "$CENTRAL_DIR/scripts/install-scanners.sh" repository
+      - name: >-
+          Run actionlint/workflows, zizmor/workflows, hadolint/dockerfiles,
+          shellcheck/scripts, shfmt/scripts, yamllint/documents,
+          markdownlint/documents, json/documents, checkov/infrastructure
+        env:
+          BIN_DIR: ${{ runner.temp }}/github-ci-bin
+          CENTRAL_DIR: ${{ github.workspace }}/github-ci
+          CHECKOV_IMAGE: docker.io/bridgecrew/checkov@sha256:e5e308e713725e73f517e4cb85b39d467f1e047204c174fb15eb444c27ffb745
+          CONFIG_PATH: ${{ inputs.config-path }}
+          GITHUB_CI_CLI: ${{ runner.temp }}/github-ci-bin/github-ci
+          MARKDOWNLINT_IMAGE: docker.io/davidanson/markdownlint-cli2@sha256:839558fd0d36c46da0e01ea84fd1d20a2822b5a8a60c16dc9708f0bb7c9e903b
+          OUTPUT_DIR: ${{ runner.temp }}/github-ci-evidence
+          PLAN_PATH: ${{ runner.temp }}/github-ci-plan/plan.json
+          SOURCE_DIR: ${{ github.workspace }}/source
+        shell: bash
+        run: bash "$CENTRAL_DIR/scripts/run-scanners.sh" repository
+      - name: Upload repository evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: github-ci-repository-evidence
+          path: ${{ runner.temp }}/github-ci-evidence
+          if-no-files-found: error
+          retention-days: 7
+
+  scorecard:
+    name: OpenSSF Scorecard
+    needs: preflight
+    permissions:
+      # Checkout reads source for local repository checks.
+      contents: read
+      # Scorecard reads security metadata without publishing results.
+      security-events: read
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c
+        with:
+          egress-policy: block
+          disable-telemetry: true
+          allowed-endpoints: |
+            api.github.com:443
+            github.com:443
+            *.github.com:443
+            *.githubusercontent.com:443
+      - name: Check out consumer
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Check out workflow helpers
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: gomaja/github-ci
+          ref: ${{ github.workflow_sha }}
+          persist-credentials: false
+          path: github-ci
+      - name: Bootstrap policy CLI
+        uses: ./github-ci/actions/bootstrap
+        with:
+          go-version: ${{ inputs.go-version }}
+          install-tools: "false"
+      - name: Download applicability plan
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: github-ci-plan
+          path: ${{ runner.temp }}/github-ci-plan
+      - name: Run scorecard/repository
+        uses: ossf/scorecard-action@2d1146689b8cda280b9bc96326124645441f03bc
+        with:
+          results_file: ${{ runner.temp }}/github-ci-scorecard.sarif
+          results_format: sarif
+          publish_results: false
+      - name: Record Scorecard evidence
+        if: ${{ always() }}
+        env:
+          CENTRAL_DIR: ${{ github.workspace }}/github-ci
+          COMMAND_ID: scorecard/repository
+          GITHUB_CI_CLI: ${{ runner.temp }}/github-ci-bin/github-ci
+          OUTPUT_DIR: ${{ runner.temp }}/github-ci-evidence
+          PLAN_PATH: ${{ runner.temp }}/github-ci-plan/plan.json
+          REPORT_PATH: ${{ runner.temp }}/github-ci-scorecard.sarif
+          TOOL: scorecard
+          TOOL_VERSION: 2.4.4
+        shell: bash
+        run: bash "$CENTRAL_DIR/scripts/record-external.sh"
+      - name: Upload Scorecard evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: github-ci-scorecard-evidence
+          path: ${{ runner.temp }}/github-ci-evidence
+          if-no-files-found: error
+          retention-days: 7
+
   evidence:
     name: evidence
     if: ${{ always() }}
-    needs: [preflight, formatting, core, tests, analysis]
+    needs: [preflight, formatting, core, tests, analysis, codeql, dependency-review, security, supply-chain, repository, scorecard]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
       - name: Harden runner
         uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c
         with:
-          egress-policy: audit
+          egress-policy: block
+          disable-telemetry: true
+          allowed-endpoints: |
+            api.github.com:443
+            github.com:443
+            *.github.com:443
+            *.githubusercontent.com:443
+            go.dev:443
+            proxy.golang.org:443
+            sum.golang.org:443
+            storage.googleapis.com:443
+            files.pythonhosted.org:443
+            pypi.org:443
+            auth.docker.io:443
+            registry-1.docker.io:443
+            production.cloudflare.docker.com:443
+            ghcr.io:443
+            pkg-containers.githubusercontent.com:443
+            api.osv.dev:443
+            osv-vulnerabilities.storage.googleapis.com:443
+            mirror.gcr.io:443
+            toolbox-data.anchore.io:443
+            grype.anchore.io:443
       - name: Check out workflow helpers
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
@@ -365,18 +997,24 @@ jobs:
         if: ${{ always() }}
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
         with:
-          pattern: go-*-evidence
+          pattern: github-ci-*-evidence
           path: ${{ runner.temp }}/github-ci-bundle
           merge-multiple: true
       - name: Build producer manifest
         if: ${{ always() }}
         env:
           ANALYSIS_RESULT: ${{ needs.analysis.result }}
+          CODEQL_RESULT: ${{ needs.codeql.result }}
           CORE_RESULT: ${{ needs.core.result }}
+          DEPENDENCY_RESULT: ${{ needs.dependency-review.result }}
           EVIDENCE_DIR: ${{ runner.temp }}/github-ci-bundle
           FORMAT_RESULT: ${{ needs.formatting.result }}
           GITHUB_CI_CLI: ${{ runner.temp }}/github-ci-bin/github-ci
           PLAN_PATH: ${{ runner.temp }}/github-ci-bundle/plan/plan.json
+          REPOSITORY_RESULT: ${{ needs.repository.result }}
+          SCORECARD_RESULT: ${{ needs.scorecard.result }}
+          SECURITY_RESULT: ${{ needs.security.result }}
+          SUPPLY_CHAIN_RESULT: ${{ needs.supply-chain.result }}
           TEST_RESULT: ${{ needs.tests.result }}
         shell: bash
         run: bash "$GITHUB_WORKSPACE/github-ci/scripts/build-go-manifest.sh" "$EVIDENCE_DIR/manifest.json"
@@ -399,7 +1037,29 @@ jobs:
       - name: Harden runner
         uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c
         with:
-          egress-policy: audit
+          egress-policy: block
+          disable-telemetry: true
+          allowed-endpoints: |
+            api.github.com:443
+            github.com:443
+            *.github.com:443
+            *.githubusercontent.com:443
+            go.dev:443
+            proxy.golang.org:443
+            sum.golang.org:443
+            storage.googleapis.com:443
+            files.pythonhosted.org:443
+            pypi.org:443
+            auth.docker.io:443
+            registry-1.docker.io:443
+            production.cloudflare.docker.com:443
+            ghcr.io:443
+            pkg-containers.githubusercontent.com:443
+            api.osv.dev:443
+            osv-vulnerabilities.storage.googleapis.com:443
+            mirror.gcr.io:443
+            toolbox-data.anchore.io:443
+            grype.anchore.io:443
       - name: Check out consumer
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:

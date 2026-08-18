@@ -27,6 +27,9 @@ func TestCountNativeReports(t *testing.T) {
 		{tool: "grype", fixture: "grype.json", findings: 1},
 		{tool: "semgrep", fixture: "semgrep.json", findings: 1},
 		{tool: "checkov", fixture: "checkov.json", findings: 1},
+		{tool: "actionlint", fixture: "actionlint.json", findings: 1},
+		{tool: "spdx", fixture: "spdx.json"},
+		{tool: "license", fixture: "license.json", findings: 1},
 	}
 
 	for _, test := range tests {
@@ -46,6 +49,17 @@ func TestCountNativeReports(t *testing.T) {
 	}
 }
 
+func TestCountCheckovAcceptsEmptyResourceSummary(t *testing.T) {
+	report := `{"passed":0,"failed":0,"skipped":0,"parsing_errors":0,"resource_count":0,"checkov_version":"3.3.11"}`
+	result, err := Count("checkov", strings.NewReader(report))
+	if err != nil {
+		t.Fatalf("Count() error = %v", err)
+	}
+	if result.Findings != 0 {
+		t.Fatalf("Count() findings = %d, want 0", result.Findings)
+	}
+}
+
 func TestEveryParserAcceptsCleanFixture(t *testing.T) {
 	fixtures := map[string]string{
 		"sarif":         "sarif.json",
@@ -59,6 +73,9 @@ func TestEveryParserAcceptsCleanFixture(t *testing.T) {
 		"grype":         "grype.json",
 		"semgrep":       "semgrep.json",
 		"checkov":       "checkov.json",
+		"actionlint":    "actionlint.json",
+		"spdx":          "spdx.json",
+		"license":       "license.json",
 	}
 	for tool, fixture := range fixtures {
 		t.Run(tool, func(t *testing.T) {
@@ -82,7 +99,7 @@ func TestCountRejectsInvalidInput(t *testing.T) {
 			}
 		})
 		t.Run(tool+"/truncated", func(t *testing.T) {
-			_, err := Count(tool, bytes.NewReader(reportFixture(t, "malformed", "truncated.json")))
+			_, err := Count(tool, bytes.NewReader(reportFixture(t, "malformed", "truncated.json.invalid")))
 			if err == nil {
 				t.Fatal("Count() accepted truncated input")
 			}
@@ -115,14 +132,14 @@ func TestCountRejectsOversizedInput(t *testing.T) {
 }
 
 func TestCountSARIFRejectsUnknownField(t *testing.T) {
-	_, err := Count("sarif", bytes.NewReader(reportFixture(t, "malformed", "sarif-unknown-field.json")))
+	_, err := Count("sarif", bytes.NewReader(reportFixture(t, "malformed", "sarif-unknown-field.json.invalid")))
 	if err == nil || !strings.Contains(err.Error(), "unknown field") {
 		t.Fatalf("Count() error = %v, want unknown field", err)
 	}
 }
 
 func TestCountSARIFRejectsDuplicateResult(t *testing.T) {
-	_, err := Count("sarif", bytes.NewReader(reportFixture(t, "malformed", "sarif-duplicate-result.json")))
+	_, err := Count("sarif", bytes.NewReader(reportFixture(t, "malformed", "sarif-duplicate-result.json.invalid")))
 	if err == nil || !strings.Contains(err.Error(), "duplicate SARIF result") {
 		t.Fatalf("Count() error = %v, want duplicate result", err)
 	}
@@ -143,12 +160,12 @@ func TestCountSARIFRejectsFailedOrExternalizedRuns(t *testing.T) {
 		fixture string
 		want    string
 	}{
-		{fixture: "sarif-invocation-failed.json", want: "executionSuccessful"},
-		{fixture: "sarif-invocation-missing-success.json", want: "executionSuccessful"},
-		{fixture: "sarif-tool-execution-error.json", want: "toolExecutionNotifications"},
-		{fixture: "sarif-tool-configuration-error.json", want: "toolConfigurationNotifications"},
-		{fixture: "sarif-external-property-references.json", want: "externalPropertyFileReferences"},
-		{fixture: "sarif-inline-external-properties.json", want: "inlineExternalProperties"},
+		{fixture: "sarif-invocation-failed.json.invalid", want: "executionSuccessful"},
+		{fixture: "sarif-invocation-missing-success.json.invalid", want: "executionSuccessful"},
+		{fixture: "sarif-tool-execution-error.json.invalid", want: "toolExecutionNotifications"},
+		{fixture: "sarif-tool-configuration-error.json.invalid", want: "toolConfigurationNotifications"},
+		{fixture: "sarif-external-property-references.json.invalid", want: "externalPropertyFileReferences"},
+		{fixture: "sarif-inline-external-properties.json.invalid", want: "inlineExternalProperties"},
 	}
 
 	for _, test := range tests {
@@ -162,7 +179,7 @@ func TestCountSARIFRejectsFailedOrExternalizedRuns(t *testing.T) {
 }
 
 func TestCountSARIFRequiresCompletedScannerRun(t *testing.T) {
-	for _, fixture := range []string{"sarif-runs-null.json", "sarif-runs-empty.json"} {
+	for _, fixture := range []string{"sarif-runs-null.json.invalid", "sarif-runs-empty.json.invalid"} {
 		t.Run(fixture, func(t *testing.T) {
 			_, err := Count("sarif", bytes.NewReader(reportFixture(t, "malformed", fixture)))
 			if err == nil || !strings.Contains(err.Error(), "runs") {
@@ -173,7 +190,7 @@ func TestCountSARIFRequiresCompletedScannerRun(t *testing.T) {
 }
 
 func TestCountSARIFRejectsMissingDriverWithoutInvocations(t *testing.T) {
-	_, err := Count("sarif", bytes.NewReader(reportFixture(t, "malformed", "sarif-tool-missing-driver.json")))
+	_, err := Count("sarif", bytes.NewReader(reportFixture(t, "malformed", "sarif-tool-missing-driver.json.invalid")))
 	if err == nil || !strings.Contains(err.Error(), "driver") {
 		t.Fatalf("Count() error = %v, want missing driver error", err)
 	}
@@ -188,16 +205,16 @@ func TestCountSARIFResolvesNotificationLevels(t *testing.T) {
 	}{
 		{name: "explicit and inherited non-error levels", class: "clean", fixture: "sarif-notification-level-resolution.json"},
 		{name: "id-only no-metadata defaults warning", class: "clean", fixture: "sarif-notification-id-only-no-metadata.json"},
-		{name: "driver descriptor default error", class: "malformed", fixture: "sarif-notification-driver-default-error.json", want: "level error"},
-		{name: "extension descriptor default error", class: "malformed", fixture: "sarif-notification-extension-default-error.json", want: "level error"},
-		{name: "invocation override error", class: "malformed", fixture: "sarif-notification-override-error.json", want: "level error"},
-		{name: "id-only hides existing metadata", class: "malformed", fixture: "sarif-notification-id-only-existing-metadata.json", want: "index or guid"},
-		{name: "malformed descriptor", class: "malformed", fixture: "sarif-notification-malformed-descriptor.json", want: "nonnegative integer"},
-		{name: "unresolved descriptor", class: "malformed", fixture: "sarif-notification-unresolved-descriptor.json", want: "does not resolve"},
-		{name: "conflicting descriptor identity", class: "malformed", fixture: "sarif-notification-conflicting-descriptor.json", want: "does not resolve"},
-		{name: "malformed override", class: "malformed", fixture: "sarif-notification-malformed-override.json", want: "configuration"},
-		{name: "missing message", class: "malformed", fixture: "sarif-notification-missing-message.json", want: "message"},
-		{name: "empty message", class: "malformed", fixture: "sarif-notification-empty-message.json", want: "message"},
+		{name: "driver descriptor default error", class: "malformed", fixture: "sarif-notification-driver-default-error.json.invalid", want: "level error"},
+		{name: "extension descriptor default error", class: "malformed", fixture: "sarif-notification-extension-default-error.json.invalid", want: "level error"},
+		{name: "invocation override error", class: "malformed", fixture: "sarif-notification-override-error.json.invalid", want: "level error"},
+		{name: "id-only hides existing metadata", class: "malformed", fixture: "sarif-notification-id-only-existing-metadata.json.invalid", want: "index or guid"},
+		{name: "malformed descriptor", class: "malformed", fixture: "sarif-notification-malformed-descriptor.json.invalid", want: "nonnegative integer"},
+		{name: "unresolved descriptor", class: "malformed", fixture: "sarif-notification-unresolved-descriptor.json.invalid", want: "does not resolve"},
+		{name: "conflicting descriptor identity", class: "malformed", fixture: "sarif-notification-conflicting-descriptor.json.invalid", want: "does not resolve"},
+		{name: "malformed override", class: "malformed", fixture: "sarif-notification-malformed-override.json.invalid", want: "configuration"},
+		{name: "missing message", class: "malformed", fixture: "sarif-notification-missing-message.json.invalid", want: "message"},
+		{name: "empty message", class: "malformed", fixture: "sarif-notification-empty-message.json.invalid", want: "message"},
 	}
 
 	for _, test := range tests {
@@ -227,12 +244,12 @@ func TestCountSARIFValidatesNotificationMessages(t *testing.T) {
 		want    string
 	}{
 		{name: "valid forms", class: "clean", fixture: "sarif-notification-messages.json"},
-		{name: "unknown only", class: "malformed", fixture: "sarif-notification-message-unknown-only.json", want: "message"},
-		{name: "empty text", class: "malformed", fixture: "sarif-notification-message-empty-text.json", want: "text"},
-		{name: "empty id", class: "malformed", fixture: "sarif-notification-message-empty-id.json", want: "id"},
-		{name: "empty markdown", class: "malformed", fixture: "sarif-notification-message-empty-markdown.json", want: "markdown"},
-		{name: "markdown without text", class: "malformed", fixture: "sarif-notification-message-markdown-without-text.json", want: "text"},
-		{name: "wrong arguments", class: "malformed", fixture: "sarif-notification-message-wrong-arguments.json", want: "arguments"},
+		{name: "unknown only", class: "malformed", fixture: "sarif-notification-message-unknown-only.json.invalid", want: "message"},
+		{name: "empty text", class: "malformed", fixture: "sarif-notification-message-empty-text.json.invalid", want: "text"},
+		{name: "empty id", class: "malformed", fixture: "sarif-notification-message-empty-id.json.invalid", want: "id"},
+		{name: "empty markdown", class: "malformed", fixture: "sarif-notification-message-empty-markdown.json.invalid", want: "markdown"},
+		{name: "markdown without text", class: "malformed", fixture: "sarif-notification-message-markdown-without-text.json.invalid", want: "text"},
+		{name: "wrong arguments", class: "malformed", fixture: "sarif-notification-message-wrong-arguments.json.invalid", want: "arguments"},
 	}
 
 	for _, test := range tests {
@@ -286,10 +303,10 @@ func TestCountSARIFValidatesAssociatedRuleReferences(t *testing.T) {
 		want    string
 	}{
 		{name: "driver extension and id-only", class: "clean", fixture: "sarif-notification-associated-rules.json"},
-		{name: "unresolved", class: "malformed", fixture: "sarif-notification-associated-rule-unresolved.json", want: "does not resolve"},
-		{name: "conflicting", class: "malformed", fixture: "sarif-notification-associated-rule-conflicting.json", want: "does not resolve"},
-		{name: "ambiguous", class: "malformed", fixture: "sarif-notification-associated-rule-ambiguous.json", want: "ambiguous"},
-		{name: "id-only hides metadata", class: "malformed", fixture: "sarif-notification-associated-rule-id-only-existing.json", want: "index or guid"},
+		{name: "unresolved", class: "malformed", fixture: "sarif-notification-associated-rule-unresolved.json.invalid", want: "does not resolve"},
+		{name: "conflicting", class: "malformed", fixture: "sarif-notification-associated-rule-conflicting.json.invalid", want: "does not resolve"},
+		{name: "ambiguous", class: "malformed", fixture: "sarif-notification-associated-rule-ambiguous.json.invalid", want: "ambiguous"},
+		{name: "id-only hides metadata", class: "malformed", fixture: "sarif-notification-associated-rule-id-only-existing.json.invalid", want: "index or guid"},
 	}
 
 	for _, test := range tests {
@@ -319,12 +336,12 @@ func TestCountSARIFValidatesConsumedGUIDs(t *testing.T) {
 		valid   bool
 	}{
 		{name: "uppercase valid", class: "clean", fixture: "sarif-notification-associated-rules.json", valid: true},
-		{name: "component metadata", class: "malformed", fixture: "sarif-guid-component-metadata.json"},
-		{name: "notification metadata", class: "malformed", fixture: "sarif-guid-notification-metadata.json"},
-		{name: "rule metadata", class: "malformed", fixture: "sarif-guid-rule-metadata.json"},
-		{name: "notification reference", class: "malformed", fixture: "sarif-guid-notification-reference.json"},
-		{name: "associated rule reference", class: "malformed", fixture: "sarif-guid-associated-rule-reference.json"},
-		{name: "component reference", class: "malformed", fixture: "sarif-guid-component-reference.json"},
+		{name: "component metadata", class: "malformed", fixture: "sarif-guid-component-metadata.json.invalid"},
+		{name: "notification metadata", class: "malformed", fixture: "sarif-guid-notification-metadata.json.invalid"},
+		{name: "rule metadata", class: "malformed", fixture: "sarif-guid-rule-metadata.json.invalid"},
+		{name: "notification reference", class: "malformed", fixture: "sarif-guid-notification-reference.json.invalid"},
+		{name: "associated rule reference", class: "malformed", fixture: "sarif-guid-associated-rule-reference.json.invalid"},
+		{name: "component reference", class: "malformed", fixture: "sarif-guid-component-reference.json.invalid"},
 	}
 
 	for _, test := range tests {
@@ -358,8 +375,8 @@ func TestCountReturnsParserErrorsSeparatelyFromFindings(t *testing.T) {
 		tool    string
 		fixture string
 	}{
-		{tool: "semgrep", fixture: "semgrep-error.json"},
-		{tool: "checkov", fixture: "checkov-error.json"},
+		{tool: "semgrep", fixture: "semgrep-error.json.invalid"},
+		{tool: "checkov", fixture: "checkov-error.json.invalid"},
 	} {
 		t.Run(test.tool, func(t *testing.T) {
 			result, err := Count(test.tool, bytes.NewReader(reportFixture(t, "malformed", test.fixture)))
@@ -402,11 +419,11 @@ func TestCountRejectsMissingNestedFindingMembers(t *testing.T) {
 		fixture string
 		want    string
 	}{
-		{tool: "osv-scanner", fixture: "osv-missing-packages.json", want: "packages"},
-		{tool: "osv-scanner", fixture: "osv-missing-vulnerabilities.json", want: "vulnerabilities"},
-		{tool: "trivy", fixture: "trivy-missing-target.json", want: "Target"},
-		{tool: "checkov", fixture: "checkov-missing-failed-checks.json", want: "failed_checks"},
-		{tool: "checkov", fixture: "checkov-missing-parsing-errors.json", want: "parsing_errors"},
+		{tool: "osv-scanner", fixture: "osv-missing-packages.json.invalid", want: "packages"},
+		{tool: "osv-scanner", fixture: "osv-missing-vulnerabilities.json.invalid", want: "vulnerabilities"},
+		{tool: "trivy", fixture: "trivy-missing-target.json.invalid", want: "Target"},
+		{tool: "checkov", fixture: "checkov-missing-failed-checks.json.invalid", want: "failed_checks"},
+		{tool: "checkov", fixture: "checkov-missing-parsing-errors.json.invalid", want: "parsing_errors"},
 	}
 
 	for _, test := range tests {

@@ -14,10 +14,10 @@ func TestDefaultCatalogIsValidAndComplete(t *testing.T) {
 	}
 
 	wantTools := []string{
-		"actionlint", "checkov", "codeql", "dependency-review", "gitleaks",
+		"actionlint", "apidiff", "bash", "checkov", "codeql", "dependency-review", "generated", "gitleaks",
 		"go", "gofmt", "goimports", "golangci-lint", "gopls",
-		"govulncheck", "hadolint", "markdownlint", "osv-scanner",
-		"semgrep", "shellcheck", "shfmt", "staticcheck", "trivy", "yamllint", "zizmor",
+		"govulncheck", "grype", "hadolint", "json", "license", "markdownlint", "osv-scanner",
+		"repository", "scorecard", "semgrep", "shellcheck", "shfmt", "staticcheck", "syft", "trivy", "yamllint", "zizmor",
 	}
 	for _, tool := range wantTools {
 		if !catalog.HasTool(tool) {
@@ -27,10 +27,13 @@ func TestDefaultCatalogIsValidAndComplete(t *testing.T) {
 
 	wantIdentities := []string{
 		"actionlint/actionlint/workflows",
+		"apidiff/apidiff/public-api",
+		"bash/bash/scripts",
 		"checkov/checkov/infrastructure",
 		"codeql/codeql/actions",
 		"codeql/codeql/go",
 		"dependency-review/dependency-review/changes",
+		"generated/generated/files",
 		"gitleaks/gitleaks/content",
 		"go/go/build",
 		"go/go/module-integrity",
@@ -42,13 +45,19 @@ func TestDefaultCatalogIsValidAndComplete(t *testing.T) {
 		"golangci-lint/golangci-lint/default",
 		"gopls/gopls/tracked-go",
 		"govulncheck/govulncheck/modules",
+		"grype/grype/sbom",
 		"hadolint/hadolint/dockerfiles",
+		"json/json/documents",
+		"license/license/dependencies",
 		"markdownlint/markdownlint/documents",
 		"osv-scanner/osv-scanner/dependencies",
+		"repository/repository/hygiene",
+		"scorecard/scorecard/repository",
 		"semgrep/semgrep/source",
 		"shellcheck/shellcheck/scripts",
 		"shfmt/shfmt/scripts",
 		"staticcheck/staticcheck/default",
+		"syft/syft/sbom",
 		"trivy/trivy/filesystem",
 		"yamllint/yamllint/documents",
 		"zizmor/zizmor/workflows",

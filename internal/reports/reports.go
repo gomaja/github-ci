@@ -60,6 +60,9 @@ var parsers = map[string]func([]byte) (int, error){
 	"grype":          countGrype,
 	"semgrep":        countSemgrep,
 	"checkov":        countCheckov,
+	"actionlint":     countActionlint,
+	"spdx":           countSPDX,
+	"license":        countLicenseInventory,
 }
 
 var parserTools = map[string]string{
@@ -73,13 +76,16 @@ var parserTools = map[string]string{
 	"golangci-lint-json/v1": "golangci-lint",
 	"govulncheck-json/v1":   "govulncheck",
 	"staticcheck-jsonl/v1":  "staticcheck",
-	"shellcheck-json1/v1":   "shellcheck",
+	"shellcheck-json/v1":    "shellcheck",
 	"gitleaks-json/v1":      "gitleaks",
 	"osv-json/v1":           "osv-scanner",
 	"trivy-json/v1":         "trivy",
 	"grype-json/v1":         "grype",
 	"semgrep-json/v1":       "semgrep",
 	"checkov-json/v1":       "checkov",
+	"actionlint-json/v1":    "actionlint",
+	"spdx-json/v1":          "spdx",
+	"license-inventory/v1":  "license",
 }
 
 // IsSupported reports whether tool has a native report parser.

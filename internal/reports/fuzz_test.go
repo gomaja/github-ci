@@ -26,6 +26,22 @@ func FuzzCountTrivy(f *testing.F)   { fuzzReport(f, "trivy", "trivy.json", "triv
 func FuzzCountGrype(f *testing.F)   { fuzzReport(f, "grype", "grype.json", "grype.json") }
 func FuzzCountSemgrep(f *testing.F) { fuzzReport(f, "semgrep", "semgrep.json", "semgrep.json") }
 func FuzzCountCheckov(f *testing.F) { fuzzReport(f, "checkov", "checkov.json", "checkov.json") }
+func FuzzCountActionlint(f *testing.F) {
+	fuzzReport(f, "actionlint", "actionlint.json", "actionlint.json")
+}
+func FuzzCountSPDX(f *testing.F) {
+	f.Add(reportFixture(f, "clean", "spdx.json"))
+	f.Add(reportFixture(f, "malformed", "truncated.json.invalid"))
+	f.Fuzz(func(t *testing.T, data []byte) {
+		result, err := Count("spdx", bytes.NewReader(data))
+		if err == nil && result.Findings != 0 {
+			t.Fatalf("Count() findings = %d, want 0", result.Findings)
+		}
+	})
+}
+func FuzzCountLicense(f *testing.F) {
+	fuzzReport(f, "license", "license.json", "license.json")
+}
 
 func FuzzCountPolicyRunner(f *testing.F) {
 	f.Add("command-status", []byte(`{"schema_version":"1","execution_successful":true}`))
@@ -64,7 +80,7 @@ func fuzzReport(f *testing.F, tool, clean, findings string) {
 	f.Helper()
 	f.Add(reportFixture(f, "clean", clean))
 	f.Add(reportFixture(f, "findings", findings))
-	f.Add(reportFixture(f, "malformed", "truncated.json"))
+	f.Add(reportFixture(f, "malformed", "truncated.json.invalid"))
 	f.Fuzz(func(t *testing.T, data []byte) {
 		result, err := Count(tool, bytes.NewReader(data))
 		if err == nil && result.Findings < 0 {

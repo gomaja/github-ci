@@ -23,6 +23,7 @@ var (
 	actionSHAPattern = regexp.MustCompile(`^[0-9a-f]{40}$`)
 	idPattern        = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]*$`)
 	checksumPattern  = regexp.MustCompile(`^(?:sha256:[0-9a-f]{64}|sha512:[A-Za-z0-9+/]+={0,2}|h1:[A-Za-z0-9+/]+={0,2})$`)
+	imagePattern     = regexp.MustCompile(`^[a-z0-9][a-z0-9._:/-]*@sha256:[0-9a-f]{64}$`)
 )
 
 var templatePaths = []string{
@@ -76,6 +77,7 @@ type Tool struct {
 	Parser         string   `yaml:"parser"`
 	Profiles       []string `yaml:"profiles"`
 	Acquisition    string   `yaml:"acquisition"`
+	Image          string   `yaml:"image,omitempty"`
 	VersionCommand string   `yaml:"version-command"`
 }
 
@@ -183,8 +185,19 @@ func (policy Policy) Validate() error {
 			}
 			seenProfiles[profile] = struct{}{}
 		}
-		if tool.Acquisition != "go-module" && tool.Acquisition != "release-asset" && tool.Acquisition != "pypi-sdist" && tool.Acquisition != "npm-package" && tool.Acquisition != "go-toolchain" {
+		if tool.Acquisition != "go-module" && tool.Acquisition != "release-asset" && tool.Acquisition != "pypi-sdist" && tool.Acquisition != "npm-package" && tool.Acquisition != "go-toolchain" && tool.Acquisition != "container-image" {
 			return fmt.Errorf("tool %q has unsupported acquisition %q", tool.ID, tool.Acquisition)
+		}
+		if tool.Acquisition == "container-image" {
+			if !imagePattern.MatchString(tool.Image) {
+				return fmt.Errorf("tool %q image must use an immutable SHA-256 digest", tool.ID)
+			}
+			_, imageDigest, _ := strings.Cut(tool.Image, "@")
+			if imageDigest != tool.Checksum {
+				return fmt.Errorf("tool %q image digest does not match checksum", tool.ID)
+			}
+		} else if tool.Image != "" {
+			return fmt.Errorf("tool %q image is only valid for container-image acquisition", tool.ID)
 		}
 		if strings.TrimSpace(tool.VersionCommand) == "" {
 			return fmt.Errorf("tool %q version-command must not be empty", tool.ID)
@@ -204,6 +217,16 @@ func (policy Policy) Action(id string) (string, error) {
 		}
 	}
 	return "", fmt.Errorf("action lock %q not found", id)
+}
+
+// ToolImage returns the immutable container image reference for id.
+func (policy Policy) ToolImage(id string) (string, error) {
+	for _, tool := range policy.Tools {
+		if tool.ID == id && tool.Acquisition == "container-image" {
+			return tool.Image, nil
+		}
+	}
+	return "", fmt.Errorf("container tool lock %q not found", id)
 }
 
 // LoadLinters strictly decodes and validates the 74-linter baseline.
@@ -286,6 +309,8 @@ type templateData struct {
 
 func (data templateData) Action(id string) (string, error) { return data.Policy.Action(id) }
 
+func (data templateData) ToolImage(id string) (string, error) { return data.Policy.ToolImage(id) }
+
 func render(root string) ([]rendered, error) {
 	policyFile, err := os.Open(filepath.Join(root, "policies", "tools.yaml"))
 	if err != nil {
@@ -363,7 +388,11 @@ func validateVersion(field, value string) error {
 
 func validRepository(value string) bool {
 	parts := strings.Split(value, "/")
-	return len(parts) == 2 && idPattern.MatchString(parts[0]) && regexp.MustCompile(`^[A-Za-z0-9_.-]+$`).MatchString(parts[1])
+	if len(parts) < 2 || !idPattern.MatchString(parts[0]) {
+		return false
+	}
+	segmentPattern := regexp.MustCompile(`^[A-Za-z0-9_.-]+$`)
+	return !slices.ContainsFunc(parts[1:], func(part string) bool { return !segmentPattern.MatchString(part) })
 }
 
 func writeAtomic(name string, data []byte) error {

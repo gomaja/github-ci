@@ -55,6 +55,31 @@ tools:
 	}
 }
 
+func TestLoadPolicyAcceptsActionEntrypointSubpaths(t *testing.T) {
+	body := `schema-version: 1
+go-versions:
+  current: 1.26.6
+  previous: 1.25.13
+actions:
+  - id: codeql-init
+    repository: github/codeql-action/init
+    release: v4.37.7
+    sha: ff2f1c621b7f889edc0d3c761ac2e6a3f8cdb0dd
+tools:
+  - id: staticcheck
+    version: "2026.1"
+    source: https://github.com/dominikh/go-tools
+    checksum: h1:w6WUp1VbkqPEgLz4rkBzH/CSU6HkoqNLp6GstyTx3lU=
+    parser: staticcheck-jsonl/v1
+    profiles: [go-strict]
+    acquisition: go-module
+    version-command: staticcheck -version
+`
+	if _, err := LoadPolicy(strings.NewReader(body)); err != nil {
+		t.Fatalf("LoadPolicy(action subpath) error = %v", err)
+	}
+}
+
 func TestLoadLintersRequiresExactly74UniqueEntries(t *testing.T) {
 	var body strings.Builder
 	body.WriteString("schema-version: 1\nlinters:\n")
@@ -69,6 +94,41 @@ func TestLoadLintersRequiresExactly74UniqueEntries(t *testing.T) {
 	}
 	if _, err := LoadLinters(strings.NewReader(strings.Replace(body.String(), "  - linter00\n", "", 1))); err == nil || !strings.Contains(err.Error(), "exactly 74") {
 		t.Fatalf("LoadLinters(short) error = %v", err)
+	}
+}
+
+func TestLoadPolicyRequiresDigestPinnedContainerImages(t *testing.T) {
+	body := `schema-version: 1
+go-versions:
+  current: 1.26.6
+  previous: 1.25.13
+actions:
+  - id: checkout
+    repository: actions/checkout
+    release: v7.0.1
+    sha: 3d3c42e5aac5ba805825da76410c181273ba90b1
+tools:
+  - id: semgrep
+    version: 1.173.0
+    source: https://hub.docker.com/r/semgrep/semgrep
+    checksum: sha256:67319956da3dcb58baf5b322899c15458e3963e7018a86aeeb5cd224e69cb77a
+    parser: semgrep-json/v1
+    profiles: [go-strict]
+    acquisition: container-image
+    image: docker.io/semgrep/semgrep@sha256:67319956da3dcb58baf5b322899c15458e3963e7018a86aeeb5cd224e69cb77a
+    version-command: semgrep --version
+`
+	if _, err := LoadPolicy(strings.NewReader(body)); err != nil {
+		t.Fatalf("LoadPolicy(container) error = %v", err)
+	}
+	for _, mutation := range []string{
+		strings.Replace(body, "    image: docker.io/semgrep/semgrep@sha256:67319956da3dcb58baf5b322899c15458e3963e7018a86aeeb5cd224e69cb77a\n", "", 1),
+		strings.Replace(body, "image: docker.io/semgrep/semgrep@sha256:67319956da3dcb58baf5b322899c15458e3963e7018a86aeeb5cd224e69cb77a", "image: docker.io/semgrep/semgrep:latest", 1),
+		strings.Replace(body, "image: docker.io/semgrep/semgrep@sha256:67319956da3dcb58baf5b322899c15458e3963e7018a86aeeb5cd224e69cb77a", "image: docker.io/semgrep/semgrep@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", 1),
+	} {
+		if _, err := LoadPolicy(strings.NewReader(mutation)); err == nil {
+			t.Fatal("LoadPolicy() accepted an invalid container lock")
+		}
 	}
 }
 

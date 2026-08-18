@@ -1,0 +1,11 @@
+[
+  {
+    "message": "workflow expression is unsafe",
+    "filepath": ".github/workflows/ci.yml",
+    "line": 8,
+    "column": 14,
+    "kind": "expression",
+    "snippet": "      run: echo unsafe",
+    "end_column": 20
+  }
+]

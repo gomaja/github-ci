@@ -11,8 +11,12 @@ actions:
     repository: actions/checkout
     release: v7.0.1
     sha: 3d3c42e5aac5ba805825da76410c181273ba90b1
-  - id: codeql
-    repository: github/codeql-action
+  - id: codeql-analyze
+    repository: github/codeql-action/analyze
+    release: v4.37.7
+    sha: ff2f1c621b7f889edc0d3c761ac2e6a3f8cdb0dd
+  - id: codeql-init
+    repository: github/codeql-action/init
     release: v4.37.7
     sha: ff2f1c621b7f889edc0d3c761ac2e6a3f8cdb0dd
   - id: dependency-review
@@ -44,17 +48,26 @@ tools:
     version: 1.7.12
     source: https://github.com/rhysd/actionlint/releases/download/v1.7.12/actionlint_1.7.12_linux_amd64.tar.gz
     checksum: sha256:8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8
-    parser: sarif/v1
+    parser: actionlint-json/v1
     profiles: [go-strict, go-library, repository-only]
     acquisition: release-asset
     version-command: actionlint -version
+  - id: apidiff
+    version: 0.0.0-20260813180055-c1d0aacb2297
+    source: https://proxy.golang.org/golang.org/x/exp/@v/v0.0.0-20260813180055-c1d0aacb2297.zip
+    checksum: h1:YXnL44eJ77R+ji4/ooy8UsXIhz+lbi2Qgdlc8iRN0gY=
+    parser: path-list/v1
+    profiles: [go-strict, go-library]
+    acquisition: go-module
+    version-command: go version -m "$(command -v apidiff)"
   - id: checkov
     version: 3.3.11
-    source: https://files.pythonhosted.org/packages/source/c/checkov/checkov-3.3.11.tar.gz
-    checksum: sha256:1c1578a97f581791aab18c5fc9a3e17aa8e9c79f2adac8096858ce5e5df63558
+    source: https://hub.docker.com/r/bridgecrew/checkov
+    checksum: sha256:e5e308e713725e73f517e4cb85b39d467f1e047204c174fb15eb444c27ffb745
     parser: checkov-json/v1
     profiles: [go-strict, go-library, repository-only]
-    acquisition: pypi-sdist
+    acquisition: container-image
+    image: docker.io/bridgecrew/checkov@sha256:e5e308e713725e73f517e4cb85b39d467f1e047204c174fb15eb444c27ffb745
     version-command: checkov --version
   - id: gitleaks
     version: 8.30.1
@@ -162,11 +175,12 @@ tools:
     version-command: hadolint --version
   - id: markdownlint
     version: 0.23.2
-    source: https://registry.npmjs.org/markdownlint-cli2/-/markdownlint-cli2-0.23.2.tgz
-    checksum: sha512:eUhcnkSpzURo/o4htSqc7LPDszgOOTknhU4eY/sPHvMCLxnTCYscv1gw1/js/idmaZPisv9ECVEIORcllqjTUw==
-    parser: markdownlint-json/v1
+    source: https://hub.docker.com/r/davidanson/markdownlint-cli2
+    checksum: sha256:839558fd0d36c46da0e01ea84fd1d20a2822b5a8a60c16dc9708f0bb7c9e903b
+    parser: path-list/v1
     profiles: [go-strict, go-library, repository-only]
-    acquisition: npm-package
+    acquisition: container-image
+    image: docker.io/davidanson/markdownlint-cli2@sha256:839558fd0d36c46da0e01ea84fd1d20a2822b5a8a60c16dc9708f0bb7c9e903b
     version-command: markdownlint-cli2 --version
   - id: osv-scanner
     version: 2.5.1
@@ -178,17 +192,18 @@ tools:
     version-command: osv-scanner --version
   - id: semgrep
     version: 1.173.0
-    source: https://files.pythonhosted.org/packages/source/s/semgrep/semgrep-1.173.0.tar.gz
-    checksum: sha256:d81c6166ce595e223ea908e5fe36044a5cbb1b5a2821e28dc1e34f3964fa7ed1
+    source: https://hub.docker.com/r/semgrep/semgrep
+    checksum: sha256:67319956da3dcb58baf5b322899c15458e3963e7018a86aeeb5cd224e69cb77a
     parser: semgrep-json/v1
     profiles: [go-strict, go-library, repository-only]
-    acquisition: pypi-sdist
+    acquisition: container-image
+    image: docker.io/semgrep/semgrep@sha256:67319956da3dcb58baf5b322899c15458e3963e7018a86aeeb5cd224e69cb77a
     version-command: semgrep --version
   - id: shellcheck
     version: 0.11.0
     source: https://github.com/koalaman/shellcheck/releases/download/v0.11.0/shellcheck-v0.11.0.linux.x86_64.tar.xz
     checksum: sha256:8c3be12b05d5c177a04c29e3c78ce89ac86f1595681cab149b65b97c4e227198
-    parser: shellcheck-json1/v1
+    parser: shellcheck-json/v1
     profiles: [go-strict, go-library, repository-only]
     acquisition: release-asset
     version-command: shellcheck --version
@@ -226,17 +241,17 @@ tools:
     version-command: trivy version
   - id: yamllint
     version: 1.38.0
-    source: https://files.pythonhosted.org/packages/source/y/yamllint/yamllint-1.38.0.tar.gz
-    checksum: sha256:09e5f29531daab93366bb061e76019d5e91691ef0a40328f04c927387d1d364d
+    source: https://files.pythonhosted.org/packages/05/92/aed08e68de6e6a3d7c2328ce7388072cd6affc26e2917197430b646aed02/yamllint-1.38.0-py3-none-any.whl
+    checksum: sha256:fc394a5b3be980a4062607b8fdddc0843f4fa394152b6da21722f5d59013c220
     parser: yamllint-parsable/v1
     profiles: [go-strict, go-library, repository-only]
-    acquisition: pypi-sdist
+    acquisition: release-asset
     version-command: yamllint --version
   - id: zizmor
     version: 1.29.0
-    source: https://files.pythonhosted.org/packages/source/z/zizmor/zizmor-1.29.0.tar.gz
-    checksum: sha256:60e34e83c67064e0036989c7c525d13413e897aa4c4f683f1efb2048cdb28a47
+    source: https://files.pythonhosted.org/packages/b4/f0/dfa67018b76bc4f2f50e265e8cbd1293833d1b1de5f3f02fbbb7487ae9c6/zizmor-1.29.0-py3-none-manylinux_2_28_x86_64.whl
+    checksum: sha256:587b99c2e1b34575c6c8565c2bfde415ca8bc0310f5589f19bc948c8dea10a20
     parser: sarif/v1
     profiles: [go-strict, go-library, repository-only]
-    acquisition: pypi-sdist
+    acquisition: release-asset
     version-command: zizmor --version

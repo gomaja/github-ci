@@ -1,0 +1,13 @@
+schema-version: 1
+profile: go-strict
+modules:
+  - .
+  - testdata/repositories/go-generated
+  - testdata/repositories/go-multi
+  - testdata/repositories/go-multi/services/api
+  - testdata/repositories/go-single
+  - testdata/repositories/mixed
+generated:
+  - .github/workflows
+  - configs/golangci.yml
+  - templates/callers/generated

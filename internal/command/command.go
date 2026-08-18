@@ -104,7 +104,7 @@ func runFiles(ctx context.Context, args []string, stdout, stderr io.Writer) int 
 		writeError(stderr, err)
 		return exitError
 	}
-	if *kind != "go" && *kind != "all-go" {
+	if !slices.Contains([]string{"go", "all-go", "shell", "docker", "workflow", "terraform", "markdown", "yaml", "json"}, *kind) {
 		writeError(stderr, fmt.Errorf("unsupported file kind %q", *kind))
 		return exitError
 	}
@@ -123,7 +123,14 @@ func runFiles(ctx context.Context, args []string, stdout, stderr io.Writer) int 
 		if walkErr != nil {
 			return walkErr
 		}
-		if entry.IsDir() || filepath.Ext(name) != ".go" {
+		if entry.IsDir() {
+			return nil
+		}
+		matches, matchErr := trackedFileMatches(tracked, name, entry, *kind)
+		if matchErr != nil {
+			return matchErr
+		}
+		if !matches {
 			return nil
 		}
 		if *kind == "go" && generatedPath(name, consumer.Generated) {
@@ -144,6 +151,54 @@ func runFiles(ctx context.Context, args []string, stdout, stderr io.Writer) int 
 		}
 	}
 	return exitSuccess
+}
+
+func trackedFileMatches(tracked fs.FS, name string, entry fs.DirEntry, kind string) (bool, error) {
+	base := filepath.Base(name)
+	lowerBase := strings.ToLower(base)
+	extension := strings.ToLower(filepath.Ext(base))
+	switch kind {
+	case "go", "all-go":
+		return extension == ".go", nil
+	case "docker":
+		return lowerBase == "dockerfile" || lowerBase == "containerfile" ||
+			strings.HasPrefix(lowerBase, "dockerfile.") || strings.HasPrefix(lowerBase, "containerfile.") ||
+			strings.HasSuffix(lowerBase, ".dockerfile") || strings.HasSuffix(lowerBase, ".containerfile"), nil
+	case "workflow":
+		return strings.HasPrefix(name, ".github/workflows/") && (extension == ".yml" || extension == ".yaml"), nil
+	case "terraform":
+		return extension == ".tf", nil
+	case "markdown":
+		return extension == ".md" || extension == ".markdown", nil
+	case "yaml":
+		return extension == ".yml" || extension == ".yaml", nil
+	case "json":
+		return extension == ".json", nil
+	case "shell":
+		if slices.Contains([]string{".sh", ".bash", ".bats", ".zsh", ".ksh"}, extension) {
+			return true, nil
+		}
+		info, err := entry.Info()
+		if err != nil {
+			return false, fmt.Errorf("stat tracked path %q: %w", name, err)
+		}
+		if info.Mode().Perm()&0o111 == 0 {
+			return false, nil
+		}
+		data, err := fs.ReadFile(tracked, name)
+		if err != nil {
+			return false, fmt.Errorf("read tracked path %q: %w", name, err)
+		}
+		line, _, _ := bytes.Cut(data, []byte("\n"))
+		for _, prefix := range []string{"#!/bin/sh", "#!/bin/bash", "#!/bin/zsh", "#!/bin/ksh", "#!/usr/bin/env sh", "#!/usr/bin/env bash", "#!/usr/bin/env zsh", "#!/usr/bin/env ksh"} {
+			if bytes.HasPrefix(line, []byte(prefix)) {
+				return true, nil
+			}
+		}
+		return false, nil
+	default:
+		return false, fmt.Errorf("unsupported file kind %q", kind)
+	}
 }
 
 func runModules(ctx context.Context, args []string, stdout, stderr io.Writer) int {
