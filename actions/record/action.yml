@@ -1,0 +1,46 @@
+name: Record github-ci evidence
+description: Normalize one detector-planned native analyzer report.
+inputs:
+  plan:
+    description: Applicability plan path.
+    required: true
+  tool:
+    description: Tool identity.
+    required: true
+  command-id:
+    description: Command identity.
+    required: true
+  tool-version:
+    description: Observed immutable tool version.
+    required: true
+  report:
+    description: Native report path; empty only for detector-backed N/A.
+    required: false
+    default: ""
+  exit-code:
+    description: Native producer exit code.
+    required: false
+    default: "0"
+  output:
+    description: Normalized evidence output path.
+    required: true
+runs:
+  using: composite
+  steps:
+    - name: Normalize evidence
+      shell: bash
+      env:
+        PLAN: ${{ inputs.plan }}
+        TOOL: ${{ inputs.tool }}
+        COMMAND_ID: ${{ inputs.command-id }}
+        TOOL_VERSION: ${{ inputs.tool-version }}
+        REPORT: ${{ inputs.report }}
+        EXIT_CODE: ${{ inputs.exit-code }}
+        OUTPUT: ${{ inputs.output }}
+      run: |
+        set -euo pipefail
+        args=(record --plan "$PLAN" --tool "$TOOL" --command-id "$COMMAND_ID" --tool-version "$TOOL_VERSION" --exit-code "$EXIT_CODE" --output "$OUTPUT")
+        if [[ -n "$REPORT" ]]; then
+          args+=(--report "$REPORT")
+        fi
+        "$RUNNER_TEMP/github-ci-bin/github-ci" "${args[@]}"

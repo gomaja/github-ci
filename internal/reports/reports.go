@@ -21,25 +21,32 @@ func Count(tool string, reader io.Reader) (Result, error) {
 	if reader == nil {
 		return Result{}, errors.New("report reader is nil")
 	}
-	parser, exists := parsers[tool]
-	if !exists {
+	if !IsSupported(tool) {
 		return Result{}, fmt.Errorf("unsupported report tool %q", tool)
 	}
 	data, err := readBounded(reader)
 	if err != nil {
 		return Result{}, err
 	}
-	findings, err := parser(data)
+	findings, err := countReportData(tool, data)
 	if err != nil {
 		return Result{}, fmt.Errorf("parse %s report: %w", tool, err)
 	}
 	return Result{Findings: findings}, nil
 }
 
+func countReportData(tool string, data []byte) (int, error) {
+	if isAggregate(data) {
+		return countAggregate(tool, data)
+	}
+	return parsers[tool](data)
+}
+
 var parsers = map[string]func([]byte) (int, error){
 	"command-status": countCommandStatus,
 	"path-list":      countPathList,
 	"junit":          countJUnit,
+	"gopls":          countGopls,
 	"markdownlint":   countJSONArray,
 	"yamllint":       countYamllint,
 	"sarif":          countSARIF,
@@ -60,6 +67,7 @@ var parserTools = map[string]string{
 	"command-status/v1":     "command-status",
 	"path-list/v1":          "path-list",
 	"gotestsum-junit/v1":    "junit",
+	"gopls-diagnostics/v1":  "gopls",
 	"markdownlint-json/v1":  "markdownlint",
 	"yamllint-parsable/v1":  "yamllint",
 	"golangci-lint-json/v1": "golangci-lint",

@@ -116,7 +116,7 @@ tools:
     version: 0.23.0
     source: https://proxy.golang.org/golang.org/x/tools/gopls/@v/v0.23.0.zip
     checksum: h1:Dn6mf9WXu9iLnTftDDMb9wV0c6Se7PjzEMqP0LEe08Y=
-    parser: command-status/v1
+    parser: gopls-diagnostics/v1
     profiles: [go-strict, go-library]
     acquisition: go-module
     version-command: gopls version

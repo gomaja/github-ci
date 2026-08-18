@@ -66,7 +66,7 @@ var defaultCatalog = Catalog{
 	{Tool: "gofmt", CommandID: "gofmt/tracked-go", ParserVersion: "path-list/v1", Capability: CapabilityOrdinaryGo, ReasonCode: ReasonNoOrdinaryGoFiles, Profiles: goProfiles()},
 	{Tool: "goimports", CommandID: "goimports/tracked-go", ParserVersion: "path-list/v1", Capability: CapabilityOrdinaryGo, ReasonCode: ReasonNoOrdinaryGoFiles, Profiles: goProfiles()},
 	{Tool: "golangci-lint", CommandID: "golangci-lint/default", ParserVersion: "golangci-lint-json/v1", Capability: CapabilityGo, ReasonCode: ReasonNoGoModule, Profiles: goProfiles()},
-	{Tool: "gopls", CommandID: "gopls/tracked-go", ParserVersion: "command-status/v1", Capability: CapabilityGo, ReasonCode: ReasonNoGoModule, Profiles: goProfiles()},
+	{Tool: "gopls", CommandID: "gopls/tracked-go", ParserVersion: "gopls-diagnostics/v1", Capability: CapabilityGo, ReasonCode: ReasonNoGoModule, Profiles: goProfiles()},
 	{Tool: "govulncheck", CommandID: "govulncheck/modules", ParserVersion: "govulncheck-json/v1", Capability: CapabilityGo, ReasonCode: ReasonNoGoModule, Profiles: goProfiles()},
 	{Tool: "hadolint", CommandID: "hadolint/dockerfiles", ParserVersion: "sarif/v1", Capability: CapabilityDocker, ReasonCode: ReasonNoDockerfiles, Profiles: allProfiles()},
 	{Tool: "markdownlint", CommandID: "markdownlint/documents", ParserVersion: "markdownlint-json/v1", Capability: CapabilityMarkdown, ReasonCode: ReasonNoMarkdown, Profiles: allProfiles()},

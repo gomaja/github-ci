@@ -184,6 +184,49 @@ func TestPreflightRecordAndGateEndToEnd(t *testing.T) {
 	}
 }
 
+func TestModulesApplicabilityAndAggregateCommands(t *testing.T) {
+	repository := newRepository(t)
+	artifacts := t.TempDir()
+	policy := filepath.Clean(filepath.Join("..", "..", "policies", "tools.yaml"))
+	planPath := filepath.Join(artifacts, "plan.json")
+	code, _, stderr := runForTest(t, []string{
+		"preflight", "--repository", repository, "--config", ".github/github-ci.yaml",
+		"--policy", policy, "--output", planPath,
+	})
+	if code != 0 {
+		t.Fatalf("preflight code = %d, stderr = %q", code, stderr)
+	}
+	code, stdout, stderr := runForTest(t, []string{"modules", "--repository", repository, "--config", ".github/github-ci.yaml"})
+	if code != 0 || stdout != `{"modules":[]}`+"\n" {
+		t.Fatalf("modules code = %d, stdout = %q, stderr = %q", code, stdout, stderr)
+	}
+	code, _, stderr = runForTest(t, []string{"applicable", "--plan", planPath, "--tool", "shellcheck", "--command-id", "shellcheck/scripts"})
+	if code != 1 || stderr != "" {
+		t.Fatalf("applicable N/A code = %d, stderr = %q", code, stderr)
+	}
+	code, _, stderr = runForTest(t, []string{"applicable", "--plan", planPath, "--tool", "gitleaks", "--command-id", "gitleaks/content"})
+	if code != 0 || stderr != "" {
+		t.Fatalf("applicable code = %d, stderr = %q", code, stderr)
+	}
+
+	reportA := filepath.Join(artifacts, "a.json")
+	reportB := filepath.Join(artifacts, "b.json")
+	aggregate := filepath.Join(artifacts, "aggregate.json")
+	mustWrite(t, reportA, `{"schema_version":"1","execution_successful":true}`)
+	mustWrite(t, reportB, `{"schema_version":"1","execution_successful":false}`)
+	code, _, stderr = runForTest(t, []string{
+		"aggregate", "--tool", "command-status", "--report", ".=" + reportA,
+		"--report", "module-b=" + reportB, "--output", aggregate,
+	})
+	if code != 0 {
+		t.Fatalf("aggregate code = %d, stderr = %q", code, stderr)
+	}
+	parsed, err := reports.Count("command-status", bytes.NewReader(mustReadFile(t, aggregate)))
+	if err != nil || parsed.Findings != 1 {
+		t.Fatalf("Count(aggregate) = %#v, %v", parsed, err)
+	}
+}
+
 func cleanEvidenceSet(t *testing.T, plan evidence.Plan, directory string) (gateManifest, string) {
 	t.Helper()
 	manifest := gateManifest{SchemaVersion: evidence.SchemaVersion}
@@ -317,4 +360,13 @@ func mustWrite(t *testing.T, name, contents string) {
 	if err := os.WriteFile(name, []byte(contents), 0o600); err != nil {
 		t.Fatalf("write %s: %v", name, err)
 	}
+}
+
+func mustReadFile(t *testing.T, name string) []byte {
+	t.Helper()
+	data, err := os.ReadFile(name)
+	if err != nil {
+		t.Fatalf("read %s: %v", name, err)
+	}
+	return data
 }

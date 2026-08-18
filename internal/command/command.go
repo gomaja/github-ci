@@ -59,7 +59,7 @@ func Run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 		return exitError
 	}
 	if len(args) == 0 {
-		writeError(stderr, errors.New("usage: github-ci <preflight|parse|record|gate|generate|verify-generated>"))
+		writeError(stderr, errors.New("usage: github-ci <preflight|modules|files|applicable|aggregate|parse|record|gate|generate|verify-generated>"))
 		return exitError
 	}
 
@@ -67,6 +67,14 @@ func Run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 	switch args[0] {
 	case "preflight":
 		code = runPreflight(ctx, args[1:], stderr)
+	case "modules":
+		code = runModules(ctx, args[1:], stdout, stderr)
+	case "files":
+		code = runFiles(ctx, args[1:], stdout, stderr)
+	case "applicable":
+		code = runApplicable(args[1:], stderr)
+	case "aggregate":
+		code = runAggregate(args[1:], stderr)
 	case "parse":
 		code = runParse(args[1:], stdin, stdout, stderr)
 	case "record":
@@ -82,6 +90,171 @@ func Run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 		code = exitError
 	}
 	return code
+}
+
+func runFiles(ctx context.Context, args []string, stdout, stderr io.Writer) int {
+	flags := newFlagSet("files", stderr)
+	repository := flags.String("repository", ".", "consumer repository root")
+	configPath := flags.String("config", "", "consumer configuration path")
+	kind := flags.String("kind", "", "tracked file class")
+	if err := flags.Parse(args); err != nil {
+		return exitError
+	}
+	if err := requireFlags(flagValue{"--config", *configPath}, flagValue{"--kind", *kind}); err != nil {
+		writeError(stderr, err)
+		return exitError
+	}
+	if *kind != "go" && *kind != "all-go" {
+		writeError(stderr, fmt.Errorf("unsupported file kind %q", *kind))
+		return exitError
+	}
+	tracked, _, err := trackedRepository(ctx, *repository)
+	if err != nil {
+		writeError(stderr, err)
+		return exitError
+	}
+	consumer, err := readTrackedConsumer(tracked, *configPath)
+	if err != nil {
+		writeError(stderr, err)
+		return exitError
+	}
+	var names []string
+	err = fs.WalkDir(tracked, ".", func(name string, entry fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if entry.IsDir() || filepath.Ext(name) != ".go" {
+			return nil
+		}
+		if *kind == "go" && generatedPath(name, consumer.Generated) {
+			return nil
+		}
+		names = append(names, name)
+		return nil
+	})
+	if err != nil {
+		writeError(stderr, fmt.Errorf("list tracked files: %w", err))
+		return exitError
+	}
+	slices.Sort(names)
+	for _, name := range names {
+		if _, err := io.WriteString(stdout, name+"\x00"); err != nil {
+			writeError(stderr, fmt.Errorf("write tracked file list: %w", err))
+			return exitError
+		}
+	}
+	return exitSuccess
+}
+
+func runModules(ctx context.Context, args []string, stdout, stderr io.Writer) int {
+	flags := newFlagSet("modules", stderr)
+	repository := flags.String("repository", ".", "consumer repository root")
+	configPath := flags.String("config", "", "consumer configuration path")
+	if err := flags.Parse(args); err != nil {
+		return exitError
+	}
+	if err := requireFlags(flagValue{"--config", *configPath}); err != nil {
+		writeError(stderr, err)
+		return exitError
+	}
+	tracked, _, err := trackedRepository(ctx, *repository)
+	if err != nil {
+		writeError(stderr, err)
+		return exitError
+	}
+	consumer, err := readTrackedConsumer(tracked, *configPath)
+	if err != nil {
+		writeError(stderr, err)
+		return exitError
+	}
+	modules, err := consumerModules(tracked, consumer)
+	if err != nil {
+		writeError(stderr, err)
+		return exitError
+	}
+	if err := writeJSON(stdout, struct {
+		Modules []string `json:"modules"`
+	}{Modules: modules}); err != nil {
+		writeError(stderr, err)
+		return exitError
+	}
+	return exitSuccess
+}
+
+func runApplicable(args []string, stderr io.Writer) int {
+	flags := newFlagSet("applicable", stderr)
+	planPath := flags.String("plan", "", "applicability plan path")
+	tool := flags.String("tool", "", "tool identity")
+	commandID := flags.String("command-id", "", "command identity")
+	if err := flags.Parse(args); err != nil {
+		return exitError
+	}
+	if err := requireFlags(flagValue{"--plan", *planPath}, flagValue{"--tool", *tool}, flagValue{"--command-id", *commandID}); err != nil {
+		writeError(stderr, err)
+		return exitError
+	}
+	plan, err := readPlan(*planPath)
+	if err != nil {
+		writeError(stderr, err)
+		return exitError
+	}
+	expected, found := expectedByIdentity(plan, *tool, *commandID)
+	if !found {
+		writeError(stderr, fmt.Errorf("plan does not expect %s/%s", *tool, *commandID))
+		return exitError
+	}
+	if expected.Applicability == evidence.NotApplicable {
+		return exitFinding
+	}
+	return exitSuccess
+}
+
+type repeatedFlag []string
+
+func (values *repeatedFlag) String() string { return strings.Join(*values, ",") }
+
+func (values *repeatedFlag) Set(value string) error {
+	*values = append(*values, value)
+	return nil
+}
+
+func runAggregate(args []string, stderr io.Writer) int {
+	flags := newFlagSet("aggregate", stderr)
+	tool := flags.String("tool", "", "native report parser")
+	output := flags.String("output", "", "aggregate report path")
+	var reportFlags repeatedFlag
+	flags.Var(&reportFlags, "report", "module=path native report (repeatable)")
+	if err := flags.Parse(args); err != nil {
+		return exitError
+	}
+	if err := requireFlags(flagValue{"--tool", *tool}, flagValue{"--output", *output}); err != nil {
+		writeError(stderr, err)
+		return exitError
+	}
+	named := make([]reports.NamedReport, 0, len(reportFlags))
+	for index, value := range reportFlags {
+		module, name, found := strings.Cut(value, "=")
+		if !found || module == "" || name == "" {
+			writeError(stderr, fmt.Errorf("--report %d must use module=path", index))
+			return exitError
+		}
+		data, err := os.ReadFile(name)
+		if err != nil {
+			writeError(stderr, fmt.Errorf("read report %d: %w", index, err))
+			return exitError
+		}
+		named = append(named, reports.NamedReport{Module: module, Data: data})
+	}
+	var aggregate bytes.Buffer
+	if err := reports.WriteAggregate(*tool, named, &aggregate); err != nil {
+		writeError(stderr, err)
+		return exitError
+	}
+	if err := writeBytesAtomic(*output, aggregate.Bytes()); err != nil {
+		writeError(stderr, err)
+		return exitError
+	}
+	return exitSuccess
 }
 
 func runParse(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
@@ -164,6 +337,7 @@ func runPreflight(ctx context.Context, args []string, stderr io.Writer) int {
 	repository := flags.String("repository", ".", "consumer repository root")
 	configPath := flags.String("config", "", "consumer configuration path")
 	policyPath := flags.String("policy", "", "tool policy path")
+	profile := flags.String("profile", "", "expected assurance profile")
 	subject := flags.String("subject-sha", "", "expected checkout commit")
 	output := flags.String("output", "", "applicability plan path")
 	if err := flags.Parse(args); err != nil {
@@ -175,7 +349,7 @@ func runPreflight(ctx context.Context, args []string, stderr io.Writer) int {
 		writeError(stderr, err)
 		return exitError
 	}
-	plan, err := detectCurrent(ctx, *repository, *configPath, *policyPath, *subject)
+	plan, err := detectCurrent(ctx, *repository, *configPath, *policyPath, *subject, *profile)
 	if err != nil {
 		writeError(stderr, err)
 		return exitError
@@ -319,7 +493,7 @@ func runGate(ctx context.Context, args []string, stdout, stderr io.Writer, now f
 		writeError(stderr, err)
 		return exitError
 	}
-	current, err := detectCurrent(ctx, *repository, *configPath, *policyPath, "")
+	current, err := detectCurrent(ctx, *repository, *configPath, *policyPath, "", "")
 	if err != nil {
 		writeError(stderr, err)
 		return exitError
@@ -332,8 +506,24 @@ func runGate(ctx context.Context, args []string, stdout, stderr io.Writer, now f
 	evaluationDate := now().UTC().Format(time.DateOnly)
 	set := exceptions.Set{}
 	var exceptionIssues []exceptions.Issue
-	if *exceptionsPath != "" {
-		file, openErr := os.Open(*exceptionsPath)
+	resolvedExceptions := *exceptionsPath
+	if resolvedExceptions == "" {
+		tracked, _, trackedErr := trackedRepository(ctx, *repository)
+		if trackedErr != nil {
+			writeError(stderr, trackedErr)
+			return exitError
+		}
+		consumer, consumerErr := readTrackedConsumer(tracked, *configPath)
+		if consumerErr != nil {
+			writeError(stderr, consumerErr)
+			return exitError
+		}
+		if consumer.Exceptions != "" {
+			resolvedExceptions = filepath.Join(*repository, filepath.FromSlash(consumer.Exceptions))
+		}
+	}
+	if resolvedExceptions != "" {
+		file, openErr := os.Open(resolvedExceptions)
 		if openErr != nil {
 			writeError(stderr, fmt.Errorf("open exceptions: %w", openErr))
 			return exitError
@@ -431,7 +621,7 @@ func runGate(ctx context.Context, args []string, stdout, stderr io.Writer, now f
 	return exitSuccess
 }
 
-func detectCurrent(ctx context.Context, repository, configPath, policyPath, expectedSubject string) (evidence.Plan, error) {
+func detectCurrent(ctx context.Context, repository, configPath, policyPath, expectedSubject, expectedProfile string) (evidence.Plan, error) {
 	if !fs.ValidPath(filepath.ToSlash(configPath)) || hasControl(configPath) {
 		return evidence.Plan{}, errors.New("consumer configuration must be a safe repository-relative path")
 	}
@@ -442,17 +632,12 @@ func detectCurrent(ctx context.Context, repository, configPath, policyPath, expe
 	if expectedSubject != "" && expectedSubject != subject {
 		return evidence.Plan{}, errors.New("expected subject does not match checked-out commit")
 	}
-	configuration, err := tracked.Open(filepath.ToSlash(configPath))
+	consumer, err := readTrackedConsumer(tracked, configPath)
 	if err != nil {
-		return evidence.Plan{}, fmt.Errorf("open tracked consumer configuration: %w", err)
+		return evidence.Plan{}, err
 	}
-	consumer, err := config.DecodeConsumer(configuration)
-	closeErr := configuration.Close()
-	if err != nil {
-		return evidence.Plan{}, fmt.Errorf("decode consumer configuration: %w", err)
-	}
-	if closeErr != nil {
-		return evidence.Plan{}, fmt.Errorf("close consumer configuration: %w", closeErr)
+	if expectedProfile != "" && string(consumer.Profile) != expectedProfile {
+		return evidence.Plan{}, fmt.Errorf("configured profile %q does not match requested profile %q", consumer.Profile, expectedProfile)
 	}
 	policy, err := os.ReadFile(policyPath)
 	if err != nil {
@@ -515,6 +700,74 @@ func trackedRepository(ctx context.Context, root string) (fs.FS, string, error) 
 		tracked[name] = &fstest.MapFile{Data: data, Mode: mode}
 	}
 	return tracked, subject, nil
+}
+
+func readTrackedConsumer(tracked fs.FS, configPath string) (config.Consumer, error) {
+	if !fs.ValidPath(filepath.ToSlash(configPath)) || hasControl(configPath) {
+		return config.Consumer{}, errors.New("consumer configuration must be a safe repository-relative path")
+	}
+	configuration, err := tracked.Open(filepath.ToSlash(configPath))
+	if err != nil {
+		return config.Consumer{}, fmt.Errorf("open tracked consumer configuration: %w", err)
+	}
+	consumer, decodeErr := config.DecodeConsumer(configuration)
+	closeErr := configuration.Close()
+	if decodeErr != nil {
+		return config.Consumer{}, fmt.Errorf("decode consumer configuration: %w", decodeErr)
+	}
+	if closeErr != nil {
+		return config.Consumer{}, fmt.Errorf("close consumer configuration: %w", closeErr)
+	}
+	return consumer, nil
+}
+
+func consumerModules(tracked fs.FS, consumer config.Consumer) ([]string, error) {
+	detected := make([]string, 0)
+	err := fs.WalkDir(tracked, ".", func(name string, entry fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if !entry.IsDir() && filepath.Base(name) == "go.mod" {
+			module := filepath.ToSlash(filepath.Dir(name))
+			if module == "." {
+				module = "."
+			}
+			detected = append(detected, module)
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("discover Go modules: %w", err)
+	}
+	slices.Sort(detected)
+	isGoProfile := consumer.Profile == config.ProfileGoStrict || consumer.Profile == config.ProfileGoLibrary
+	if isGoProfile && len(detected) == 0 {
+		return nil, fmt.Errorf("profile %q requires a tracked go.mod", consumer.Profile)
+	}
+	if !isGoProfile && len(detected) != 0 {
+		return nil, fmt.Errorf("profile %q would omit tracked Go modules", consumer.Profile)
+	}
+	if len(consumer.Modules) == 0 {
+		return detected, nil
+	}
+	configured := make([]string, len(consumer.Modules))
+	for index, module := range consumer.Modules {
+		configured[index] = string(module)
+	}
+	slices.Sort(configured)
+	if !slices.Equal(configured, detected) {
+		return nil, errors.New("configured modules do not exactly match tracked go.mod files")
+	}
+	return configured, nil
+}
+
+func generatedPath(name string, generated []string) bool {
+	for _, prefix := range generated {
+		if name == prefix || strings.HasPrefix(name, prefix+"/") {
+			return true
+		}
+	}
+	return false
 }
 
 func readPlan(name string) (evidence.Plan, error) {
@@ -624,6 +877,10 @@ func writeJSONAtomic(name string, value any) error {
 		return fmt.Errorf("marshal JSON: %w", err)
 	}
 	data = append(data, '\n')
+	return writeBytesAtomic(name, data)
+}
+
+func writeBytesAtomic(name string, data []byte) error {
 	if err := os.MkdirAll(filepath.Dir(name), 0o755); err != nil {
 		return fmt.Errorf("create output directory: %w", err)
 	}

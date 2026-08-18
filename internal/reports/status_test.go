@@ -16,10 +16,13 @@ func TestCountPolicyRunnerReports(t *testing.T) {
 		{tool: "path-list", report: `{"schema_version":"1","paths":[]}`},
 		{tool: "path-list", report: `{"schema_version":"1","paths":["a.go","b.go"]}`, findings: 2},
 		{tool: "junit", report: `<testsuites tests="2" failures="1" errors="1"><testsuite name="pkg" tests="2" failures="1" errors="1"></testsuite></testsuites>`, findings: 2},
+		{tool: "junit", report: `<testsuites tests="1"><testsuite name="pkg" tests="1"></testsuite></testsuites>`},
 		{tool: "markdownlint", report: `[]`},
 		{tool: "markdownlint", report: `[{"fileName":"README.md","lineNumber":1,"ruleNames":["MD001"],"ruleDescription":"heading","ruleInformation":"x","errorDetail":null,"errorContext":null,"errorRange":null,"fixInfo":null}]`, findings: 1},
 		{tool: "yamllint", report: "{\"schema_version\":\"1\",\"execution_successful\":true}\n"},
 		{tool: "yamllint", report: "{\"schema_version\":\"1\",\"execution_successful\":true}\n.github/test.yml:1:1: [warning] missing document start (document-start)\n", findings: 1},
+		{tool: "gopls", report: "{\"schema_version\":\"1\",\"parser\":\"gopls-diagnostics-v1\",\"execution_successful\":true}\n"},
+		{tool: "gopls", report: "{\"schema_version\":\"1\",\"parser\":\"gopls-diagnostics-v1\",\"execution_successful\":true}\nbroken.go:3:14-15: expected ')'\n", findings: 1},
 	}
 	for _, test := range tests {
 		t.Run(test.tool, func(t *testing.T) {
@@ -44,6 +47,7 @@ func TestCountPolicyRunnerReportsRejectMalformedInput(t *testing.T) {
 		{tool: "junit", report: `<testsuites tests="1" failures="2"></testsuites>`},
 		{tool: "markdownlint", report: `[null]`},
 		{tool: "yamllint", report: "{\"schema_version\":\"1\",\"execution_successful\":false}\n"},
+		{tool: "gopls", report: "{\"schema_version\":\"1\",\"parser\":\"gopls-diagnostics-v1\",\"execution_successful\":false}\n"},
 	}
 	for _, test := range tests {
 		t.Run(test.tool, func(t *testing.T) {
@@ -60,6 +64,7 @@ func TestParserToolBindsCatalogIdentity(t *testing.T) {
 		"command-status/v1":     "command-status",
 		"path-list/v1":          "path-list",
 		"gotestsum-junit/v1":    "junit",
+		"gopls-diagnostics/v1":  "gopls",
 		"markdownlint-json/v1":  "markdownlint",
 		"yamllint-parsable/v1":  "yamllint",
 		"golangci-lint-json/v1": "golangci-lint",

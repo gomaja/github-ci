@@ -33,8 +33,27 @@ func FuzzCountPolicyRunner(f *testing.F) {
 	f.Add("junit", []byte(`<testsuites tests="0" failures="0" errors="0"></testsuites>`))
 	f.Add("markdownlint", []byte(`[]`))
 	f.Add("yamllint", []byte("{\"schema_version\":\"1\",\"execution_successful\":true}\n"))
+	f.Add("gopls", []byte("{\"schema_version\":\"1\",\"parser\":\"gopls-diagnostics-v1\",\"execution_successful\":true}\n"))
 	f.Fuzz(func(t *testing.T, tool string, data []byte) {
 		result, err := Count(tool, bytes.NewReader(data))
+		if err == nil && result.Findings < 0 {
+			t.Fatalf("Count() findings = %d", result.Findings)
+		}
+	})
+}
+
+func FuzzCountAggregate(f *testing.F) {
+	var seed bytes.Buffer
+	err := WriteAggregate("command-status", []NamedReport{{
+		Module: ".",
+		Data:   []byte(`{"schema_version":"1","execution_successful":true}`),
+	}}, &seed)
+	if err != nil {
+		f.Fatalf("build aggregate seed: %v", err)
+	}
+	f.Add(seed.Bytes())
+	f.Fuzz(func(t *testing.T, data []byte) {
+		result, err := Count("command-status", bytes.NewReader(data))
 		if err == nil && result.Findings < 0 {
 			t.Fatalf("Count() findings = %d", result.Findings)
 		}

@@ -17,49 +17,446 @@ on:
       go-version:
         description: Current supported Go version.
         required: false
-        default: "[[.Policy.GoVersions.Current]]"
+        default: "[%.Policy.GoVersions.Current%]"
         type: string
       previous-go-version:
         description: Previous supported Go version.
         required: false
-        default: "[[.Policy.GoVersions.Previous]]"
+        default: "[%.Policy.GoVersions.Previous%]"
         type: string
 
 permissions:
   contents: read
 
 jobs:
-  policy:
-    name: policy
+  preflight:
+    name: preflight
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - name: Harden runner
-        uses: [[.Action "harden-runner"]]
+        uses: [%.Action "harden-runner"%]
         with:
           egress-policy: audit
       - name: Check out consumer
-        uses: [[.Action "checkout"]]
+        uses: [%.Action "checkout"%]
         with:
           persist-credentials: false
-      - name: Set up Go
-        uses: [[.Action "setup-go"]]
+          path: source
+      - name: Check out workflow helpers
+        uses: [%.Action "checkout"%]
+        with:
+          repository: gomaja/github-ci
+          ref: ${{ github.workflow_sha }}
+          persist-credentials: false
+          path: github-ci
+      - name: Bootstrap policy CLI
+        id: bootstrap
+        uses: ./github-ci/actions/bootstrap
         with:
           go-version: ${{ inputs.go-version }}
-          cache: false
-      - name: Validate toolchain
+          install-tools: "false"
+      - name: Build applicability plan
+        env:
+          CLI: ${{ runner.temp }}/github-ci-bin/github-ci
+          CONFIG_PATH: ${{ inputs.config-path }}
+          EXPECTED_PROFILE: ${{ inputs.profile }}
+          POLICY_PATH: ${{ github.workspace }}/github-ci/policies/tools.yaml
+          SOURCE_DIR: ${{ github.workspace }}/source
+          SUBJECT_SHA: ${{ github.sha }}
+          PLAN_PATH: ${{ runner.temp }}/github-ci-plan/plan.json
         shell: bash
-        run: go version
+        run: |
+          set -euo pipefail
+          "$CLI" preflight --repository "$SOURCE_DIR" --config "$CONFIG_PATH" --profile "$EXPECTED_PROFILE" --policy "$POLICY_PATH" --subject-sha "$SUBJECT_SHA" --output "$PLAN_PATH"
+      - name: Upload applicability plan
+        uses: [%.Action "upload-artifact"%]
+        with:
+          name: github-ci-plan
+          path: ${{ runner.temp }}/github-ci-plan
+          if-no-files-found: error
+          retention-days: 7
+
+  formatting:
+    name: formatting
+    needs: preflight
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Harden runner
+        uses: [%.Action "harden-runner"%]
+        with:
+          egress-policy: audit
+      - name: Check out consumer
+        uses: [%.Action "checkout"%]
+        with:
+          persist-credentials: false
+          path: source
+      - name: Check out workflow helpers
+        uses: [%.Action "checkout"%]
+        with:
+          repository: gomaja/github-ci
+          ref: ${{ github.workflow_sha }}
+          persist-credentials: false
+          path: github-ci
+      - name: Bootstrap analyzers
+        id: bootstrap
+        uses: ./github-ci/actions/bootstrap
+        with:
+          go-version: ${{ inputs.go-version }}
+      - name: Download applicability plan
+        uses: [%.Action "download-artifact"%]
+        with:
+          name: github-ci-plan
+          path: ${{ runner.temp }}/github-ci-plan
+      - name: Run formatting analyzers
+        env:
+          CENTRAL_DIR: ${{ github.workspace }}/github-ci
+          CONFIG_PATH: ${{ inputs.config-path }}
+          GITHUB_CI_CLI: ${{ runner.temp }}/github-ci-bin/github-ci
+          OUTPUT_DIR: ${{ runner.temp }}/github-ci-evidence
+          PLAN_PATH: ${{ runner.temp }}/github-ci-plan/plan.json
+          SOURCE_DIR: ${{ github.workspace }}/source
+        shell: bash
+        run: bash "$CENTRAL_DIR/scripts/run-go-group.sh" formatting
+      - name: Upload formatting evidence
+        if: ${{ always() }}
+        uses: [%.Action "upload-artifact"%]
+        with:
+          name: go-formatting-evidence
+          path: ${{ runner.temp }}/github-ci-evidence
+          if-no-files-found: error
+          retention-days: 7
+
+  core:
+    name: core correctness
+    needs: preflight
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Harden runner
+        uses: [%.Action "harden-runner"%]
+        with:
+          egress-policy: audit
+      - name: Check out consumer
+        uses: [%.Action "checkout"%]
+        with:
+          persist-credentials: false
+          path: source
+      - name: Check out workflow helpers
+        uses: [%.Action "checkout"%]
+        with:
+          repository: gomaja/github-ci
+          ref: ${{ github.workflow_sha }}
+          persist-credentials: false
+          path: github-ci
+      - name: Bootstrap analyzers
+        id: bootstrap
+        uses: ./github-ci/actions/bootstrap
+        with:
+          go-version: ${{ inputs.go-version }}
+      - name: Download applicability plan
+        uses: [%.Action "download-artifact"%]
+        with:
+          name: github-ci-plan
+          path: ${{ runner.temp }}/github-ci-plan
+      - name: Run core analyzers
+        env:
+          CENTRAL_DIR: ${{ github.workspace }}/github-ci
+          CONFIG_PATH: ${{ inputs.config-path }}
+          GITHUB_CI_CLI: ${{ runner.temp }}/github-ci-bin/github-ci
+          OUTPUT_DIR: ${{ runner.temp }}/github-ci-evidence
+          PLAN_PATH: ${{ runner.temp }}/github-ci-plan/plan.json
+          SOURCE_DIR: ${{ github.workspace }}/source
+        shell: bash
+        run: bash "$CENTRAL_DIR/scripts/run-go-group.sh" core
+      - name: Upload core evidence
+        if: ${{ always() }}
+        uses: [%.Action "upload-artifact"%]
+        with:
+          name: go-core-evidence
+          path: ${{ runner.temp }}/github-ci-evidence
+          if-no-files-found: error
+          retention-days: 7
+
+  tests:
+    name: tests and race
+    needs: preflight
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Harden runner
+        uses: [%.Action "harden-runner"%]
+        with:
+          egress-policy: audit
+      - name: Check out consumer
+        uses: [%.Action "checkout"%]
+        with:
+          persist-credentials: false
+          path: source
+      - name: Check out workflow helpers
+        uses: [%.Action "checkout"%]
+        with:
+          repository: gomaja/github-ci
+          ref: ${{ github.workflow_sha }}
+          persist-credentials: false
+          path: github-ci
+      - name: Bootstrap analyzers
+        id: bootstrap
+        uses: ./github-ci/actions/bootstrap
+        with:
+          go-version: ${{ inputs.go-version }}
+      - name: Download applicability plan
+        uses: [%.Action "download-artifact"%]
+        with:
+          name: github-ci-plan
+          path: ${{ runner.temp }}/github-ci-plan
+      - name: Run test analyzers
+        env:
+          CENTRAL_DIR: ${{ github.workspace }}/github-ci
+          CONFIG_PATH: ${{ inputs.config-path }}
+          GITHUB_CI_CLI: ${{ runner.temp }}/github-ci-bin/github-ci
+          OUTPUT_DIR: ${{ runner.temp }}/github-ci-evidence
+          PLAN_PATH: ${{ runner.temp }}/github-ci-plan/plan.json
+          SOURCE_DIR: ${{ github.workspace }}/source
+        shell: bash
+        run: bash "$CENTRAL_DIR/scripts/run-go-group.sh" tests
+      - name: Upload test evidence
+        if: ${{ always() }}
+        uses: [%.Action "upload-artifact"%]
+        with:
+          name: go-test-evidence
+          path: ${{ runner.temp }}/github-ci-evidence
+          if-no-files-found: error
+          retention-days: 7
+
+  analysis:
+    name: static analysis
+    needs: preflight
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Harden runner
+        uses: [%.Action "harden-runner"%]
+        with:
+          egress-policy: audit
+      - name: Check out consumer
+        uses: [%.Action "checkout"%]
+        with:
+          persist-credentials: false
+          path: source
+      - name: Check out workflow helpers
+        uses: [%.Action "checkout"%]
+        with:
+          repository: gomaja/github-ci
+          ref: ${{ github.workflow_sha }}
+          persist-credentials: false
+          path: github-ci
+      - name: Bootstrap analyzers
+        id: bootstrap
+        uses: ./github-ci/actions/bootstrap
+        with:
+          go-version: ${{ inputs.go-version }}
+      - name: Download applicability plan
+        uses: [%.Action "download-artifact"%]
+        with:
+          name: github-ci-plan
+          path: ${{ runner.temp }}/github-ci-plan
+      - name: Run static analyzers
+        env:
+          CENTRAL_DIR: ${{ github.workspace }}/github-ci
+          CONFIG_PATH: ${{ inputs.config-path }}
+          GITHUB_CI_CLI: ${{ runner.temp }}/github-ci-bin/github-ci
+          OUTPUT_DIR: ${{ runner.temp }}/github-ci-evidence
+          PLAN_PATH: ${{ runner.temp }}/github-ci-plan/plan.json
+          SOURCE_DIR: ${{ github.workspace }}/source
+        shell: bash
+        run: bash "$CENTRAL_DIR/scripts/run-go-group.sh" analysis
+      - name: Upload static-analysis evidence
+        if: ${{ always() }}
+        uses: [%.Action "upload-artifact"%]
+        with:
+          name: go-analysis-evidence
+          path: ${{ runner.temp }}/github-ci-evidence
+          if-no-files-found: error
+          retention-days: 7
+
+  compatibility:
+    name: Go ${{ matrix.go-version }}
+    needs: preflight
+    strategy:
+      fail-fast: false
+      matrix:
+        go-version: ["${{ inputs.go-version }}", "${{ inputs.previous-go-version }}"]
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Harden runner
+        uses: [%.Action "harden-runner"%]
+        with:
+          egress-policy: audit
+      - name: Check out consumer
+        uses: [%.Action "checkout"%]
+        with:
+          persist-credentials: false
+          path: source
+      - name: Check out workflow helpers
+        uses: [%.Action "checkout"%]
+        with:
+          repository: gomaja/github-ci
+          ref: ${{ github.workflow_sha }}
+          persist-credentials: false
+          path: github-ci
+      - name: Bootstrap compatibility toolchain
+        id: bootstrap
+        uses: ./github-ci/actions/bootstrap
+        with:
+          go-version: ${{ matrix.go-version }}
+          install-tools: "false"
+      - name: Build and test every module
+        env:
+          CLI: ${{ runner.temp }}/github-ci-bin/github-ci
+          CONFIG_PATH: ${{ inputs.config-path }}
+          SOURCE_DIR: ${{ github.workspace }}/source
+        shell: bash
+        run: |
+          set -euo pipefail
+          modules=()
+          while IFS= read -r module; do
+            modules+=("$module")
+          done < <("$CLI" modules --repository "$SOURCE_DIR" --config "$CONFIG_PATH" | jq -r '.modules[]')
+          for module in "${modules[@]}"; do
+            directory="$SOURCE_DIR"
+            [[ "$module" == "." ]] || directory="$SOURCE_DIR/$module"
+            (cd "$directory" && go build ./... && go test ./... -count=1)
+          done
+
+  evidence:
+    name: evidence
+    if: ${{ always() }}
+    needs: [preflight, formatting, core, tests, analysis]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Harden runner
+        uses: [%.Action "harden-runner"%]
+        with:
+          egress-policy: audit
+      - name: Check out workflow helpers
+        uses: [%.Action "checkout"%]
+        with:
+          repository: gomaja/github-ci
+          ref: ${{ github.workflow_sha }}
+          persist-credentials: false
+          path: github-ci
+      - name: Bootstrap policy CLI
+        id: bootstrap
+        uses: ./github-ci/actions/bootstrap
+        with:
+          go-version: ${{ inputs.go-version }}
+          install-tools: "false"
+      - name: Download applicability plan
+        if: ${{ always() }}
+        uses: [%.Action "download-artifact"%]
+        with:
+          name: github-ci-plan
+          path: ${{ runner.temp }}/github-ci-bundle/plan
+      - name: Download producer evidence
+        if: ${{ always() }}
+        uses: [%.Action "download-artifact"%]
+        with:
+          pattern: go-*-evidence
+          path: ${{ runner.temp }}/github-ci-bundle
+          merge-multiple: true
+      - name: Build producer manifest
+        if: ${{ always() }}
+        env:
+          ANALYSIS_RESULT: ${{ needs.analysis.result }}
+          CORE_RESULT: ${{ needs.core.result }}
+          EVIDENCE_DIR: ${{ runner.temp }}/github-ci-bundle
+          FORMAT_RESULT: ${{ needs.formatting.result }}
+          GITHUB_CI_CLI: ${{ runner.temp }}/github-ci-bin/github-ci
+          PLAN_PATH: ${{ runner.temp }}/github-ci-bundle/plan/plan.json
+          TEST_RESULT: ${{ needs.tests.result }}
+        shell: bash
+        run: bash "$GITHUB_WORKSPACE/github-ci/scripts/build-go-manifest.sh" "$EVIDENCE_DIR/manifest.json"
+      - name: Upload evidence bundle
+        if: ${{ always() }}
+        uses: [%.Action "upload-artifact"%]
+        with:
+          name: github-ci-evidence
+          path: ${{ runner.temp }}/github-ci-bundle
+          if-no-files-found: error
+          retention-days: 7
 
   gate:
     name: gate
     if: ${{ always() }}
-    needs: [policy]
+    needs: [evidence, compatibility]
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
-      - name: Require policy job
+      - name: Harden runner
+        uses: [%.Action "harden-runner"%]
+        with:
+          egress-policy: audit
+      - name: Check out consumer
+        uses: [%.Action "checkout"%]
+        with:
+          persist-credentials: false
+          path: source
+      - name: Check out workflow helpers
+        uses: [%.Action "checkout"%]
+        with:
+          repository: gomaja/github-ci
+          ref: ${{ github.workflow_sha }}
+          persist-credentials: false
+          path: github-ci
+      - name: Bootstrap policy CLI
+        id: bootstrap
+        uses: ./github-ci/actions/bootstrap
+        with:
+          go-version: ${{ inputs.go-version }}
+          install-tools: "false"
+      - name: Download evidence bundle
+        uses: [%.Action "download-artifact"%]
+        with:
+          name: github-ci-evidence
+          path: ${{ runner.temp }}/github-ci-bundle
+      - name: Evaluate aggregate gate
         env:
-          RESULT: ${{ needs.policy.result }}
+          CLI: ${{ runner.temp }}/github-ci-bin/github-ci
+          CONFIG_PATH: ${{ inputs.config-path }}
+          MANIFEST_PATH: ${{ runner.temp }}/github-ci-bundle/manifest.json
+          PLAN_PATH: ${{ runner.temp }}/github-ci-bundle/plan/plan.json
+          POLICY_PATH: ${{ github.workspace }}/github-ci/policies/tools.yaml
+          RESULT_PATH: ${{ runner.temp }}/github-ci-result/result.json
+          SOURCE_DIR: ${{ github.workspace }}/source
+          STATUS_PATH: ${{ runner.temp }}/github-ci-result/status
         shell: bash
-        run: test "$RESULT" = success
+        run: |
+          set -euo pipefail
+          mkdir -p "$(dirname "$RESULT_PATH")"
+          set +e
+          "$CLI" gate --repository "$SOURCE_DIR" --config "$CONFIG_PATH" --policy "$POLICY_PATH" --plan "$PLAN_PATH" --manifest "$MANIFEST_PATH" --output "$RESULT_PATH"
+          status=$?
+          set -e
+          printf '%s\n' "$status" > "$STATUS_PATH"
+      - name: Upload aggregate result
+        if: ${{ always() }}
+        uses: [%.Action "upload-artifact"%]
+        with:
+          name: github-ci-gate
+          path: ${{ runner.temp }}/github-ci-result
+          if-no-files-found: error
+          retention-days: 7
+      - name: Enforce aggregate result
+        env:
+          COMPATIBILITY_RESULT: ${{ needs.compatibility.result }}
+          STATUS_PATH: ${{ runner.temp }}/github-ci-result/status
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$COMPATIBILITY_RESULT" == success ]]
+          [[ -s "$STATUS_PATH" ]]
+          [[ "$(cat "$STATUS_PATH")" == 0 ]]

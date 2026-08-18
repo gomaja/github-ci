@@ -32,6 +32,7 @@ var templatePaths = []string{
 	"templates/callers/github-ci.yml.tmpl",
 	"templates/callers/github-ci-deep.yml.tmpl",
 	"templates/callers/github-ci-release.yml.tmpl",
+	"templates/configs/golangci.yml.tmpl",
 }
 
 var generatedPaths = []string{
@@ -41,6 +42,7 @@ var generatedPaths = []string{
 	"templates/callers/generated/github-ci.yml",
 	"templates/callers/generated/github-ci-deep.yml",
 	"templates/callers/generated/github-ci-release.yml",
+	"configs/golangci.yml",
 }
 
 // Policy is the complete immutable action and tool inventory.
@@ -317,7 +319,7 @@ func render(root string) ([]rendered, error) {
 		if readErr != nil {
 			return nil, fmt.Errorf("read template %s: %w", templatePath, readErr)
 		}
-		parsed, parseErr := template.New(filepath.Base(templatePath)).Delims("[[", "]]").Option("missingkey=error").Parse(string(contents))
+		parsed, parseErr := template.New(filepath.Base(templatePath)).Delims("[%", "%]").Option("missingkey=error").Parse(string(contents))
 		if parseErr != nil {
 			return nil, fmt.Errorf("parse template %s: %w", templatePath, parseErr)
 		}

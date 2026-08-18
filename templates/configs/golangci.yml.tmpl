@@ -1,0 +1,11 @@
+# Code generated from templates/configs/golangci.yml.tmpl; DO NOT EDIT.
+version: "2"
+
+linters:
+  default: none
+  enable:
+[%range .Linters%]    - [%.%]
+[%end%]
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0

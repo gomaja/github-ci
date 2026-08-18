@@ -72,6 +72,37 @@ func TestLoadLintersRequiresExactly74UniqueEntries(t *testing.T) {
 	}
 }
 
+func TestCheckedInPolicyBindsSemanticParsers(t *testing.T) {
+	file, err := os.Open(filepath.Join("..", "..", "policies", "tools.yaml"))
+	if err != nil {
+		t.Fatalf("open checked-in policy: %v", err)
+	}
+	policy, loadErr := LoadPolicy(file)
+	closeErr := file.Close()
+	if loadErr != nil || closeErr != nil {
+		t.Fatalf("load checked-in policy: %v, close: %v", loadErr, closeErr)
+	}
+
+	want := map[string]string{
+		"go-current":  "command-status/v1",
+		"go-previous": "command-status/v1",
+		"gopls":       "gopls-diagnostics/v1",
+	}
+	for _, tool := range policy.Tools {
+		parser, exists := want[tool.ID]
+		if !exists {
+			continue
+		}
+		if tool.Parser != parser {
+			t.Errorf("tool %q parser = %q, want %q", tool.ID, tool.Parser, parser)
+		}
+		delete(want, tool.ID)
+	}
+	for tool := range want {
+		t.Errorf("checked-in policy is missing tool %q", tool)
+	}
+}
+
 func TestGenerateIsDeterministicAndVerifyDetectsDrift(t *testing.T) {
 	root := fixtureRoot(t)
 	if err := Generate(root); err != nil {

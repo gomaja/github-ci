@@ -87,11 +87,11 @@ func countJUnit(data []byte) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	failures, err := requiredNonnegative("testsuites failures", suites.Failures)
+	failures, err := optionalNonnegative("testsuites failures", suites.Failures)
 	if err != nil {
 		return 0, err
 	}
-	errorsCount, err := requiredNonnegative("testsuites errors", suites.Errors)
+	errorsCount, err := optionalNonnegative("testsuites errors", suites.Errors)
 	if err != nil {
 		return 0, err
 	}
@@ -103,11 +103,11 @@ func countJUnit(data []byte) (int, error) {
 		if suiteErr != nil {
 			return 0, suiteErr
 		}
-		suiteFailures, suiteErr := requiredNonnegative(fmt.Sprintf("testsuite %d failures", index), suite.Failures)
+		suiteFailures, suiteErr := optionalNonnegative(fmt.Sprintf("testsuite %d failures", index), suite.Failures)
 		if suiteErr != nil {
 			return 0, suiteErr
 		}
-		suiteErrors, suiteErr := requiredNonnegative(fmt.Sprintf("testsuite %d errors", index), suite.Errors)
+		suiteErrors, suiteErr := optionalNonnegative(fmt.Sprintf("testsuite %d errors", index), suite.Errors)
 		if suiteErr != nil {
 			return 0, suiteErr
 		}
@@ -127,6 +127,13 @@ func requiredNonnegative(field, value string) (int, error) {
 		return 0, fmt.Errorf("%s must be a nonnegative integer", field)
 	}
 	return parsed, nil
+}
+
+func optionalNonnegative(field, value string) (int, error) {
+	if value == "" {
+		return 0, nil
+	}
+	return requiredNonnegative(field, value)
 }
 
 var yamllintLine = regexp.MustCompile(`^(.+):([0-9]+):([0-9]+): \[(warning|error)\] .+ \([A-Za-z0-9_-]+\)$`)
@@ -161,6 +168,38 @@ func countYamllint(data []byte) (int, error) {
 		}
 		if err := pathpolicy.Validate("yamllint path", match[1]); err != nil {
 			return 0, fmt.Errorf("yamllint finding %d: %w", index, err)
+		}
+	}
+	return len(lines), nil
+}
+
+func countGopls(data []byte) (int, error) {
+	newline := bytes.IndexByte(data, '\n')
+	if newline < 0 {
+		return 0, errors.New("gopls report has no runner envelope")
+	}
+	var envelope struct {
+		SchemaVersion       string `json:"schema_version"`
+		Parser              string `json:"parser"`
+		ExecutionSuccessful *bool  `json:"execution_successful"`
+	}
+	if err := decodeStrictJSON(data[:newline], &envelope); err != nil {
+		return 0, fmt.Errorf("decode gopls runner envelope: %w", err)
+	}
+	if envelope.SchemaVersion != "1" || envelope.Parser != "gopls-diagnostics-v1" {
+		return 0, errors.New("unsupported gopls runner envelope")
+	}
+	if envelope.ExecutionSuccessful == nil || !*envelope.ExecutionSuccessful {
+		return 0, errors.New("gopls runner execution_successful is not true")
+	}
+	payload := strings.TrimSuffix(string(data[newline+1:]), "\n")
+	if payload == "" {
+		return 0, nil
+	}
+	lines := strings.Split(payload, "\n")
+	for index, line := range lines {
+		if strings.TrimSpace(line) == "" || strings.ContainsAny(line, "\r\x00") {
+			return 0, fmt.Errorf("invalid gopls diagnostic line %d", index)
 		}
 	}
 	return len(lines), nil

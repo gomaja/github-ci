@@ -6,7 +6,7 @@ on:
     inputs:
       go-version:
         required: false
-        default: "[[.Policy.GoVersions.Current]]"
+        default: "[%.Policy.GoVersions.Current%]"
         type: string
 
 permissions:
@@ -19,15 +19,15 @@ jobs:
     timeout-minutes: 30
     steps:
       - name: Harden runner
-        uses: [[.Action "harden-runner"]]
+        uses: [%.Action "harden-runner"%]
         with:
           egress-policy: audit
       - name: Check out consumer
-        uses: [[.Action "checkout"]]
+        uses: [%.Action "checkout"%]
         with:
           persist-credentials: false
       - name: Set up Go
-        uses: [[.Action "setup-go"]]
+        uses: [%.Action "setup-go"%]
         with:
           go-version: ${{ inputs.go-version }}
           cache: false
