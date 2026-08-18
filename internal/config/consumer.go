@@ -5,11 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"path"
 	"regexp"
-	"strings"
 	"unicode"
 
+	"github.com/gomaja/github-ci/internal/pathpolicy"
 	"gopkg.in/yaml.v3"
 )
 
@@ -71,7 +70,7 @@ func (consumer Consumer) Validate() error {
 
 	modules := make(map[Module]struct{}, len(consumer.Modules))
 	for _, module := range consumer.Modules {
-		if err := validateRelativePath("module", string(module)); err != nil {
+		if err := pathpolicy.Validate("module", string(module)); err != nil {
 			return err
 		}
 		if _, exists := modules[module]; exists {
@@ -96,12 +95,12 @@ func (consumer Consumer) Validate() error {
 	}
 
 	for _, generated := range consumer.Generated {
-		if err := validateRelativePath("generated path", generated); err != nil {
+		if err := pathpolicy.Validate("generated path", generated); err != nil {
 			return err
 		}
 	}
 	if consumer.Exceptions != "" {
-		if err := validateRelativePath("exceptions path", consumer.Exceptions); err != nil {
+		if err := pathpolicy.Validate("exceptions path", consumer.Exceptions); err != nil {
 			return err
 		}
 	}
@@ -148,28 +147,6 @@ func decodeStrictYAML(reader io.Reader, destination any) error {
 
 func isProfile(profile Profile) bool {
 	return profile == ProfileGoStrict || profile == ProfileGoLibrary || profile == ProfileRepositoryOnly
-}
-
-func validateRelativePath(field, value string) error {
-	if err := validateText(field, value); err != nil {
-		return err
-	}
-	if path.IsAbs(value) || strings.HasPrefix(value, "\\") || windowsAbsolutePath(value) {
-		return fmt.Errorf("%s must not be absolute: %q", field, value)
-	}
-	if strings.Contains(value, "\\") {
-		return fmt.Errorf("%s must use slash-separated paths: %q", field, value)
-	}
-	for _, part := range strings.Split(value, "/") {
-		if part == ".." {
-			return fmt.Errorf("%s must not contain traversal: %q", field, value)
-		}
-	}
-	return nil
-}
-
-func windowsAbsolutePath(value string) bool {
-	return len(value) >= 3 && unicode.IsLetter(rune(value[0])) && value[1] == ':' && (value[2] == '/' || value[2] == '\\')
 }
 
 func validateText(field, value string) error {

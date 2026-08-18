@@ -4,19 +4,18 @@ package evidence
 import (
 	"encoding/json"
 	"fmt"
-	"path"
 	"regexp"
-	"strings"
 	"unicode"
+
+	"github.com/gomaja/github-ci/internal/pathpolicy"
 )
 
 const SchemaVersion = "1"
 
 var (
-	gitSHAPattern     = regexp.MustCompile(`^[0-9a-f]{40}$`)
-	sha256Pattern     = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
-	toolNamePattern   = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]*$`)
-	windowsAbsPattern = regexp.MustCompile(`^[A-Za-z]:[/\\]`)
+	gitSHAPattern   = regexp.MustCompile(`^[0-9a-f]{40}$`)
+	sha256Pattern   = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
+	toolNamePattern = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]*$`)
 )
 
 // Applicability records whether policy requires a tool for the subject.
@@ -100,7 +99,7 @@ func ValidateRecord(record Record) error {
 	if record.Applicability != Applicable && record.Applicability != NotApplicable {
 		return fmt.Errorf("unsupported applicability %q", record.Applicability)
 	}
-	if err := validateRelativePath("command_id", record.CommandID); err != nil {
+	if err := pathpolicy.Validate("command_id", record.CommandID); err != nil {
 		return err
 	}
 	if record.ExitCode < 0 {
@@ -152,24 +151,6 @@ func ValidateRecords(subjectSHA string, records []Record) error {
 			return fmt.Errorf("duplicate evidence identity %q", identity)
 		}
 		identities[identity] = struct{}{}
-	}
-	return nil
-}
-
-func validateRelativePath(field, value string) error {
-	if err := validateText(field, value); err != nil {
-		return err
-	}
-	if path.IsAbs(value) || strings.HasPrefix(value, `\`) || windowsAbsPattern.MatchString(value) {
-		return fmt.Errorf("%s must be relative: %q", field, value)
-	}
-	if strings.Contains(value, `\`) {
-		return fmt.Errorf("%s must use slash-separated paths: %q", field, value)
-	}
-	for _, part := range strings.Split(value, "/") {
-		if part == ".." {
-			return fmt.Errorf("%s must not contain traversal: %q", field, value)
-		}
 	}
 	return nil
 }

@@ -2,6 +2,7 @@ package reports
 
 import (
 	"bytes"
+	"encoding/json"
 	"io"
 	"os"
 	"strings"
@@ -137,6 +138,41 @@ func TestCountSARIFCountsEveryRun(t *testing.T) {
 	}
 }
 
+func TestCountSARIFRejectsFailedOrExternalizedRuns(t *testing.T) {
+	tests := []struct {
+		fixture string
+		want    string
+	}{
+		{fixture: "sarif-invocation-failed.json", want: "executionSuccessful"},
+		{fixture: "sarif-invocation-missing-success.json", want: "executionSuccessful"},
+		{fixture: "sarif-tool-execution-error.json", want: "toolExecutionNotifications"},
+		{fixture: "sarif-tool-configuration-error.json", want: "toolConfigurationNotifications"},
+		{fixture: "sarif-runs-null.json", want: "runs"},
+		{fixture: "sarif-runs-empty.json", want: "runs"},
+		{fixture: "sarif-external-property-references.json", want: "externalPropertyFileReferences"},
+		{fixture: "sarif-inline-external-properties.json", want: "inlineExternalProperties"},
+	}
+
+	for _, test := range tests {
+		t.Run(test.fixture, func(t *testing.T) {
+			_, err := Count("sarif", bytes.NewReader(reportFixture(t, "malformed", test.fixture)))
+			if err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("Count() error = %v, want substring %q", err, test.want)
+			}
+		})
+	}
+}
+
+func TestCountSARIFAcceptsRootPropertiesAndWarningNotifications(t *testing.T) {
+	result, err := Count("sarif", bytes.NewReader(reportFixture(t, "clean", "sarif-properties-warning.json")))
+	if err != nil {
+		t.Fatalf("Count() error = %v", err)
+	}
+	if result.Findings != 0 {
+		t.Fatalf("Count() findings = %d, want 0", result.Findings)
+	}
+}
+
 func TestCountReturnsParserErrorsSeparatelyFromFindings(t *testing.T) {
 	for _, test := range []struct {
 		tool    string
@@ -177,6 +213,93 @@ func TestCountRejectsIncompleteNativeEnvelope(t *testing.T) {
 				t.Fatal("Count() accepted an incomplete native report envelope")
 			}
 		})
+	}
+}
+
+func TestCountRejectsMissingNestedFindingMembers(t *testing.T) {
+	tests := []struct {
+		tool    string
+		fixture string
+		want    string
+	}{
+		{tool: "osv-scanner", fixture: "osv-missing-packages.json", want: "packages"},
+		{tool: "osv-scanner", fixture: "osv-missing-vulnerabilities.json", want: "vulnerabilities"},
+		{tool: "trivy", fixture: "trivy-missing-target.json", want: "Target"},
+		{tool: "checkov", fixture: "checkov-missing-failed-checks.json", want: "failed_checks"},
+		{tool: "checkov", fixture: "checkov-missing-parsing-errors.json", want: "parsing_errors"},
+	}
+
+	for _, test := range tests {
+		t.Run(test.fixture, func(t *testing.T) {
+			_, err := Count(test.tool, bytes.NewReader(reportFixture(t, "malformed", test.fixture)))
+			if err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("Count() error = %v, want substring %q", err, test.want)
+			}
+		})
+	}
+}
+
+func TestCountStaticcheckRequiresSuccessfulRunnerEnvelope(t *testing.T) {
+	tests := []struct {
+		name string
+		data string
+		want string
+	}{
+		{
+			name: "raw native JSONL",
+			data: `{"code":"SA1000","severity":"error","message":"finding"}` + "\n",
+			want: "runner envelope",
+		},
+		{
+			name: "failed execution",
+			data: `{"schema_version":"1","parser":"staticcheck-jsonl-v1","execution_successful":false}` + "\n",
+			want: "execution_successful",
+		},
+		{
+			name: "wrong parser",
+			data: `{"schema_version":"1","parser":"staticcheck-json-v2","execution_successful":true}` + "\n",
+			want: "parser",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			_, err := Count("staticcheck", strings.NewReader(test.data))
+			if err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("Count() error = %v, want substring %q", err, test.want)
+			}
+		})
+	}
+}
+
+func TestStaticcheckRunnerEnvelopePreservesNativeJSONLPayload(t *testing.T) {
+	data := reportFixture(t, "findings", "staticcheck.jsonl")
+	parts := bytes.SplitN(data, []byte("\n"), 2)
+	if len(parts) != 2 {
+		t.Fatal("staticcheck fixture has no runner envelope line")
+	}
+	var envelope struct {
+		SchemaVersion       string `json:"schema_version"`
+		Parser              string `json:"parser"`
+		ExecutionSuccessful bool   `json:"execution_successful"`
+	}
+	if err := json.Unmarshal(parts[0], &envelope); err != nil {
+		t.Fatalf("decode runner envelope: %v", err)
+	}
+	if envelope.SchemaVersion != "1" || envelope.Parser != "staticcheck-jsonl-v1" || !envelope.ExecutionSuccessful {
+		t.Fatalf("runner envelope = %+v", envelope)
+	}
+	wantPayload := []byte("{\"code\":\"SA1000\",\"severity\":\"error\",\"location\":{\"file\":\"main.go\",\"line\":1,\"column\":1},\"end\":{\"file\":\"main.go\",\"line\":1,\"column\":2},\"message\":\"finding\"}\n")
+	if !bytes.Equal(parts[1], wantPayload) {
+		t.Fatalf("native payload changed:\n got: %q\nwant: %q", parts[1], wantPayload)
+	}
+
+	result, err := Count("staticcheck", bytes.NewReader(data))
+	if err != nil {
+		t.Fatalf("Count() error = %v", err)
+	}
+	if result.Findings != 1 {
+		t.Fatalf("Count() findings = %d, want 1", result.Findings)
 	}
 }
 

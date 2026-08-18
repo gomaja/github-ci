@@ -1,0 +1,1 @@
+{"results":[{"source":{"path":"go.mod","type":"lockfile"},"packages":[{"package":{"name":"example.com/module","version":"v1.0.0","ecosystem":"Go"}}]}]}

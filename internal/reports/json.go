@@ -102,19 +102,18 @@ func countGovulncheck(data []byte) (int, error) {
 }
 
 func countStaticcheck(data []byte) (int, error) {
-	trimmed := bytes.TrimSpace(data)
-	if bytes.HasPrefix(trimmed, []byte("[")) {
-		var diagnostics []json.RawMessage
-		if err := decodeStrictJSON(trimmed, &diagnostics); err != nil {
-			return 0, err
-		}
-		if diagnostics == nil || len(diagnostics) != 0 {
-			return 0, errors.New("staticcheck array marker must be an empty array")
-		}
+	payload, err := staticcheckNativePayload(data)
+	if err != nil {
+		return 0, err
+	}
+	if len(payload) == 0 {
 		return 0, nil
 	}
+	if len(bytes.TrimSpace(payload)) == 0 {
+		return 0, errors.New("staticcheck native JSONL payload contains only whitespace")
+	}
 
-	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder := json.NewDecoder(bytes.NewReader(payload))
 	findings := 0
 	for {
 		var diagnostic json.RawMessage
@@ -131,6 +130,34 @@ func countStaticcheck(data []byte) (int, error) {
 		findings++
 	}
 	return findings, nil
+}
+
+const staticcheckJSONLParserIdentity = "staticcheck-jsonl-v1"
+
+// staticcheckNativePayload keeps bytes after the first LF as the unchanged staticcheck -f json artifact.
+func staticcheckNativePayload(data []byte) ([]byte, error) {
+	newline := bytes.IndexByte(data, '\n')
+	if newline < 0 {
+		return nil, errors.New("staticcheck report has no runner envelope")
+	}
+	var envelope struct {
+		SchemaVersion       string `json:"schema_version"`
+		Parser              string `json:"parser"`
+		ExecutionSuccessful *bool  `json:"execution_successful"`
+	}
+	if err := decodeStrictJSON(data[:newline], &envelope); err != nil {
+		return nil, fmt.Errorf("decode staticcheck runner envelope: %w", err)
+	}
+	if envelope.SchemaVersion != "1" {
+		return nil, fmt.Errorf("unsupported staticcheck runner envelope schema %q", envelope.SchemaVersion)
+	}
+	if envelope.Parser != staticcheckJSONLParserIdentity {
+		return nil, fmt.Errorf("unsupported staticcheck parser %q", envelope.Parser)
+	}
+	if envelope.ExecutionSuccessful == nil || !*envelope.ExecutionSuccessful {
+		return nil, errors.New("staticcheck runner execution_successful is not true")
+	}
+	return data[newline+1:], nil
 }
 
 func countJSONArray(data []byte) (int, error) {
@@ -166,20 +193,29 @@ func countOSVScanner(data []byte) (int, error) {
 		}
 		packagesRaw, exists := result["packages"]
 		if !exists {
-			continue
+			return 0, fmt.Errorf("OSV-Scanner result %d has no packages array", resultIndex)
 		}
 		var packages []map[string]json.RawMessage
 		if err := json.Unmarshal(packagesRaw, &packages); err != nil {
 			return 0, fmt.Errorf("decode OSV-Scanner result %d packages: %w", resultIndex, err)
 		}
+		if packages == nil {
+			return 0, fmt.Errorf("OSV-Scanner result %d packages must be an array", resultIndex)
+		}
 		for packageIndex, pkg := range packages {
+			if err := requireJSONObject(pkg["package"], "OSV-Scanner package identity"); err != nil {
+				return 0, fmt.Errorf("result %d package %d: %w", resultIndex, packageIndex, err)
+			}
 			vulnerabilitiesRaw, exists := pkg["vulnerabilities"]
 			if !exists {
-				continue
+				return 0, fmt.Errorf("OSV-Scanner result %d package %d has no vulnerabilities array", resultIndex, packageIndex)
 			}
 			var vulnerabilities []json.RawMessage
 			if err := json.Unmarshal(vulnerabilitiesRaw, &vulnerabilities); err != nil {
 				return 0, fmt.Errorf("decode OSV-Scanner result %d package %d vulnerabilities: %w", resultIndex, packageIndex, err)
+			}
+			if vulnerabilities == nil {
+				return 0, fmt.Errorf("OSV-Scanner result %d package %d vulnerabilities must be an array", resultIndex, packageIndex)
 			}
 			if err := validateObjects(vulnerabilities, "OSV-Scanner vulnerability"); err != nil {
 				return 0, err
@@ -226,6 +262,9 @@ func countTrivy(data []byte) (int, error) {
 	}
 	findings := 0
 	for index, result := range *report.Results {
+		if result.Target == "" {
+			return 0, fmt.Errorf("trivy result %d has no Target identity", index)
+		}
 		groups := [][]json.RawMessage{result.Vulnerabilities, result.Misconfigurations, result.Secrets, result.Licenses, result.ModifiedFindings}
 		for _, group := range groups {
 			if err := validateObjects(group, fmt.Sprintf("Trivy result %d finding", index)); err != nil {
@@ -324,10 +363,10 @@ type checkovReport struct {
 }
 
 type checkovResults struct {
-	PassedChecks  []json.RawMessage `json:"passed_checks"`
-	FailedChecks  []json.RawMessage `json:"failed_checks"`
-	SkippedChecks []json.RawMessage `json:"skipped_checks"`
-	ParsingErrors []json.RawMessage `json:"parsing_errors"`
+	PassedChecks  []json.RawMessage  `json:"passed_checks"`
+	FailedChecks  *[]json.RawMessage `json:"failed_checks"`
+	SkippedChecks []json.RawMessage  `json:"skipped_checks"`
+	ParsingErrors *[]json.RawMessage `json:"parsing_errors"`
 }
 
 func countCheckovReports(reports []checkovReport) (int, error) {
@@ -339,13 +378,19 @@ func countCheckovReports(reports []checkovReport) (int, error) {
 		if err := requireJSONObject(report.Summary, "checkov summary"); err != nil {
 			return 0, fmt.Errorf("report %d: %w", index, err)
 		}
-		if len(report.Results.ParsingErrors) != 0 {
-			return 0, fmt.Errorf("checkov report %d contains %d parsing errors", index, len(report.Results.ParsingErrors))
+		if report.Results.FailedChecks == nil {
+			return 0, fmt.Errorf("checkov report %d has no failed_checks array", index)
 		}
-		if err := validateObjects(report.Results.FailedChecks, "Checkov failed check"); err != nil {
+		if report.Results.ParsingErrors == nil {
+			return 0, fmt.Errorf("checkov report %d has no parsing_errors array", index)
+		}
+		if len(*report.Results.ParsingErrors) != 0 {
+			return 0, fmt.Errorf("checkov report %d contains %d parsing errors", index, len(*report.Results.ParsingErrors))
+		}
+		if err := validateObjects(*report.Results.FailedChecks, "Checkov failed check"); err != nil {
 			return 0, err
 		}
-		findings += len(report.Results.FailedChecks)
+		findings += len(*report.Results.FailedChecks)
 	}
 	return findings, nil
 }

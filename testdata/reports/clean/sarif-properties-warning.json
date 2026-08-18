@@ -1,0 +1,1 @@
+{"version":"2.1.0","properties":{"source":"runner"},"runs":[{"tool":{"driver":{"name":"scanner"}},"invocations":[{"executionSuccessful":true,"toolExecutionNotifications":[{"level":"warning","message":{"text":"warning"}}],"toolConfigurationNotifications":[{"level":"note","message":{"text":"note"}}]}],"results":[]}]}

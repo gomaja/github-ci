@@ -20,14 +20,14 @@
   "properties": {
     "schema_version": { "const": "1" },
     "tool": { "type": "string", "pattern": "^[a-z0-9][a-z0-9._-]*$" },
-    "tool_version": { "type": "string", "minLength": 1 },
+    "tool_version": { "type": "string", "minLength": 1, "pattern": "^[^\\p{Cc}]+$" },
     "policy_version": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
     "subject_sha": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
     "applicability": { "enum": ["applicable", "not-applicable"] },
     "command_id": {
       "type": "string",
       "minLength": 1,
-      "pattern": "^(?!/)(?![A-Za-z]:[/\\\\])(?!.*(?:^|/)\\.\\.(?:/|$))(?!.*\\\\).+$"
+      "pattern": "^(?:\\.|[A-Za-z0-9_][A-Za-z0-9_.-]*|\\.[A-Za-z0-9_-][A-Za-z0-9_.-]*)(?:/(?:\\.|[A-Za-z0-9_][A-Za-z0-9_.-]*|\\.[A-Za-z0-9_-][A-Za-z0-9_.-]*))*$"
     },
     "exit_code": { "type": "integer", "minimum": 0 },
     "finding_count": { "type": "integer", "minimum": 0 },
@@ -53,6 +53,15 @@
           "outcome": { "const": "N/A" }
         },
         "not": { "required": ["report_sha256"] }
+      }
+    },
+    {
+      "if": { "properties": { "outcome": { "const": "pass" } } },
+      "then": {
+        "properties": {
+          "exit_code": { "const": 0 },
+          "finding_count": { "const": 0 }
+        }
       }
     }
   ]
