@@ -1,0 +1,8 @@
+{
+  "version": "2.1.0",
+  "runs": [{
+    "tool": {"driver": {"name": "scanner", "notifications": [{"id": "KNOWN"}]}},
+    "invocations": [{"executionSuccessful": true, "toolExecutionNotifications": [{"descriptor": {"index": 1}, "message": {"text": "unknown"}}]}],
+    "results": []
+  }]
+}

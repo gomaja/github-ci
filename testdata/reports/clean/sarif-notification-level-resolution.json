@@ -1,0 +1,124 @@
+{
+  "version": "2.1.0",
+  "runs": [
+    {
+      "tool": {
+        "driver": {
+          "name": "scanner",
+          "notifications": [
+            {
+              "id": "DRIVER-WARNING",
+              "guid": "11111111-1111-4111-8111-111111111111"
+            },
+            {
+              "id": "DRIVER-ERROR",
+              "guid": "22222222-2222-4222-8222-222222222222",
+              "defaultConfiguration": {
+                "level": "error"
+              }
+            },
+            {
+              "id": "DRIVER-DEFAULT"
+            }
+          ]
+        },
+        "extensions": [
+          {
+            "name": "scanner-extension",
+            "guid": "33333333-3333-4333-8333-333333333333",
+            "notifications": [
+              {
+                "id": "EXTENSION-NOTE",
+                "guid": "44444444-4444-4444-8444-444444444444",
+                "defaultConfiguration": {
+                  "level": "note"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "invocations": [
+        {
+          "executionSuccessful": true,
+          "notificationConfigurationOverrides": [
+            {
+              "descriptor": {
+                "index": 0
+              },
+              "configuration": {
+                "level": "none"
+              }
+            }
+          ],
+          "toolExecutionNotifications": [
+            {
+              "descriptor": {
+                "id": "DRIVER-WARNING",
+                "index": 0
+              },
+              "message": {
+                "text": "override resolves to none"
+              }
+            },
+            {
+              "descriptor": {
+                "guid": "22222222-2222-4222-8222-222222222222"
+              },
+              "level": "warning",
+              "message": {
+                "text": "explicit level takes precedence"
+              }
+            },
+            {
+              "descriptor": {
+                "index": 2
+              },
+              "message": {
+                "text": "descriptor with no configured level defaults to warning"
+              }
+            },
+            {
+              "descriptor": {
+                "guid": "44444444-4444-4444-8444-444444444444",
+                "toolComponent": {
+                  "name": "scanner-extension",
+                  "guid": "33333333-3333-4333-8333-333333333333"
+                }
+              },
+              "message": {
+                "text": "extension default resolves to note"
+              }
+            },
+            {
+              "message": {
+                "text": "no descriptor defaults to warning"
+              }
+            },
+            {
+              "level": "none",
+              "message": {
+                "text": "trace"
+              }
+            },
+            {
+              "level": "note",
+              "message": {
+                "text": "information"
+              }
+            }
+          ],
+          "toolConfigurationNotifications": [
+            {
+              "level": "warning",
+              "message": {
+                "text": "warning"
+              }
+            }
+          ]
+        }
+      ],
+      "results": []
+    }
+  ]
+}

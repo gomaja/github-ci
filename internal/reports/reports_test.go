@@ -147,8 +147,6 @@ func TestCountSARIFRejectsFailedOrExternalizedRuns(t *testing.T) {
 		{fixture: "sarif-invocation-missing-success.json", want: "executionSuccessful"},
 		{fixture: "sarif-tool-execution-error.json", want: "toolExecutionNotifications"},
 		{fixture: "sarif-tool-configuration-error.json", want: "toolConfigurationNotifications"},
-		{fixture: "sarif-runs-null.json", want: "runs"},
-		{fixture: "sarif-runs-empty.json", want: "runs"},
 		{fixture: "sarif-external-property-references.json", want: "externalPropertyFileReferences"},
 		{fixture: "sarif-inline-external-properties.json", want: "inlineExternalProperties"},
 	}
@@ -156,6 +154,64 @@ func TestCountSARIFRejectsFailedOrExternalizedRuns(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.fixture, func(t *testing.T) {
 			_, err := Count("sarif", bytes.NewReader(reportFixture(t, "malformed", test.fixture)))
+			if err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("Count() error = %v, want substring %q", err, test.want)
+			}
+		})
+	}
+}
+
+func TestCountSARIFRequiresCompletedScannerRun(t *testing.T) {
+	for _, fixture := range []string{"sarif-runs-null.json", "sarif-runs-empty.json"} {
+		t.Run(fixture, func(t *testing.T) {
+			_, err := Count("sarif", bytes.NewReader(reportFixture(t, "malformed", fixture)))
+			if err == nil || !strings.Contains(err.Error(), "runs") {
+				t.Fatalf("Count() error = %v, want completed scanner runs error", err)
+			}
+		})
+	}
+}
+
+func TestCountSARIFRejectsMissingDriverWithoutInvocations(t *testing.T) {
+	_, err := Count("sarif", bytes.NewReader(reportFixture(t, "malformed", "sarif-tool-missing-driver.json")))
+	if err == nil || !strings.Contains(err.Error(), "driver") {
+		t.Fatalf("Count() error = %v, want missing driver error", err)
+	}
+}
+
+func TestCountSARIFResolvesNotificationLevels(t *testing.T) {
+	tests := []struct {
+		name    string
+		class   string
+		fixture string
+		want    string
+	}{
+		{name: "explicit and inherited non-error levels", class: "clean", fixture: "sarif-notification-level-resolution.json"},
+		{name: "id-only no-metadata defaults warning", class: "clean", fixture: "sarif-notification-id-only-no-metadata.json"},
+		{name: "driver descriptor default error", class: "malformed", fixture: "sarif-notification-driver-default-error.json", want: "level error"},
+		{name: "extension descriptor default error", class: "malformed", fixture: "sarif-notification-extension-default-error.json", want: "level error"},
+		{name: "invocation override error", class: "malformed", fixture: "sarif-notification-override-error.json", want: "level error"},
+		{name: "id-only hides existing metadata", class: "malformed", fixture: "sarif-notification-id-only-existing-metadata.json", want: "index or guid"},
+		{name: "malformed descriptor", class: "malformed", fixture: "sarif-notification-malformed-descriptor.json", want: "nonnegative integer"},
+		{name: "unresolved descriptor", class: "malformed", fixture: "sarif-notification-unresolved-descriptor.json", want: "does not resolve"},
+		{name: "conflicting descriptor identity", class: "malformed", fixture: "sarif-notification-conflicting-descriptor.json", want: "does not resolve"},
+		{name: "malformed override", class: "malformed", fixture: "sarif-notification-malformed-override.json", want: "configuration"},
+		{name: "missing message", class: "malformed", fixture: "sarif-notification-missing-message.json", want: "message"},
+		{name: "empty message", class: "malformed", fixture: "sarif-notification-empty-message.json", want: "message"},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			result, err := Count("sarif", bytes.NewReader(reportFixture(t, test.class, test.fixture)))
+			if test.want == "" {
+				if err != nil {
+					t.Fatalf("Count() error = %v", err)
+				}
+				if result.Findings != 0 {
+					t.Fatalf("Count() findings = %d, want 0", result.Findings)
+				}
+				return
+			}
 			if err == nil || !strings.Contains(err.Error(), test.want) {
 				t.Fatalf("Count() error = %v, want substring %q", err, test.want)
 			}

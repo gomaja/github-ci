@@ -1,0 +1,11 @@
+{
+  "version": "2.1.0",
+  "runs": [{
+    "tool": {"driver": {"name": "scanner"}},
+    "invocations": [{"executionSuccessful": true, "toolExecutionNotifications": [{
+      "descriptor": {"id": "NO-METADATA"},
+      "message": {"text": "id-only reference with no metadata defaults to warning"}
+    }]}],
+    "results": []
+  }]
+}

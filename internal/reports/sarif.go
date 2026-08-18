@@ -32,6 +32,8 @@ func countSARIF(data []byte) (int, error) {
 			return 0, err
 		}
 	}
+	// §3.13.4 permits null or empty runs for producers without run data. This evidence
+	// parser requires at least one completed scanner run, so neither is a clean report.
 	if log.Runs == nil || len(*log.Runs) == 0 {
 		return 0, errors.New("SARIF report has no runs")
 	}
@@ -49,13 +51,18 @@ func countSARIF(data []byte) (int, error) {
 		if err := requireJSONObject(run["tool"], "SARIF run tool"); err != nil {
 			return 0, fmt.Errorf("run %d: %w", runIndex, err)
 		}
+		// OASIS SARIF 2.1.0 + Errata 01 §3.18.2 requires every tool object to have a driver.
+		resolver, err := newSARIFNotificationResolver(run["tool"])
+		if err != nil {
+			return 0, fmt.Errorf("SARIF run %d tool: %w", runIndex, err)
+		}
 		// OASIS SARIF 2.1.0 + Errata 01 §3.14.2: do not silently omit external report data.
 		if _, exists := run["externalPropertyFileReferences"]; exists {
 			return 0, fmt.Errorf("SARIF run %d externalPropertyFileReferences are unsupported", runIndex)
 		}
 		// OASIS SARIF 2.1.0 + Errata 01 §3.14.11 defines the run's invocation array.
 		if invocationsRaw, exists := run["invocations"]; exists {
-			if err := validateSARIFInvocations(invocationsRaw); err != nil {
+			if err := validateSARIFInvocations(invocationsRaw, resolver); err != nil {
 				return 0, fmt.Errorf("SARIF run %d: %w", runIndex, err)
 			}
 		}
@@ -88,7 +95,7 @@ func countSARIF(data []byte) (int, error) {
 	return findings, nil
 }
 
-func validateSARIFInvocations(raw json.RawMessage) error {
+func validateSARIFInvocations(raw json.RawMessage, resolver *sarifNotificationResolver) error {
 	var invocations []json.RawMessage
 	if err := json.Unmarshal(raw, &invocations); err != nil {
 		return fmt.Errorf("decode invocations: %w", err)
@@ -113,47 +120,17 @@ func validateSARIFInvocations(raw json.RawMessage) error {
 		if !successful {
 			return fmt.Errorf("invocation %d executionSuccessful is false", index)
 		}
+		overrides, err := resolver.notificationOverrides(invocation)
+		if err != nil {
+			return fmt.Errorf("invocation %d: %w", index, err)
+		}
 		// OASIS SARIF 2.1.0 + Errata 01 §3.20.21: an error notification fails the run.
-		if err := rejectSARIFErrorNotifications(invocation, "toolExecutionNotifications"); err != nil {
+		if err := resolver.rejectErrorNotifications(invocation, "toolExecutionNotifications", overrides); err != nil {
 			return fmt.Errorf("invocation %d: %w", index, err)
 		}
 		// OASIS SARIF 2.1.0 + Errata 01 §3.20.22 applies the same rule to configuration.
-		if err := rejectSARIFErrorNotifications(invocation, "toolConfigurationNotifications"); err != nil {
+		if err := resolver.rejectErrorNotifications(invocation, "toolConfigurationNotifications", overrides); err != nil {
 			return fmt.Errorf("invocation %d: %w", index, err)
-		}
-	}
-	return nil
-}
-
-func rejectSARIFErrorNotifications(invocation map[string]json.RawMessage, property string) error {
-	raw, exists := invocation[property]
-	if !exists {
-		return nil
-	}
-	var notifications []json.RawMessage
-	if err := json.Unmarshal(raw, &notifications); err != nil {
-		return fmt.Errorf("decode %s: %w", property, err)
-	}
-	if notifications == nil {
-		return fmt.Errorf("%s must be an array", property)
-	}
-	for index, rawNotification := range notifications {
-		var notification map[string]json.RawMessage
-		if err := json.Unmarshal(rawNotification, &notification); err != nil || notification == nil {
-			return fmt.Errorf("%s[%d] must be a JSON object", property, index)
-		}
-		level := "warning"
-		if rawLevel, exists := notification["level"]; exists {
-			if err := json.Unmarshal(rawLevel, &level); err != nil {
-				return fmt.Errorf("%s[%d].level must be a string", property, index)
-			}
-		}
-		switch level {
-		case "none", "note", "warning":
-		case "error":
-			return fmt.Errorf("%s[%d] has level error", property, index)
-		default:
-			return fmt.Errorf("%s[%d] has unsupported level %q", property, index, level)
 		}
 	}
 	return nil

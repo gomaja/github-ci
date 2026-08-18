@@ -1,0 +1,14 @@
+{
+  "version": "2.1.0",
+  "runs": [{
+    "tool": {"driver": {"name": "scanner", "notifications": [{
+      "id": "HIDDEN-ERROR",
+      "defaultConfiguration": {"level": "error"}
+    }]}},
+    "invocations": [{"executionSuccessful": true, "toolExecutionNotifications": [{
+      "descriptor": {"id": "HIDDEN-ERROR"},
+      "message": {"text": "must identify existing metadata"}
+    }]}],
+    "results": []
+  }]
+}

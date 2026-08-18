@@ -1,0 +1,12 @@
+{
+  "version": "2.1.0",
+  "runs": [{
+    "tool": {"driver": {"name": "scanner", "notifications": [{"id": "NOTICE"}]}},
+    "invocations": [{
+      "executionSuccessful": true,
+      "notificationConfigurationOverrides": [{"descriptor": {"index": 0}}],
+      "toolExecutionNotifications": [{"descriptor": {"index": 0}, "message": {"text": "notice"}}]
+    }],
+    "results": []
+  }]
+}
