@@ -51,7 +51,7 @@
         "name": { "type": "string", "minLength": 1 },
         "owner": { "type": "string", "minLength": 1 },
         "profile": { "enum": ["go-strict", "go-library", "repository-only"] },
-        "modules": { "$ref": "consumer.schema.json#/$defs/paths" },
+        "modules": { "$ref": "#/$defs/paths" },
         "build-tags": {
           "type": "array",
           "items": { "type": "string", "pattern": "^[A-Za-z0-9_.]+$" }
@@ -60,8 +60,8 @@
           "type": "array",
           "items": { "enum": ["postgresql", "redis"] }
         },
-        "generated": { "$ref": "consumer.schema.json#/$defs/paths" },
-        "exceptions": { "$ref": "consumer.schema.json#/$defs/path" },
+        "generated": { "$ref": "#/$defs/paths" },
+        "exceptions": { "$ref": "#/$defs/path" },
         "enforce-caller": { "type": "boolean" },
         "workflow-sha": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
         "observed-required-check": { "type": "string", "minLength": 1 }
@@ -72,6 +72,16 @@
           "then": { "required": ["workflow-sha", "observed-required-check"] }
         }
       ]
+    },
+    "path": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^(?:\\.|[A-Za-z0-9_][A-Za-z0-9_.-]*|\\.[A-Za-z0-9_-][A-Za-z0-9_.-]*)(?:/(?:\\.|[A-Za-z0-9_][A-Za-z0-9_.-]*|\\.[A-Za-z0-9_-][A-Za-z0-9_.-]*))*$"
+    },
+    "paths": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/path" }
     }
   }
 }

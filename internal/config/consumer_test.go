@@ -3,6 +3,7 @@ package config
 import (
 	"encoding/json"
 	"os"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -71,4 +72,59 @@ func TestConsumerSchemaIsValidJSON(t *testing.T) {
 	if schema["$schema"] != "https://json-schema.org/draft/2020-12/schema" {
 		t.Fatalf("$schema = %v", schema["$schema"])
 	}
+}
+
+func TestSchemaPathPatternsMatchRuntimeRejections(t *testing.T) {
+	tests := []struct {
+		path string
+		want bool
+	}{
+		{path: ".", want: true},
+		{path: "internal/config", want: true},
+		{path: ".github/github-ci-exceptions.yaml", want: true},
+		{path: "/abs", want: false},
+		{path: "C:/repo", want: false},
+		{path: `C:\repo`, want: false},
+		{path: "../outside", want: false},
+		{path: "internal/../outside", want: false},
+		{path: `internal\config`, want: false},
+	}
+
+	for _, schemaFile := range []string{
+		"../../schemas/consumer.schema.json",
+		"../../schemas/governance.schema.json",
+	} {
+		t.Run(schemaFile, func(t *testing.T) {
+			pattern := schemaPathPattern(t, schemaFile)
+			matcher, err := regexp.Compile(pattern)
+			if err != nil {
+				t.Fatalf("compile path pattern %q: %v", pattern, err)
+			}
+			for _, test := range tests {
+				if got := matcher.MatchString(test.path); got != test.want {
+					t.Errorf("path pattern match for %q = %t, want %t", test.path, got, test.want)
+				}
+			}
+		})
+	}
+}
+
+func schemaPathPattern(t *testing.T, filename string) string {
+	t.Helper()
+	data, err := os.ReadFile(filename)
+	if err != nil {
+		t.Fatalf("read schema %q: %v", filename, err)
+	}
+	var schema struct {
+		Definitions map[string]struct {
+			Pattern string `json:"pattern"`
+		} `json:"$defs"`
+	}
+	if err := json.Unmarshal(data, &schema); err != nil {
+		t.Fatalf("unmarshal schema %q: %v", filename, err)
+	}
+	if schema.Definitions["path"].Pattern == "" {
+		t.Fatalf("schema %q has no path pattern", filename)
+	}
+	return schema.Definitions["path"].Pattern
 }
