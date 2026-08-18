@@ -1,0 +1,13 @@
+schema-version: 1
+profile: go-strict
+modules:
+  - .
+  - tools
+build-tags:
+  - integration
+services:
+  - postgresql
+  - redis
+generated:
+  - internal/generated
+exceptions: .github/github-ci-exceptions.yaml

@@ -1,0 +1,77 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/gomaja/github-ci/schemas/governance.schema.json",
+  "title": "github-ci governance manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema-version", "api-version", "owners", "defaults", "repositories"],
+  "properties": {
+    "schema-version": { "const": 1 },
+    "api-version": { "const": "2026-03-10" },
+    "owners": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "type"],
+        "properties": {
+          "name": { "type": "string", "minLength": 1 },
+          "type": { "enum": ["user", "organization"] }
+        }
+      }
+    },
+    "defaults": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["profile", "default-branch", "required-check", "public-only", "refuse-forks", "refuse-archived", "refuse-private", "refuse-unexpected-owners"],
+      "properties": {
+        "profile": { "enum": ["go-strict", "go-library", "repository-only"] },
+        "default-branch": { "type": "string", "minLength": 1 },
+        "required-check": { "type": "string", "minLength": 1 },
+        "public-only": { "const": true },
+        "refuse-forks": { "const": true },
+        "refuse-archived": { "const": true },
+        "refuse-private": { "const": true },
+        "refuse-unexpected-owners": { "const": true }
+      }
+    },
+    "repositories": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/repository" }
+    }
+  },
+  "$defs": {
+    "repository": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "enforce-caller"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "owner": { "type": "string", "minLength": 1 },
+        "profile": { "enum": ["go-strict", "go-library", "repository-only"] },
+        "modules": { "$ref": "consumer.schema.json#/$defs/paths" },
+        "build-tags": {
+          "type": "array",
+          "items": { "type": "string", "pattern": "^[A-Za-z0-9_.]+$" }
+        },
+        "services": {
+          "type": "array",
+          "items": { "enum": ["postgresql", "redis"] }
+        },
+        "generated": { "$ref": "consumer.schema.json#/$defs/paths" },
+        "exceptions": { "$ref": "consumer.schema.json#/$defs/path" },
+        "enforce-caller": { "type": "boolean" },
+        "workflow-sha": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+        "observed-required-check": { "type": "string", "minLength": 1 }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "enforce-caller": { "const": true } }, "required": ["enforce-caller"] },
+          "then": { "required": ["workflow-sha", "observed-required-check"] }
+        }
+      ]
+    }
+  }
+}

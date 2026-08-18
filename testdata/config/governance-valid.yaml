@@ -1,0 +1,26 @@
+schema-version: 1
+api-version: "2026-03-10"
+owners:
+  - name: gomaja
+    type: user
+defaults:
+  profile: go-strict
+  default-branch: main
+  required-check: github-ci / gate
+  public-only: true
+  refuse-forks: true
+  refuse-archived: true
+  refuse-private: true
+  refuse-unexpected-owners: true
+repositories:
+  - name: github-ci
+    owner: gomaja
+    enforce-caller: false
+  - name: go-sctp
+    owner: gomaja
+    profile: go-library
+    services:
+      - postgresql
+    enforce-caller: true
+    workflow-sha: 0123456789abcdef0123456789abcdef01234567
+    observed-required-check: github-ci / gate

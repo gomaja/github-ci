@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/gomaja/github-ci/schemas/consumer.schema.json",
+  "title": "github-ci consumer configuration",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema-version", "profile"],
+  "properties": {
+    "schema-version": { "const": 1 },
+    "profile": { "enum": ["go-strict", "go-library", "repository-only"] },
+    "modules": { "$ref": "#/$defs/paths" },
+    "build-tags": {
+      "type": "array",
+      "items": { "type": "string", "pattern": "^[A-Za-z0-9_.]+$" }
+    },
+    "services": {
+      "type": "array",
+      "items": { "enum": ["postgresql", "redis"] }
+    },
+    "generated": { "$ref": "#/$defs/paths" },
+    "exceptions": { "$ref": "#/$defs/path" }
+  },
+  "$defs": {
+    "path": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))(?!.*[\\x00-\\x1F\\x7F]).+$"
+    },
+    "paths": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/path" }
+    }
+  }
+}
