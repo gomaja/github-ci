@@ -1,0 +1,11 @@
+{
+  "version": "2.1.0",
+  "runs": [{
+    "tool": {"driver": {"name": "scanner", "rules": [{"id": "RULE"}]}},
+    "invocations": [{"executionSuccessful": true, "toolExecutionNotifications": [{
+      "associatedRule": {"index": 1},
+      "message": {"text": "unresolved"}
+    }]}],
+    "results": []
+  }]
+}

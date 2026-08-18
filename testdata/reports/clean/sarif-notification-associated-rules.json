@@ -1,0 +1,40 @@
+{
+  "version": "2.1.0",
+  "runs": [{
+    "tool": {
+      "driver": {
+        "name": "scanner",
+        "guid": "AAAAAAAA-AAAA-4AAA-8AAA-AAAAAAAAAAAA",
+        "rules": [{"id": "DRIVER-RULE", "guid": "BBBBBBBB-BBBB-4BBB-8BBB-BBBBBBBBBBBB"}]
+      },
+      "extensions": [{
+        "name": "extension",
+        "guid": "CCCCCCCC-CCCC-4CCC-8CCC-CCCCCCCCCCCC",
+        "rules": [{"id": "EXTENSION-RULE", "guid": "DDDDDDDD-DDDD-4DDD-8DDD-DDDDDDDDDDDD"}]
+      }]
+    },
+    "invocations": [{
+      "executionSuccessful": true,
+      "toolExecutionNotifications": [
+        {
+          "associatedRule": {"id": "DRIVER-RULE", "index": 0, "guid": "BBBBBBBB-BBBB-4BBB-8BBB-BBBBBBBBBBBB"},
+          "message": {"text": "driver rule"}
+        },
+        {
+          "associatedRule": {
+            "id": "EXTENSION-RULE",
+            "index": 0,
+            "guid": "DDDDDDDD-DDDD-4DDD-8DDD-DDDDDDDDDDDD",
+            "toolComponent": {"name": "extension", "index": 0, "guid": "CCCCCCCC-CCCC-4CCC-8CCC-CCCCCCCCCCCC"}
+          },
+          "message": {"text": "extension rule"}
+        },
+        {
+          "associatedRule": {"id": "NO-RULE-METADATA"},
+          "message": {"text": "no metadata"}
+        }
+      ]
+    }],
+    "results": []
+  }]
+}

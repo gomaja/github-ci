@@ -1,0 +1,20 @@
+{
+  "version": "2.1.0",
+  "runs": [{
+    "tool": {"driver": {"name": "scanner"}},
+    "invocations": [{
+      "executionSuccessful": true,
+      "toolExecutionNotifications": [
+        {"message": {"text": "plain text"}},
+        {"message": {"id": "MESSAGE-ID"}},
+        {"message": {
+          "text": "plain {0}",
+          "markdown": "**plain** {0}",
+          "arguments": ["value"],
+          "properties": {"source": "scanner"}
+        }}
+      ]
+    }],
+    "results": []
+  }]
+}

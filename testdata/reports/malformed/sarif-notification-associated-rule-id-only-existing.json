@@ -1,0 +1,11 @@
+{
+  "version": "2.1.0",
+  "runs": [{
+    "tool": {"driver": {"name": "scanner", "rules": [{"id": "EXISTING-RULE"}]}},
+    "invocations": [{"executionSuccessful": true, "toolExecutionNotifications": [{
+      "associatedRule": {"id": "EXISTING-RULE"},
+      "message": {"text": "hidden metadata"}
+    }]}],
+    "results": []
+  }]
+}

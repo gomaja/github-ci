@@ -219,6 +219,130 @@ func TestCountSARIFResolvesNotificationLevels(t *testing.T) {
 	}
 }
 
+func TestCountSARIFValidatesNotificationMessages(t *testing.T) {
+	tests := []struct {
+		name    string
+		class   string
+		fixture string
+		want    string
+	}{
+		{name: "valid forms", class: "clean", fixture: "sarif-notification-messages.json"},
+		{name: "unknown only", class: "malformed", fixture: "sarif-notification-message-unknown-only.json", want: "message"},
+		{name: "empty text", class: "malformed", fixture: "sarif-notification-message-empty-text.json", want: "text"},
+		{name: "empty id", class: "malformed", fixture: "sarif-notification-message-empty-id.json", want: "id"},
+		{name: "empty markdown", class: "malformed", fixture: "sarif-notification-message-empty-markdown.json", want: "markdown"},
+		{name: "markdown without text", class: "malformed", fixture: "sarif-notification-message-markdown-without-text.json", want: "text"},
+		{name: "wrong arguments", class: "malformed", fixture: "sarif-notification-message-wrong-arguments.json", want: "arguments"},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			result, err := Count("sarif", bytes.NewReader(reportFixture(t, test.class, test.fixture)))
+			if test.want == "" {
+				if err != nil {
+					t.Fatalf("Count() error = %v", err)
+				}
+				if result.Findings != 0 {
+					t.Fatalf("Count() findings = %d, want 0", result.Findings)
+				}
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("Count() error = %v, want substring %q", err, test.want)
+			}
+		})
+	}
+}
+
+func TestCountSARIFRejectsNotificationMessageTypesAndKeys(t *testing.T) {
+	tests := []struct {
+		name    string
+		message string
+		want    string
+	}{
+		{name: "text type", message: `{"text":1}`, want: "text"},
+		{name: "id type", message: `{"id":1}`, want: "id"},
+		{name: "markdown type", message: `{"text":"plain","markdown":1}`, want: "markdown"},
+		{name: "properties type", message: `{"text":"plain","properties":[]}`, want: "properties"},
+		{name: "unsupported key", message: `{"text":"plain","unexpected":true}`, want: "unexpected"},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			data := `{"version":"2.1.0","runs":[{"tool":{"driver":{"name":"scanner"}},"invocations":[{"executionSuccessful":true,"toolExecutionNotifications":[{"message":` + test.message + `}]}],"results":[]}]}`
+			_, err := Count("sarif", strings.NewReader(data))
+			if err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("Count() error = %v, want substring %q", err, test.want)
+			}
+		})
+	}
+}
+
+func TestCountSARIFValidatesAssociatedRuleReferences(t *testing.T) {
+	tests := []struct {
+		name    string
+		class   string
+		fixture string
+		want    string
+	}{
+		{name: "driver extension and id-only", class: "clean", fixture: "sarif-notification-associated-rules.json"},
+		{name: "unresolved", class: "malformed", fixture: "sarif-notification-associated-rule-unresolved.json", want: "does not resolve"},
+		{name: "conflicting", class: "malformed", fixture: "sarif-notification-associated-rule-conflicting.json", want: "does not resolve"},
+		{name: "ambiguous", class: "malformed", fixture: "sarif-notification-associated-rule-ambiguous.json", want: "ambiguous"},
+		{name: "id-only hides metadata", class: "malformed", fixture: "sarif-notification-associated-rule-id-only-existing.json", want: "index or guid"},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			result, err := Count("sarif", bytes.NewReader(reportFixture(t, test.class, test.fixture)))
+			if test.want == "" {
+				if err != nil {
+					t.Fatalf("Count() error = %v", err)
+				}
+				if result.Findings != 0 {
+					t.Fatalf("Count() findings = %d, want 0", result.Findings)
+				}
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("Count() error = %v, want substring %q", err, test.want)
+			}
+		})
+	}
+}
+
+func TestCountSARIFValidatesConsumedGUIDs(t *testing.T) {
+	tests := []struct {
+		name    string
+		class   string
+		fixture string
+		valid   bool
+	}{
+		{name: "uppercase valid", class: "clean", fixture: "sarif-notification-associated-rules.json", valid: true},
+		{name: "component metadata", class: "malformed", fixture: "sarif-guid-component-metadata.json"},
+		{name: "notification metadata", class: "malformed", fixture: "sarif-guid-notification-metadata.json"},
+		{name: "rule metadata", class: "malformed", fixture: "sarif-guid-rule-metadata.json"},
+		{name: "notification reference", class: "malformed", fixture: "sarif-guid-notification-reference.json"},
+		{name: "associated rule reference", class: "malformed", fixture: "sarif-guid-associated-rule-reference.json"},
+		{name: "component reference", class: "malformed", fixture: "sarif-guid-component-reference.json"},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			_, err := Count("sarif", bytes.NewReader(reportFixture(t, test.class, test.fixture)))
+			if test.valid {
+				if err != nil {
+					t.Fatalf("Count() error = %v", err)
+				}
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), "SARIF GUID pattern") {
+				t.Fatalf("Count() error = %v, want SARIF GUID pattern error", err)
+			}
+		})
+	}
+}
+
 func TestCountSARIFAcceptsRootPropertiesAndWarningNotifications(t *testing.T) {
 	result, err := Count("sarif", bytes.NewReader(reportFixture(t, "clean", "sarif-properties-warning.json")))
 	if err != nil {

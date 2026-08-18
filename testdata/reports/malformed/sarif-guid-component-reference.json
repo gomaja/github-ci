@@ -1,0 +1,14 @@
+{
+  "version": "2.1.0",
+  "runs": [{
+    "tool": {
+      "driver": {"name": "scanner"},
+      "extensions": [{"name": "extension", "guid": "11111111-1111-4111-8111-111111111111", "rules": [{"id": "RULE"}]}]
+    },
+    "invocations": [{"executionSuccessful": true, "toolExecutionNotifications": [{
+      "associatedRule": {"index": 0, "toolComponent": {"guid": "not-a-guid"}},
+      "message": {"text": "invalid"}
+    }]}],
+    "results": []
+  }]
+}

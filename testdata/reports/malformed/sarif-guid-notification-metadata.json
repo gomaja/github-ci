@@ -1,0 +1,4 @@
+{
+  "version": "2.1.0",
+  "runs": [{"tool": {"driver": {"name": "scanner", "notifications": [{"id": "NOTICE", "guid": "not-a-guid"}]}}, "results": []}]
+}

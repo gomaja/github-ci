@@ -5,7 +5,18 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"regexp"
 	"strings"
+)
+
+// OASIS SARIF 2.1.0 + Errata 01 §3.5.3 and the normative schema define GUID syntax.
+var sarifGUIDPattern = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$`)
+
+type sarifDescriptorKind int
+
+const (
+	sarifNotificationDescriptors sarifDescriptorKind = iota
+	sarifRuleDescriptors
 )
 
 type sarifNotificationResolver struct {
@@ -15,14 +26,19 @@ type sarifNotificationResolver struct {
 }
 
 type sarifNotificationComponent struct {
-	name              string
-	guid              string
-	descriptors       []sarifNotificationDescriptor
+	name          string
+	guid          string
+	notifications sarifDescriptorSet
+	rules         sarifDescriptorSet
+}
+
+type sarifDescriptorSet struct {
+	descriptors       []sarifReportingDescriptor
 	descriptorsByID   map[string][]int
 	descriptorsByGUID map[string][]int
 }
 
-type sarifNotificationDescriptor struct {
+type sarifReportingDescriptor struct {
 	id           string
 	guid         string
 	defaultLevel string
@@ -35,7 +51,7 @@ type sarifDescriptorKey struct {
 
 type sarifDescriptorResolution struct {
 	key        sarifDescriptorKey
-	descriptor *sarifNotificationDescriptor
+	descriptor *sarifReportingDescriptor
 }
 
 func newSARIFNotificationResolver(rawTool json.RawMessage) (*sarifNotificationResolver, error) {
@@ -92,64 +108,82 @@ func parseSARIFNotificationComponent(raw json.RawMessage, label string) (sarifNo
 	if err != nil || !exists || name == "" {
 		return sarifNotificationComponent{}, fmt.Errorf("SARIF %s name must be a nonempty string", label)
 	}
-	guid, _, err := sarifStringProperty(object, "guid")
+	guid, _, err := sarifGUIDProperty(object, "guid")
 	if err != nil {
 		return sarifNotificationComponent{}, fmt.Errorf("SARIF %s: %w", label, err)
 	}
-	component := sarifNotificationComponent{
-		name:              name,
-		guid:              guid,
+	notifications, err := parseSARIFDescriptorSet(object, "notifications", "SARIF "+label+" notification descriptor", true)
+	if err != nil {
+		return sarifNotificationComponent{}, err
+	}
+	rules, err := parseSARIFDescriptorSet(object, "rules", "SARIF "+label+" rule descriptor", false)
+	if err != nil {
+		return sarifNotificationComponent{}, err
+	}
+	return sarifNotificationComponent{
+		name:          name,
+		guid:          guid,
+		notifications: notifications,
+		rules:         rules,
+	}, nil
+}
+
+func parseSARIFDescriptorSet(object map[string]json.RawMessage, property, label string, parseConfiguration bool) (sarifDescriptorSet, error) {
+	set := sarifDescriptorSet{
 		descriptorsByID:   make(map[string][]int),
 		descriptorsByGUID: make(map[string][]int),
 	}
-	notificationsRaw, exists := object["notifications"]
+	raw, exists := object[property]
 	if !exists {
-		return component, nil
+		return set, nil
 	}
-	var notifications []json.RawMessage
-	if err := json.Unmarshal(notificationsRaw, &notifications); err != nil {
-		return sarifNotificationComponent{}, fmt.Errorf("decode SARIF %s notifications: %w", label, err)
+	var descriptors []json.RawMessage
+	if err := json.Unmarshal(raw, &descriptors); err != nil {
+		return sarifDescriptorSet{}, fmt.Errorf("decode %s: %w", property, err)
 	}
-	if notifications == nil {
-		return sarifNotificationComponent{}, fmt.Errorf("SARIF %s notifications must be an array", label)
+	if descriptors == nil {
+		return sarifDescriptorSet{}, fmt.Errorf("%s must be an array", property)
 	}
-	component.descriptors = make([]sarifNotificationDescriptor, len(notifications))
-	for index, rawDescriptor := range notifications {
-		descriptor, err := parseSARIFNotificationDescriptor(rawDescriptor, fmt.Sprintf("SARIF %s notification descriptor %d", label, index))
+	set.descriptors = make([]sarifReportingDescriptor, len(descriptors))
+	for index, rawDescriptor := range descriptors {
+		descriptor, err := parseSARIFReportingDescriptor(rawDescriptor, fmt.Sprintf("%s %d", label, index), parseConfiguration)
 		if err != nil {
-			return sarifNotificationComponent{}, err
+			return sarifDescriptorSet{}, err
 		}
-		component.descriptors[index] = descriptor
-		component.descriptorsByID[descriptor.id] = append(component.descriptorsByID[descriptor.id], index)
+		set.descriptors[index] = descriptor
+		set.descriptorsByID[descriptor.id] = append(set.descriptorsByID[descriptor.id], index)
 		if descriptor.guid != "" {
-			component.descriptorsByGUID[descriptor.guid] = append(component.descriptorsByGUID[descriptor.guid], index)
+			set.descriptorsByGUID[descriptor.guid] = append(set.descriptorsByGUID[descriptor.guid], index)
 		}
 	}
-	return component, nil
+	return set, nil
 }
 
-func parseSARIFNotificationDescriptor(raw json.RawMessage, label string) (sarifNotificationDescriptor, error) {
+func parseSARIFReportingDescriptor(raw json.RawMessage, label string, parseConfiguration bool) (sarifReportingDescriptor, error) {
 	object, err := decodeJSONObject(raw, label)
 	if err != nil {
-		return sarifNotificationDescriptor{}, err
+		return sarifReportingDescriptor{}, err
 	}
 	id, exists, err := sarifStringProperty(object, "id")
 	if err != nil || !exists || id == "" {
-		return sarifNotificationDescriptor{}, fmt.Errorf("%s id must be a nonempty string", label)
+		return sarifReportingDescriptor{}, fmt.Errorf("%s id must be a nonempty string", label)
 	}
-	guid, _, err := sarifStringProperty(object, "guid")
+	guid, _, err := sarifGUIDProperty(object, "guid")
 	if err != nil {
-		return sarifNotificationDescriptor{}, fmt.Errorf("%s: %w", label, err)
+		return sarifReportingDescriptor{}, fmt.Errorf("%s: %w", label, err)
 	}
 	// §§3.49.14 and 3.50.3 default an unspecified descriptor configuration level to warning.
-	descriptor := sarifNotificationDescriptor{id: id, guid: guid, defaultLevel: "warning"}
+	descriptor := sarifReportingDescriptor{id: id, guid: guid, defaultLevel: "warning"}
+	if !parseConfiguration {
+		return descriptor, nil
+	}
 	if configurationRaw, exists := object["defaultConfiguration"]; exists {
 		configuration, err := decodeJSONObject(configurationRaw, label+" defaultConfiguration")
 		if err != nil {
-			return sarifNotificationDescriptor{}, err
+			return sarifReportingDescriptor{}, err
 		}
 		if level, exists, err := sarifLevelProperty(configuration); err != nil {
-			return sarifNotificationDescriptor{}, fmt.Errorf("%s defaultConfiguration: %w", label, err)
+			return sarifReportingDescriptor{}, fmt.Errorf("%s defaultConfiguration: %w", label, err)
 		} else if exists {
 			descriptor.defaultLevel = level
 		}
@@ -180,7 +214,7 @@ func (resolver *sarifNotificationResolver) notificationOverrides(invocation map[
 		if !exists {
 			return nil, fmt.Errorf("notificationConfigurationOverrides[%d] has no descriptor", index)
 		}
-		resolution, err := resolver.resolveDescriptor(descriptorRaw)
+		resolution, err := resolver.resolveDescriptor(descriptorRaw, sarifNotificationDescriptors)
 		if err != nil {
 			return nil, fmt.Errorf("notificationConfigurationOverrides[%d] descriptor: %w", index, err)
 		}
@@ -224,20 +258,25 @@ func (resolver *sarifNotificationResolver) rejectErrorNotifications(invocation m
 		if err != nil {
 			return err
 		}
-		// OASIS SARIF 2.1.0 + Errata 01 §3.58.5 requires a nonempty message object.
-		if err := requireJSONObject(notification["message"], fmt.Sprintf("%s[%d].message", property, index)); err != nil {
+		// OASIS SARIF 2.1.0 + Errata 01 §§3.11.2 and 3.11.8-3.11.11 define message validity.
+		if err := validateSARIFNotificationMessage(notification["message"], fmt.Sprintf("%s[%d].message", property, index)); err != nil {
 			return err
 		}
 
 		var resolution *sarifDescriptorResolution
 		if descriptorRaw, exists := notification["descriptor"]; exists {
-			resolved, err := resolver.resolveDescriptor(descriptorRaw)
+			resolved, err := resolver.resolveDescriptor(descriptorRaw, sarifNotificationDescriptors)
 			if err != nil {
 				return fmt.Errorf("%s[%d].descriptor: %w", property, index, err)
 			}
 			resolution = &resolved
 		}
-
+		// §§3.58.3 and 3.52.3 resolve associatedRule against toolComponent.rules.
+		if associatedRuleRaw, exists := notification["associatedRule"]; exists {
+			if _, err := resolver.resolveDescriptor(associatedRuleRaw, sarifRuleDescriptors); err != nil {
+				return fmt.Errorf("%s[%d].associatedRule: %w", property, index, err)
+			}
+		}
 		level, explicit, err := sarifLevelProperty(notification)
 		if err != nil {
 			return fmt.Errorf("%s[%d]: %w", property, index, err)
@@ -261,7 +300,7 @@ func (resolver *sarifNotificationResolver) rejectErrorNotifications(invocation m
 	return nil
 }
 
-func (resolver *sarifNotificationResolver) resolveDescriptor(raw json.RawMessage) (sarifDescriptorResolution, error) {
+func (resolver *sarifNotificationResolver) resolveDescriptor(raw json.RawMessage, kind sarifDescriptorKind) (sarifDescriptorResolution, error) {
 	reference, err := decodeJSONObject(raw, "reportingDescriptorReference")
 	if err != nil {
 		return sarifDescriptorResolution{}, err
@@ -270,9 +309,9 @@ func (resolver *sarifNotificationResolver) resolveDescriptor(raw json.RawMessage
 	if err != nil || hasID && id == "" {
 		return sarifDescriptorResolution{}, errors.New("reportingDescriptorReference id must be a nonempty string")
 	}
-	guid, hasGUID, err := sarifStringProperty(reference, "guid")
-	if err != nil || hasGUID && guid == "" {
-		return sarifDescriptorResolution{}, errors.New("reportingDescriptorReference guid must be a nonempty string")
+	guid, hasGUID, err := sarifGUIDProperty(reference, "guid")
+	if err != nil {
+		return sarifDescriptorResolution{}, fmt.Errorf("reportingDescriptorReference: %w", err)
 	}
 	index, hasIndex, err := sarifIndexProperty(reference, "index")
 	if err != nil {
@@ -289,7 +328,7 @@ func (resolver *sarifNotificationResolver) resolveDescriptor(raw json.RawMessage
 		}
 		// §3.52.2 requires index or guid when matching descriptor metadata is present.
 		// The ID index detects that condition but never selects the descriptor (§3.52.4).
-		if resolver.driver.hasDescriptorID(id) {
+		if resolver.driver.descriptorSet(kind).hasDescriptorID(id) {
 			return sarifDescriptorResolution{}, errors.New("id-only reportingDescriptorReference matches metadata and requires index or guid")
 		}
 		return sarifDescriptorResolution{}, nil
@@ -303,9 +342,10 @@ func (resolver *sarifNotificationResolver) resolveDescriptor(raw json.RawMessage
 		}
 	}
 	component := resolver.component(componentIndex)
+	set := component.descriptorSet(kind)
 	candidates := make(map[int]struct{})
 	if hasGUID {
-		for _, candidate := range component.descriptorsByGUID[guid] {
+		for _, candidate := range set.descriptorsByGUID[guid] {
 			candidates[candidate] = struct{}{}
 		}
 		if len(candidates) == 0 {
@@ -316,7 +356,7 @@ func (resolver *sarifNotificationResolver) resolveDescriptor(raw json.RawMessage
 		}
 	}
 	if hasIndex {
-		if index >= len(component.descriptors) {
+		if index >= len(set.descriptors) {
 			return sarifDescriptorResolution{}, errors.New("reportingDescriptorReference does not resolve")
 		}
 		if hasGUID {
@@ -328,7 +368,7 @@ func (resolver *sarifNotificationResolver) resolveDescriptor(raw json.RawMessage
 		candidates[index] = struct{}{}
 	}
 	for candidate := range candidates {
-		descriptor := &component.descriptors[candidate]
+		descriptor := &set.descriptors[candidate]
 		// §§3.52.2-3.52.6 use index/guid for lookup; id only checks the located metadata.
 		if hasID && !sarifDescriptorIDMatches(id, descriptor.id) {
 			delete(candidates, candidate)
@@ -343,7 +383,7 @@ func (resolver *sarifNotificationResolver) resolveDescriptor(raw json.RawMessage
 	for descriptorIndex := range candidates {
 		return sarifDescriptorResolution{
 			key:        sarifDescriptorKey{component: componentIndex, descriptor: descriptorIndex},
-			descriptor: &component.descriptors[descriptorIndex],
+			descriptor: &set.descriptors[descriptorIndex],
 		}, nil
 	}
 	panic("unreachable")
@@ -360,9 +400,9 @@ func (resolver *sarifNotificationResolver) resolveComponent(raw json.RawMessage)
 	if err != nil || hasName && name == "" {
 		return 0, errors.New("toolComponentReference name must be a nonempty string")
 	}
-	guid, hasGUID, err := sarifStringProperty(reference, "guid")
-	if err != nil || hasGUID && guid == "" {
-		return 0, errors.New("toolComponentReference guid must be a nonempty string")
+	guid, hasGUID, err := sarifGUIDProperty(reference, "guid")
+	if err != nil {
+		return 0, fmt.Errorf("toolComponentReference: %w", err)
 	}
 	index, hasIndex, err := sarifIndexProperty(reference, "index")
 	if err != nil {
@@ -403,12 +443,65 @@ func (resolver *sarifNotificationResolver) component(index int) *sarifNotificati
 	return &resolver.extensions[index]
 }
 
-func (component *sarifNotificationComponent) hasDescriptorID(referenceID string) bool {
-	if len(component.descriptorsByID[referenceID]) != 0 {
+func (component *sarifNotificationComponent) descriptorSet(kind sarifDescriptorKind) *sarifDescriptorSet {
+	if kind == sarifRuleDescriptors {
+		return &component.rules
+	}
+	return &component.notifications
+}
+
+func (set *sarifDescriptorSet) hasDescriptorID(referenceID string) bool {
+	if len(set.descriptorsByID[referenceID]) != 0 {
 		return true
 	}
 	separator := strings.LastIndexByte(referenceID, '/')
-	return separator > 0 && separator < len(referenceID)-1 && len(component.descriptorsByID[referenceID[:separator]]) != 0
+	return separator > 0 && separator < len(referenceID)-1 && len(set.descriptorsByID[referenceID[:separator]]) != 0
+}
+
+func validateSARIFNotificationMessage(raw json.RawMessage, label string) error {
+	message, err := decodeJSONObject(raw, label)
+	if err != nil {
+		return err
+	}
+	// The Errata 01 normative message schema sets additionalProperties to false.
+	for property := range message {
+		switch property {
+		case "text", "markdown", "id", "arguments", "properties":
+		default:
+			return fmt.Errorf("%s has unsupported property %q", label, property)
+		}
+	}
+
+	text, hasText, err := sarifStringProperty(message, "text")
+	if err != nil || hasText && text == "" {
+		return fmt.Errorf("%s.text must be a nonempty string", label)
+	}
+	id, hasID, err := sarifStringProperty(message, "id")
+	if err != nil || hasID && id == "" {
+		return fmt.Errorf("%s.id must be a nonempty string", label)
+	}
+	if !hasText && !hasID {
+		return fmt.Errorf("%s must contain text or id", label)
+	}
+	markdown, hasMarkdown, err := sarifStringProperty(message, "markdown")
+	if err != nil || hasMarkdown && markdown == "" {
+		return fmt.Errorf("%s.markdown must be a nonempty string", label)
+	}
+	if hasMarkdown && !hasText {
+		return fmt.Errorf("%s.markdown requires text", label)
+	}
+	if argumentsRaw, exists := message["arguments"]; exists {
+		var arguments []string
+		if err := json.Unmarshal(argumentsRaw, &arguments); err != nil || arguments == nil {
+			return fmt.Errorf("%s.arguments must be an array of strings", label)
+		}
+	}
+	if propertiesRaw, exists := message["properties"]; exists {
+		if err := requireJSONObjectAllowEmpty(propertiesRaw, label+".properties"); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func sarifStringProperty(object map[string]json.RawMessage, property string) (string, bool, error) {
@@ -439,6 +532,17 @@ func sarifIndexProperty(object map[string]json.RawMessage, property string) (int
 		return 0, true, fmt.Errorf("%s must be a nonnegative integer", property)
 	}
 	return value, true, nil
+}
+
+func sarifGUIDProperty(object map[string]json.RawMessage, property string) (string, bool, error) {
+	guid, exists, err := sarifStringProperty(object, property)
+	if err != nil {
+		return "", exists, err
+	}
+	if exists && !sarifGUIDPattern.MatchString(guid) {
+		return "", true, fmt.Errorf("%s must match the SARIF GUID pattern", property)
+	}
+	return guid, exists, nil
 }
 
 func sarifLevelProperty(object map[string]json.RawMessage) (string, bool, error) {
