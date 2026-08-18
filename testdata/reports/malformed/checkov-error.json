@@ -1,0 +1,1 @@
+{"check_type":"terraform","results":{"passed_checks":[],"failed_checks":[{"check_id":"ignored-due-to-error"}],"skipped_checks":[],"parsing_errors":["main.tf"]},"summary":{"passed":0,"failed":1,"skipped":0,"parsing_errors":1,"resource_count":1}}

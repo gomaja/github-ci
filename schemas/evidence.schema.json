@@ -1,0 +1,59 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/gomaja/github-ci/schemas/evidence.schema.json",
+  "title": "github-ci evidence record",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "tool",
+    "tool_version",
+    "policy_version",
+    "subject_sha",
+    "applicability",
+    "command_id",
+    "exit_code",
+    "finding_count",
+    "suppressed_count",
+    "outcome"
+  ],
+  "properties": {
+    "schema_version": { "const": "1" },
+    "tool": { "type": "string", "pattern": "^[a-z0-9][a-z0-9._-]*$" },
+    "tool_version": { "type": "string", "minLength": 1 },
+    "policy_version": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "subject_sha": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+    "applicability": { "enum": ["applicable", "not-applicable"] },
+    "command_id": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^(?!/)(?![A-Za-z]:[/\\\\])(?!.*(?:^|/)\\.\\.(?:/|$))(?!.*\\\\).+$"
+    },
+    "exit_code": { "type": "integer", "minimum": 0 },
+    "finding_count": { "type": "integer", "minimum": 0 },
+    "suppressed_count": { "type": "integer", "minimum": 0 },
+    "report_sha256": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "outcome": { "enum": ["pass", "fail", "N/A"] }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "applicability": { "const": "applicable" } } },
+      "then": {
+        "required": ["report_sha256"],
+        "properties": { "outcome": { "enum": ["pass", "fail"] } }
+      }
+    },
+    {
+      "if": { "properties": { "applicability": { "const": "not-applicable" } } },
+      "then": {
+        "properties": {
+          "exit_code": { "const": 0 },
+          "finding_count": { "const": 0 },
+          "suppressed_count": { "const": 0 },
+          "outcome": { "const": "N/A" }
+        },
+        "not": { "required": ["report_sha256"] }
+      }
+    }
+  ]
+}

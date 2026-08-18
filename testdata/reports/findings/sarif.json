@@ -1,0 +1,1 @@
+{"version":"2.1.0","runs":[{"tool":{"driver":{"name":"scanner"}},"results":[{"ruleId":"RULE-1","level":"warning","message":{"text":"finding"},"fingerprints":{"primaryLocationLineHash":"abc"}}]}]}

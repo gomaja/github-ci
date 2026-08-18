@@ -1,0 +1,1 @@
+{"version":"2.1.0","runs":[{"tool":{"driver":{"name":"scanner"}},"results":[{"ruleId":"N","level":"none"},{"ruleId":"T","level":"note"},{"ruleId":"W","level":"warning"},{"ruleId":"E","level":"error"}]}]}

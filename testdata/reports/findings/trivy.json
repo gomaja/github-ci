@@ -1,0 +1,1 @@
+{"SchemaVersion":2,"Results":[{"Target":".","Vulnerabilities":[{"VulnerabilityID":"CVE-2026-0001","Severity":"LOW"}],"Misconfigurations":[{"ID":"CFG-1","Severity":"UNKNOWN"}],"Secrets":[{"RuleID":"SECRET-1","Severity":"CRITICAL"}],"Licenses":[{"Name":"GPL-3.0","Severity":"MEDIUM"}]}]}

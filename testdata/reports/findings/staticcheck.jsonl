@@ -1,0 +1,1 @@
+{"code":"SA1000","severity":"error","location":{"file":"main.go","line":1,"column":1},"end":{"file":"main.go","line":1,"column":2},"message":"finding"}

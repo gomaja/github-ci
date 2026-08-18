@@ -1,0 +1,404 @@
+package reports
+
+import (
+	"bytes"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+)
+
+func countGolangCILint(data []byte) (int, error) {
+	var report struct {
+		Issues *[]json.RawMessage `json:"Issues"`
+		Report json.RawMessage    `json:"Report"`
+	}
+	if err := decodeStrictJSON(data, &report); err != nil {
+		return 0, err
+	}
+	if report.Issues == nil {
+		return 0, errors.New("golangci-lint report has no Issues array")
+	}
+	if err := requireJSONObject(report.Report, "golangci-lint Report"); err != nil {
+		return 0, err
+	}
+	if err := validateObjects(*report.Issues, "golangci-lint issue"); err != nil {
+		return 0, err
+	}
+	return len(*report.Issues), nil
+}
+
+func countGovulncheck(data []byte) (int, error) {
+	type message struct {
+		Config   json.RawMessage `json:"config,omitempty"`
+		Progress json.RawMessage `json:"progress,omitempty"`
+		SBOM     json.RawMessage `json:"SBOM,omitempty"`
+		OSV      json.RawMessage `json:"osv,omitempty"`
+		Finding  json.RawMessage `json:"finding,omitempty"`
+	}
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	messages := 0
+	findings := 0
+	for {
+		var entry message
+		err := decoder.Decode(&entry)
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			return 0, fmt.Errorf("decode govulncheck message %d: %w", messages, err)
+		}
+		fields := []json.RawMessage{entry.Config, entry.Progress, entry.SBOM, entry.OSV, entry.Finding}
+		present := 0
+		for fieldIndex, field := range fields {
+			if field != nil {
+				present++
+				if fieldIndex != len(fields)-1 {
+					if err := requireJSONObjectAllowEmpty(field, "govulncheck protocol field"); err != nil {
+						return 0, fmt.Errorf("message %d: %w", messages, err)
+					}
+				}
+			}
+		}
+		if present != 1 {
+			return 0, fmt.Errorf("govulncheck message %d must contain exactly one protocol field", messages)
+		}
+		if messages == 0 {
+			if entry.Config == nil {
+				return 0, errors.New("first govulncheck message is not config")
+			}
+			var config struct {
+				ProtocolVersion string `json:"protocol_version"`
+				ScannerName     string `json:"scanner_name,omitempty"`
+				ScannerVersion  string `json:"scanner_version,omitempty"`
+				DB              string `json:"db,omitempty"`
+				DBLastModified  string `json:"db_last_modified,omitempty"`
+				GoVersion       string `json:"go_version,omitempty"`
+				ScanLevel       string `json:"scan_level,omitempty"`
+				ScanMode        string `json:"scan_mode,omitempty"`
+			}
+			if err := decodeStrictJSON(entry.Config, &config); err != nil {
+				return 0, fmt.Errorf("decode govulncheck config: %w", err)
+			}
+			if config.ProtocolVersion != "v1.0.0" {
+				return 0, fmt.Errorf("unsupported govulncheck protocol %q", config.ProtocolVersion)
+			}
+		} else if entry.Config != nil {
+			return 0, fmt.Errorf("govulncheck config repeated at message %d", messages)
+		}
+		if entry.Finding != nil {
+			if err := requireJSONObject(entry.Finding, "govulncheck finding"); err != nil {
+				return 0, err
+			}
+			findings++
+		}
+		messages++
+	}
+	if messages == 0 {
+		return 0, errors.New("empty govulncheck stream")
+	}
+	return findings, nil
+}
+
+func countStaticcheck(data []byte) (int, error) {
+	trimmed := bytes.TrimSpace(data)
+	if bytes.HasPrefix(trimmed, []byte("[")) {
+		var diagnostics []json.RawMessage
+		if err := decodeStrictJSON(trimmed, &diagnostics); err != nil {
+			return 0, err
+		}
+		if diagnostics == nil || len(diagnostics) != 0 {
+			return 0, errors.New("staticcheck array marker must be an empty array")
+		}
+		return 0, nil
+	}
+
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	findings := 0
+	for {
+		var diagnostic json.RawMessage
+		err := decoder.Decode(&diagnostic)
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			return 0, fmt.Errorf("decode staticcheck diagnostic %d: %w", findings, err)
+		}
+		if err := requireJSONObject(diagnostic, "staticcheck diagnostic"); err != nil {
+			return 0, err
+		}
+		findings++
+	}
+	return findings, nil
+}
+
+func countJSONArray(data []byte) (int, error) {
+	var findings []json.RawMessage
+	if err := decodeStrictJSON(data, &findings); err != nil {
+		return 0, err
+	}
+	if findings == nil {
+		return 0, errors.New("report must be a JSON array")
+	}
+	if err := validateObjects(findings, "finding"); err != nil {
+		return 0, err
+	}
+	return len(findings), nil
+}
+
+func countOSVScanner(data []byte) (int, error) {
+	var report struct {
+		Results              *[]json.RawMessage `json:"results"`
+		ExperimentalAnalysis json.RawMessage    `json:"experimentalAnalysis,omitempty"`
+	}
+	if err := decodeStrictJSON(data, &report); err != nil {
+		return 0, err
+	}
+	if report.Results == nil {
+		return 0, errors.New("OSV-Scanner report has no results array")
+	}
+	findings := 0
+	for resultIndex, rawResult := range *report.Results {
+		var result map[string]json.RawMessage
+		if err := json.Unmarshal(rawResult, &result); err != nil || len(result) == 0 {
+			return 0, fmt.Errorf("invalid OSV-Scanner result %d", resultIndex)
+		}
+		packagesRaw, exists := result["packages"]
+		if !exists {
+			continue
+		}
+		var packages []map[string]json.RawMessage
+		if err := json.Unmarshal(packagesRaw, &packages); err != nil {
+			return 0, fmt.Errorf("decode OSV-Scanner result %d packages: %w", resultIndex, err)
+		}
+		for packageIndex, pkg := range packages {
+			vulnerabilitiesRaw, exists := pkg["vulnerabilities"]
+			if !exists {
+				continue
+			}
+			var vulnerabilities []json.RawMessage
+			if err := json.Unmarshal(vulnerabilitiesRaw, &vulnerabilities); err != nil {
+				return 0, fmt.Errorf("decode OSV-Scanner result %d package %d vulnerabilities: %w", resultIndex, packageIndex, err)
+			}
+			if err := validateObjects(vulnerabilities, "OSV-Scanner vulnerability"); err != nil {
+				return 0, err
+			}
+			findings += len(vulnerabilities)
+		}
+	}
+	return findings, nil
+}
+
+func countTrivy(data []byte) (int, error) {
+	type trivyResult struct {
+		Target            string            `json:"Target"`
+		Class             string            `json:"Class,omitempty"`
+		Type              string            `json:"Type,omitempty"`
+		Packages          []json.RawMessage `json:"Packages,omitempty"`
+		Vulnerabilities   []json.RawMessage `json:"Vulnerabilities,omitempty"`
+		MisconfSummary    json.RawMessage   `json:"MisconfSummary,omitempty"`
+		Misconfigurations []json.RawMessage `json:"Misconfigurations,omitempty"`
+		Secrets           []json.RawMessage `json:"Secrets,omitempty"`
+		Licenses          []json.RawMessage `json:"Licenses,omitempty"`
+		CustomResources   []json.RawMessage `json:"CustomResources,omitempty"`
+		ModifiedFindings  []json.RawMessage `json:"ExperimentalModifiedFindings,omitempty"`
+	}
+	var report struct {
+		SchemaVersion int             `json:"SchemaVersion,omitempty"`
+		Trivy         json.RawMessage `json:"Trivy,omitempty"`
+		ReportID      string          `json:"ReportID,omitempty"`
+		CreatedAt     string          `json:"CreatedAt,omitempty"`
+		ArtifactID    string          `json:"ArtifactID,omitempty"`
+		ArtifactName  string          `json:"ArtifactName,omitempty"`
+		ArtifactType  string          `json:"ArtifactType,omitempty"`
+		Metadata      json.RawMessage `json:"Metadata,omitempty"`
+		Results       *[]trivyResult  `json:"Results"`
+	}
+	if err := decodeStrictJSON(data, &report); err != nil {
+		return 0, err
+	}
+	if report.Results == nil {
+		return 0, errors.New("trivy report has no Results array")
+	}
+	if report.SchemaVersion != 2 {
+		return 0, fmt.Errorf("unsupported trivy schema version %d", report.SchemaVersion)
+	}
+	findings := 0
+	for index, result := range *report.Results {
+		groups := [][]json.RawMessage{result.Vulnerabilities, result.Misconfigurations, result.Secrets, result.Licenses, result.ModifiedFindings}
+		for _, group := range groups {
+			if err := validateObjects(group, fmt.Sprintf("Trivy result %d finding", index)); err != nil {
+				return 0, err
+			}
+			findings += len(group)
+		}
+	}
+	return findings, nil
+}
+
+func countGrype(data []byte) (int, error) {
+	var report struct {
+		Matches         *[]json.RawMessage `json:"matches"`
+		IgnoredMatches  []json.RawMessage  `json:"ignoredMatches,omitempty"`
+		AlertsByPackage json.RawMessage    `json:"alertsByPackage,omitempty"`
+		Source          json.RawMessage    `json:"source"`
+		Distro          json.RawMessage    `json:"distro"`
+		Descriptor      json.RawMessage    `json:"descriptor"`
+	}
+	if err := decodeStrictJSON(data, &report); err != nil {
+		return 0, err
+	}
+	if report.Matches == nil {
+		return 0, errors.New("grype report has no matches array")
+	}
+	for _, field := range []json.RawMessage{report.Source, report.Distro, report.Descriptor} {
+		if err := requireJSONObjectAllowEmpty(field, "grype metadata"); err != nil {
+			return 0, err
+		}
+	}
+	if err := validateObjects(*report.Matches, "Grype match"); err != nil {
+		return 0, err
+	}
+	if err := validateObjects(report.IgnoredMatches, "Grype ignored match"); err != nil {
+		return 0, err
+	}
+	return len(*report.Matches) + len(report.IgnoredMatches), nil
+}
+
+func countSemgrep(data []byte) (int, error) {
+	var report struct {
+		Version                string             `json:"version,omitempty"`
+		Results                *[]json.RawMessage `json:"results"`
+		Errors                 *[]json.RawMessage `json:"errors"`
+		Paths                  json.RawMessage    `json:"paths,omitempty"`
+		SkippedRules           []json.RawMessage  `json:"skipped_rules,omitempty"`
+		Explanations           []json.RawMessage  `json:"explanations,omitempty"`
+		Time                   json.RawMessage    `json:"time,omitempty"`
+		EngineRequested        string             `json:"engine_requested,omitempty"`
+		InterfileLanguagesUsed []string           `json:"interfile_languages_used,omitempty"`
+	}
+	if err := decodeStrictJSON(data, &report); err != nil {
+		return 0, err
+	}
+	if report.Results == nil || report.Errors == nil {
+		return 0, errors.New("semgrep report requires results and errors arrays")
+	}
+	if len(*report.Errors) != 0 {
+		return 0, fmt.Errorf("semgrep report contains %d parser errors", len(*report.Errors))
+	}
+	if err := validateObjects(*report.Results, "Semgrep result"); err != nil {
+		return 0, err
+	}
+	return len(*report.Results), nil
+}
+
+func countCheckov(data []byte) (int, error) {
+	trimmed := bytes.TrimSpace(data)
+	if len(trimmed) == 0 {
+		return 0, errors.New("empty Checkov report")
+	}
+	if trimmed[0] == '[' {
+		var reports []checkovReport
+		if err := decodeStrictJSON(trimmed, &reports); err != nil {
+			return 0, err
+		}
+		if len(reports) == 0 {
+			return 0, errors.New("checkov report array is empty")
+		}
+		return countCheckovReports(reports)
+	}
+	var report checkovReport
+	if err := decodeStrictJSON(trimmed, &report); err != nil {
+		return 0, err
+	}
+	return countCheckovReports([]checkovReport{report})
+}
+
+type checkovReport struct {
+	CheckType string          `json:"check_type"`
+	Results   *checkovResults `json:"results"`
+	Summary   json.RawMessage `json:"summary"`
+	URL       string          `json:"url,omitempty"`
+	Comment   string          `json:"comment,omitempty"`
+}
+
+type checkovResults struct {
+	PassedChecks  []json.RawMessage `json:"passed_checks"`
+	FailedChecks  []json.RawMessage `json:"failed_checks"`
+	SkippedChecks []json.RawMessage `json:"skipped_checks"`
+	ParsingErrors []json.RawMessage `json:"parsing_errors"`
+}
+
+func countCheckovReports(reports []checkovReport) (int, error) {
+	findings := 0
+	for index, report := range reports {
+		if report.Results == nil {
+			return 0, fmt.Errorf("checkov report %d has no results", index)
+		}
+		if err := requireJSONObject(report.Summary, "checkov summary"); err != nil {
+			return 0, fmt.Errorf("report %d: %w", index, err)
+		}
+		if len(report.Results.ParsingErrors) != 0 {
+			return 0, fmt.Errorf("checkov report %d contains %d parsing errors", index, len(report.Results.ParsingErrors))
+		}
+		if err := validateObjects(report.Results.FailedChecks, "Checkov failed check"); err != nil {
+			return 0, err
+		}
+		findings += len(report.Results.FailedChecks)
+	}
+	return findings, nil
+}
+
+func decodeStrictJSON(data []byte, destination any) error {
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(destination); err != nil {
+		return fmt.Errorf("decode JSON: %w", err)
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
+		if err == nil {
+			return errors.New("report contains a trailing JSON value")
+		}
+		return fmt.Errorf("decode trailing JSON: %w", err)
+	}
+	return nil
+}
+
+func validateObjects(values []json.RawMessage, label string) error {
+	for index, value := range values {
+		if err := requireJSONObject(value, label); err != nil {
+			return fmt.Errorf("%s %d: %w", label, index, err)
+		}
+	}
+	return nil
+}
+
+func requireJSONObject(raw json.RawMessage, label string) error {
+	object, err := decodeJSONObject(raw, label)
+	if err != nil {
+		return err
+	}
+	if len(object) == 0 {
+		return fmt.Errorf("%s must not be empty", label)
+	}
+	return nil
+}
+
+func requireJSONObjectAllowEmpty(raw json.RawMessage, label string) error {
+	_, err := decodeJSONObject(raw, label)
+	return err
+}
+
+func decodeJSONObject(raw json.RawMessage, label string) (map[string]json.RawMessage, error) {
+	trimmed := bytes.TrimSpace(raw)
+	if len(trimmed) < 2 || trimmed[0] != '{' {
+		return nil, fmt.Errorf("%s must be a JSON object", label)
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(trimmed, &object); err != nil {
+		return nil, fmt.Errorf("decode %s: %w", label, err)
+	}
+	return object, nil
+}

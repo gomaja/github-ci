@@ -1,0 +1,1 @@
+[{"RuleID":"generic-api-key","Description":"finding","StartLine":1,"EndLine":1,"StartColumn":1,"EndColumn":8,"Match":"secret","Secret":"redacted","File":"config.txt","SymlinkFile":"","Commit":"","Entropy":3.5,"Author":"","Email":"","Date":"","Message":"","Tags":[],"Fingerprint":"config.txt:generic-api-key:1"}]
