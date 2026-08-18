@@ -2,9 +2,11 @@
 package evidence
 
 import (
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"regexp"
+	"strings"
 	"unicode"
 
 	"github.com/gomaja/github-ci/internal/pathpolicy"
@@ -16,6 +18,7 @@ var (
 	gitSHAPattern   = regexp.MustCompile(`^[0-9a-f]{40}$`)
 	sha256Pattern   = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
 	toolNamePattern = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]*$`)
+	reasonPattern   = regexp.MustCompile(`^[a-z0-9]+(?:-[a-z0-9]+)*$`)
 )
 
 // Applicability records whether policy requires a tool for the subject.
@@ -55,6 +58,7 @@ type Record struct {
 type Expected struct {
 	Tool          string        `json:"tool"`
 	CommandID     string        `json:"command_id"`
+	ParserVersion string        `json:"parser_version"`
 	Applicability Applicability `json:"applicability"`
 	ReasonCode    string        `json:"reason_code,omitempty"`
 }
@@ -65,12 +69,31 @@ type Plan struct {
 	DetectorVersion string     `json:"detector_version"`
 	SubjectSHA      string     `json:"subject_sha"`
 	TreeSHA256      string     `json:"tree_sha256"`
+	PolicySHA256    string     `json:"policy_sha256"`
 	Expected        []Expected `json:"expected"`
 }
 
 // Identity returns the stable tool/command_id record identity.
 func (record Record) Identity() string {
 	return record.Tool + "/" + record.CommandID
+}
+
+// Identity returns the stable tool/command_id expected-record identity.
+func (expected Expected) Identity() string {
+	return expected.Tool + "/" + expected.CommandID
+}
+
+// Digest returns the deterministic digest of a validated plan.
+func (plan Plan) Digest() (string, error) {
+	if err := ValidatePlan(plan); err != nil {
+		return "", err
+	}
+	encoded, err := json.Marshal(plan)
+	if err != nil {
+		return "", fmt.Errorf("marshal plan: %w", err)
+	}
+	digest := sha256.Sum256(encoded)
+	return fmt.Sprintf("sha256:%x", digest), nil
 }
 
 // MarshalJSON emits fields in Record declaration order.
@@ -151,6 +174,62 @@ func ValidateRecords(subjectSHA string, records []Record) error {
 			return fmt.Errorf("duplicate evidence identity %q", identity)
 		}
 		identities[identity] = struct{}{}
+	}
+	return nil
+}
+
+// ValidatePlan verifies plan identity, ordering, and applicability invariants.
+func ValidatePlan(plan Plan) error {
+	if plan.SchemaVersion != SchemaVersion {
+		return fmt.Errorf("schema_version must be %q", SchemaVersion)
+	}
+	if err := validateText("detector_version", plan.DetectorVersion); err != nil {
+		return err
+	}
+	if !gitSHAPattern.MatchString(plan.SubjectSHA) {
+		return fmt.Errorf("subject_sha must be a 40-character lowercase hexadecimal commit SHA")
+	}
+	if !sha256Pattern.MatchString(plan.TreeSHA256) {
+		return fmt.Errorf("tree_sha256 must be a lowercase SHA-256 digest")
+	}
+	if !sha256Pattern.MatchString(plan.PolicySHA256) {
+		return fmt.Errorf("policy_sha256 must be a lowercase SHA-256 digest")
+	}
+	if len(plan.Expected) == 0 {
+		return fmt.Errorf("expected must contain at least one analyzer identity")
+	}
+
+	identities := make(map[string]struct{}, len(plan.Expected))
+	previous := ""
+	for index, expected := range plan.Expected {
+		if !toolNamePattern.MatchString(expected.Tool) {
+			return fmt.Errorf("expected %d tool must be a lowercase identifier: %q", index, expected.Tool)
+		}
+		if err := pathpolicy.Validate("command_id", expected.CommandID); err != nil {
+			return fmt.Errorf("expected %d: %w", index, err)
+		}
+		if err := validateText("parser_version", expected.ParserVersion); err != nil {
+			return fmt.Errorf("expected %d: %w", index, err)
+		}
+		if expected.Applicability != Applicable && expected.Applicability != NotApplicable {
+			return fmt.Errorf("expected %d has unsupported applicability %q", index, expected.Applicability)
+		}
+		if expected.Applicability == Applicable && expected.ReasonCode != "" {
+			return fmt.Errorf("expected %d applicable entry must not have reason_code", index)
+		}
+		if expected.Applicability == NotApplicable && !reasonPattern.MatchString(expected.ReasonCode) {
+			return fmt.Errorf("expected %d not-applicable entry must have a lowercase reason_code", index)
+		}
+
+		identity := expected.Identity()
+		if _, exists := identities[identity]; exists {
+			return fmt.Errorf("duplicate expected identity %q", identity)
+		}
+		identities[identity] = struct{}{}
+		if index > 0 && strings.Compare(previous, identity) >= 0 {
+			return fmt.Errorf("expected entries must be sorted by identity: %q precedes %q", previous, identity)
+		}
+		previous = identity
 	}
 	return nil
 }

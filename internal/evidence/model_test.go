@@ -3,6 +3,7 @@ package evidence
 import (
 	"encoding/json"
 	"os"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -98,6 +99,100 @@ func TestRecordIdentity(t *testing.T) {
 	}
 }
 
+func TestValidatePlanAcceptsCanonicalPlan(t *testing.T) {
+	plan := validPlan()
+	if err := ValidatePlan(plan); err != nil {
+		t.Fatalf("ValidatePlan() error = %v", err)
+	}
+}
+
+func TestValidatePlanRejectsInvalidInput(t *testing.T) {
+	tests := []struct {
+		name   string
+		mutate func(*Plan)
+		want   string
+	}{
+		{name: "schema", mutate: func(plan *Plan) { plan.SchemaVersion = "2" }, want: "schema_version"},
+		{name: "detector", mutate: func(plan *Plan) { plan.DetectorVersion = "" }, want: "detector_version"},
+		{name: "subject", mutate: func(plan *Plan) { plan.SubjectSHA = strings.ToUpper(plan.SubjectSHA) }, want: "subject_sha"},
+		{name: "tree", mutate: func(plan *Plan) { plan.TreeSHA256 = "sha256:short" }, want: "tree_sha256"},
+		{name: "policy", mutate: func(plan *Plan) { plan.PolicySHA256 = "sha256:short" }, want: "policy_sha256"},
+		{name: "empty expected", mutate: func(plan *Plan) { plan.Expected = nil }, want: "expected"},
+		{name: "tool", mutate: func(plan *Plan) { plan.Expected[0].Tool = "StaticCheck" }, want: "tool"},
+		{name: "command", mutate: func(plan *Plan) { plan.Expected[0].CommandID = "../outside" }, want: "command_id"},
+		{name: "parser", mutate: func(plan *Plan) { plan.Expected[0].ParserVersion = "" }, want: "parser_version"},
+		{name: "applicability", mutate: func(plan *Plan) { plan.Expected[0].Applicability = "sometimes" }, want: "applicability"},
+		{name: "applicable reason", mutate: func(plan *Plan) { plan.Expected[0].ReasonCode = "no-go-module" }, want: "reason_code"},
+		{name: "missing n/a reason", mutate: func(plan *Plan) { plan.Expected[1].ReasonCode = "" }, want: "reason_code"},
+		{name: "invalid n/a reason", mutate: func(plan *Plan) { plan.Expected[1].ReasonCode = "No Dockerfile" }, want: "reason_code"},
+		{name: "duplicate", mutate: func(plan *Plan) { plan.Expected[1] = plan.Expected[0] }, want: "duplicate expected identity"},
+		{name: "unsorted", mutate: func(plan *Plan) { plan.Expected[0], plan.Expected[1] = plan.Expected[1], plan.Expected[0] }, want: "sorted"},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			plan := validPlan()
+			test.mutate(&plan)
+			err := ValidatePlan(plan)
+			if err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("ValidatePlan() error = %v, want substring %q", err, test.want)
+			}
+		})
+	}
+}
+
+func TestPlanDigestIsCanonicalAndContentBound(t *testing.T) {
+	plan := validPlan()
+	first, err := plan.Digest()
+	if err != nil {
+		t.Fatalf("Digest() error = %v", err)
+	}
+	second, err := plan.Digest()
+	if err != nil {
+		t.Fatalf("second Digest() error = %v", err)
+	}
+	if first != second {
+		t.Fatalf("Digest() = %q then %q", first, second)
+	}
+	if !strings.HasPrefix(first, "sha256:") || len(first) != len("sha256:")+64 {
+		t.Fatalf("Digest() = %q, want lowercase SHA-256 digest", first)
+	}
+
+	mutated := validPlan()
+	mutated.Expected[0].ParserVersion = "staticcheck-jsonl/v2"
+	changed, err := mutated.Digest()
+	if err != nil {
+		t.Fatalf("mutated Digest() error = %v", err)
+	}
+	if changed == first {
+		t.Fatal("Digest() did not bind parser_version")
+	}
+}
+
+func TestExpectedIdentity(t *testing.T) {
+	if got := validPlan().Expected[0].Identity(); got != "hadolint/hadolint/dockerfiles" {
+		t.Fatalf("Identity() = %q", got)
+	}
+}
+
+func FuzzValidatePlan(f *testing.F) {
+	valid, err := json.Marshal(validPlan())
+	if err != nil {
+		f.Fatalf("marshal seed: %v", err)
+	}
+	f.Add(valid)
+	f.Add([]byte(`{"schema_version":"1","expected":[]}`))
+	f.Add([]byte(`{"schema_version":`))
+	f.Fuzz(func(t *testing.T, data []byte) {
+		var plan Plan
+		if err := json.Unmarshal(data, &plan); err != nil {
+			return
+		}
+		_ = ValidatePlan(plan)
+		_, _ = plan.Digest()
+	})
+}
+
 func TestEvidenceSchemaIsStrictJSONSchema(t *testing.T) {
 	data, err := os.ReadFile("../../schemas/evidence.schema.json")
 	if err != nil {
@@ -156,4 +251,33 @@ func notApplicableRecord() Record {
 	record.ReportSHA256 = ""
 	record.Outcome = OutcomeNotApplicable
 	return record
+}
+
+func validPlan() Plan {
+	expected := []Expected{
+		{
+			Tool:          "hadolint",
+			CommandID:     "hadolint/dockerfiles",
+			ParserVersion: "sarif/v1",
+			Applicability: Applicable,
+		},
+		{
+			Tool:          "shellcheck",
+			CommandID:     "shellcheck/scripts",
+			ParserVersion: "shellcheck-json1/v1",
+			Applicability: NotApplicable,
+			ReasonCode:    "no-shell-files",
+		},
+	}
+	slices.SortFunc(expected, func(left, right Expected) int {
+		return strings.Compare(left.Identity(), right.Identity())
+	})
+	return Plan{
+		SchemaVersion:   SchemaVersion,
+		DetectorVersion: "applicability/v1",
+		SubjectSHA:      testSubjectSHA,
+		TreeSHA256:      testReportSHA,
+		PolicySHA256:    testPolicySHA,
+		Expected:        expected,
+	}
 }
