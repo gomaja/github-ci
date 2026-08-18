@@ -84,6 +84,7 @@ type Input struct {
 	ObservedTreeSHA256   string             `json:"observed_tree_sha256"`
 	ObservedPolicySHA256 string             `json:"observed_policy_sha256"`
 	ObservedPlanSHA256   string             `json:"observed_plan_sha256"`
+	EvaluationDate       string             `json:"evaluation_date"`
 }
 
 // Finding is one blocking aggregate-gate result.
@@ -139,6 +140,19 @@ func Evaluate(input Input) Result {
 			Tool: "exceptions", CommandID: "exceptions/manifest",
 			Code:   "exception-" + issue.Code,
 			Detail: fmt.Sprintf("entry %d: %s", issue.Index, issue.Detail),
+		})
+	}
+	if validatedOn := input.Exceptions.ValidatedOn(); validatedOn != "" && validatedOn != input.EvaluationDate {
+		addGlobal("exception-validation-date-mismatch", fmt.Sprintf("exception set was validated on %q, gate evaluates %q", validatedOn, input.EvaluationDate))
+	}
+	for _, issue := range input.Exceptions.ValidateOn(input.EvaluationDate) {
+		code := "exception-" + issue.Code
+		if issue.Code == "invalid-validation-date" {
+			code = issue.Code
+		}
+		findings = append(findings, Finding{
+			Tool: "exceptions", CommandID: "exceptions/manifest",
+			Code: code, Detail: fmt.Sprintf("entry %d: %s", issue.Index, issue.Detail),
 		})
 	}
 

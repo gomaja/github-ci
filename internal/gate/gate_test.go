@@ -58,6 +58,7 @@ func TestEvaluateFailsClosedTruthTable(t *testing.T) {
 		{name: "observed policy mismatch", mutate: func(input *Input) { input.ObservedPolicySHA256 = testReport }, code: "policy-mismatch"},
 		{name: "observed subject mismatch", mutate: func(input *Input) { input.ObservedSubjectSHA = strings.Repeat("b", 40) }, code: "subject-mismatch"},
 		{name: "observed plan mismatch", mutate: func(input *Input) { input.ObservedPlanSHA256 = testReport }, code: "plan-mismatch"},
+		{name: "invalid evaluation date", mutate: func(input *Input) { input.EvaluationDate = "invalid" }, code: "invalid-validation-date"},
 		{name: "context plan mismatch", mutate: func(input *Input) {
 			context := onlyContext(*input)
 			context.PlanSHA256 = testReport
@@ -206,6 +207,17 @@ func TestEvaluatePreservesValidatedExceptionsAcrossJSONRoundTrip(t *testing.T) {
 	}
 }
 
+func TestEvaluateRevalidatesSerializedExceptionDate(t *testing.T) {
+	input := validInput(t)
+	addOpenFinding(&input)
+	input.Exceptions = validExceptionSet(t, onlyContext(input).Observations[0])
+	input.EvaluationDate = "2026-09-01"
+	result := Evaluate(input)
+	if result.Pass || !hasFinding(result, "exception-validation-date-mismatch") || !hasFinding(result, "exception-expired") {
+		t.Fatalf("Evaluate() = %#v", result)
+	}
+}
+
 func TestEvaluateValidatesEveryDuplicateContext(t *testing.T) {
 	input := validInput(t)
 	malformed := input.Context[0]
@@ -342,6 +354,7 @@ func validInput(t testing.TB) Input {
 		}},
 		ObservedSubjectSHA: testSubject, ObservedTreeSHA256: testTree,
 		ObservedPolicySHA256: testPolicy, ObservedPlanSHA256: planDigest,
+		EvaluationDate: "2026-08-18",
 	}
 }
 

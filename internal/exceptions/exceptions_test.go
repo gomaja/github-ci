@@ -220,7 +220,11 @@ func TestSetJSONRejectsUnvalidatedOrAmbiguousData(t *testing.T) {
 	}
 	tests := []string{
 		strings.Replace(string(encoded), `"schema_version":1`, `"schema_version":1,"schema_version":1`, 1),
+		strings.Replace(string(encoded), `"schema_version":1`, `"schema_version":2,"Schema_Version":1`, 1),
+		strings.Replace(string(encoded), `"schema_version":1`, `"Schema_Version":1`, 1),
 		strings.Replace(string(encoded), `"schema_version":1`, `"schema_version":1,"unknown":true`, 1),
+		`{"schema_version":1,"validated_on":"2026-08-18"}`,
+		`{"schema_version":1,"validated_on":"2026-08-18","entries":null}`,
 		string(encoded) + `{}`,
 		strings.Replace(string(encoded), `"rationale":"Parser input is validated before this unreachable branch."`, `"rationale":"false positive"`, 1),
 		strings.Replace(string(encoded), `"validated_on":"2026-08-18"`, `"validated_on":"2026-09-01"`, 1),
@@ -230,6 +234,22 @@ func TestSetJSONRejectsUnvalidatedOrAmbiguousData(t *testing.T) {
 		if err := json.Unmarshal([]byte(document), &decoded); err == nil {
 			t.Errorf("case %d: json.Unmarshal() error = nil", index)
 		}
+	}
+}
+
+func TestSetValidateOnRechecksExpiryAfterSerialization(t *testing.T) {
+	set, issues, err := LoadDetailed(strings.NewReader(validDocument()), testNow)
+	if err != nil || len(issues) != 0 {
+		t.Fatalf("LoadDetailed() issues = %#v, error = %v", issues, err)
+	}
+	if got := set.ValidatedOn(); got != "2026-08-18" {
+		t.Fatalf("ValidatedOn() = %q", got)
+	}
+	if issues := set.ValidateOn("2026-08-19"); !hasIssue(issues, "expired") {
+		t.Fatalf("ValidateOn() issues = %#v", issues)
+	}
+	if issues := set.ValidateOn("invalid"); !hasIssue(issues, "invalid-validation-date") {
+		t.Fatalf("ValidateOn(invalid) issues = %#v", issues)
 	}
 }
 

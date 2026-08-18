@@ -79,6 +79,19 @@ func (set Set) Entries() []Entry {
 	return entries
 }
 
+// ValidatedOn returns the UTC civil date used by the loader.
+func (set Set) ValidatedOn() string { return set.validatedOn.String() }
+
+// ValidateOn rechecks every lifecycle invariant on an explicit UTC civil date.
+func (set Set) ValidateOn(date string) []Issue {
+	currentDate, err := parseDate(date)
+	if err != nil {
+		return []Issue{{Index: -1, Code: "invalid-validation-date", Detail: err.Error()}}
+	}
+	_, issues := validateWires(set.wires(), currentDate)
+	return issues
+}
+
 // FindExact returns the matching entry index, or -1 when no entry matches.
 func (set Set) FindExact(tool, rule, fingerprint, scope string) int {
 	return slices.IndexFunc(set.entries, func(entry Entry) bool {
@@ -181,15 +194,7 @@ func LoadDetailed(reader io.Reader, now time.Time) (Set, []Issue, error) {
 
 // MarshalJSON preserves validated exception entries without exposing mutable state.
 func (set Set) MarshalJSON() ([]byte, error) {
-	wires := make([]entryWire, 0, len(set.entries))
-	for _, entry := range set.entries {
-		wires = append(wires, entryWire{
-			Tool: entry.Tool, Rule: entry.Rule, Fingerprint: entry.Fingerprint,
-			Scope: entry.Scope, Rationale: entry.Rationale, Owner: entry.Owner,
-			Approval: entry.Approval, Created: entry.Created.String(), Expires: entry.Expires.String(),
-			VerificationTests: slices.Clone(entry.VerificationTests),
-		})
-	}
+	wires := set.wires()
 	if len(wires) != 0 && set.validatedOn.String() == "" {
 		return nil, errors.New("exception set has entries without a validation date")
 	}
@@ -205,6 +210,9 @@ func (set *Set) UnmarshalJSON(data []byte) error {
 		return fmt.Errorf("exception JSON exceeds %d bytes", maxDocumentBytes)
 	}
 	if err := rejectDuplicateJSONKeys(data); err != nil {
+		return err
+	}
+	if err := validateSetJSONShape(data); err != nil {
 		return err
 	}
 	decoder := json.NewDecoder(bytes.NewReader(data))
@@ -267,6 +275,19 @@ func validateWires(wires []entryWire, currentDate time.Time) (Set, []Issue) {
 	slices.SortFunc(entries, func(left, right Entry) int { return strings.Compare(left.Identity(), right.Identity()) })
 	sortIssues(issues)
 	return Set{entries: entries, validatedOn: Date{value: currentDate}}, issues
+}
+
+func (set Set) wires() []entryWire {
+	wires := make([]entryWire, 0, len(set.entries))
+	for _, entry := range set.entries {
+		wires = append(wires, entryWire{
+			Tool: entry.Tool, Rule: entry.Rule, Fingerprint: entry.Fingerprint,
+			Scope: entry.Scope, Rationale: entry.Rationale, Owner: entry.Owner,
+			Approval: entry.Approval, Created: entry.Created.String(), Expires: entry.Expires.String(),
+			VerificationTests: slices.Clone(entry.VerificationTests),
+		})
+	}
+	return wires
 }
 
 // Load rejects both fatal syntax errors and semantic issues.
@@ -378,6 +399,43 @@ func rejectDuplicateJSONKeys(data []byte) error {
 	return requireJSONEOF(decoder)
 }
 
+func validateSetJSONShape(data []byte) error {
+	var root map[string]json.RawMessage
+	if err := json.Unmarshal(data, &root); err != nil {
+		return fmt.Errorf("decode exception JSON shape: %w", err)
+	}
+	allowedRoot := map[string]struct{}{"schema_version": {}, "validated_on": {}, "entries": {}}
+	for key := range root {
+		if _, allowed := allowedRoot[key]; !allowed {
+			return fmt.Errorf("unknown exception JSON field %q", key)
+		}
+	}
+	entriesJSON, exists := root["entries"]
+	if !exists {
+		return errors.New("exception JSON entries field is required")
+	}
+	trimmed := bytes.TrimSpace(entriesJSON)
+	if len(trimmed) == 0 || trimmed[0] != '[' {
+		return errors.New("exception JSON entries must be an array")
+	}
+	var entries []map[string]json.RawMessage
+	if err := json.Unmarshal(entriesJSON, &entries); err != nil {
+		return fmt.Errorf("decode exception JSON entries: %w", err)
+	}
+	allowedEntry := map[string]struct{}{
+		"tool": {}, "rule": {}, "fingerprint": {}, "scope": {}, "rationale": {},
+		"owner": {}, "approval": {}, "created": {}, "expires": {}, "verification_tests": {},
+	}
+	for index, entry := range entries {
+		for key := range entry {
+			if _, allowed := allowedEntry[key]; !allowed {
+				return fmt.Errorf("unknown exception JSON entries[%d] field %q", index, key)
+			}
+		}
+	}
+	return nil
+}
+
 func walkJSONValue(decoder *json.Decoder, depth int) error {
 	if depth > 256 {
 		return errors.New("JSON nesting exceeds 256 levels")
@@ -402,10 +460,11 @@ func walkJSONValue(decoder *json.Decoder, depth int) error {
 			if !ok {
 				return errors.New("JSON object key is not a string")
 			}
-			if _, exists := seen[key]; exists {
+			foldedKey := strings.ToLower(key)
+			if _, exists := seen[foldedKey]; exists {
 				return fmt.Errorf("duplicate JSON key %q", key)
 			}
-			seen[key] = struct{}{}
+			seen[foldedKey] = struct{}{}
 			if err := walkJSONValue(decoder, depth+1); err != nil {
 				return err
 			}
