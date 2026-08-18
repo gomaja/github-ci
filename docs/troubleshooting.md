@@ -1,5 +1,13 @@
 # Troubleshooting
 
+## Harden Runner Blocks Checkout
+
+The generated workflows use a folded `allowed-endpoints: >-` scalar so Harden
+Runner receives a space-delimited allowlist. Do not change it to a literal
+newline-delimited scalar. If checkout cannot reach `github.com`, regenerate the
+workflow and verify the live Harden Runner log retained every configured
+endpoint rather than only the first entry.
+
 ## Start With The Aggregate Gate
 
 Open the failed `github-ci` run and inspect the `evidence` and `gate` jobs. The

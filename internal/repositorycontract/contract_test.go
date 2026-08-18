@@ -7,6 +7,8 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+
+	"github.com/gomaja/github-ci/internal/generate"
 )
 
 var immutableUse = regexp.MustCompile(`^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)?@[0-9a-f]{40}$`)
@@ -15,7 +17,7 @@ func TestRepositoryRequiredFiles(t *testing.T) {
 	t.Parallel()
 	root := repositoryRoot(t)
 	files := []string{
-		"LICENSE", "README.md", "CONTRIBUTING.md", "SECURITY.md", "Makefile",
+		"LICENSE", "README.md", "CONTRIBUTING.md", "SECURITY.md", "Makefile", ".gitattributes",
 		".github/CODEOWNERS", ".github/dependabot.yml", ".github/github-ci.yaml",
 		".github/workflows/ci.yml", ".github/workflows/deep-schedule.yml",
 		".github/workflows/go.yml", ".github/workflows/deep.yml", ".github/workflows/release.yml",
@@ -82,18 +84,37 @@ func TestRepositoryWorkflowUsesAreImmutable(t *testing.T) {
 func TestRepositoryScannerInventory(t *testing.T) {
 	t.Parallel()
 	root := repositoryRoot(t)
-	data, err := os.ReadFile(filepath.Join(root, "policies", "tools.yaml"))
+	file, err := os.Open(filepath.Join(root, "policies", "tools.yaml"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	text := string(data)
+	t.Cleanup(func() {
+		if err := file.Close(); err != nil {
+			t.Errorf("close tool policy: %v", err)
+		}
+	})
+	policy, err := generate.LoadPolicy(file)
+	if err != nil {
+		t.Fatalf("load tool policy: %v", err)
+	}
+	identities := make([]string, 0, len(policy.Actions)+len(policy.Tools))
+	for _, action := range policy.Actions {
+		identities = append(identities, action.ID)
+	}
+	for _, tool := range policy.Tools {
+		identities = append(identities, tool.ID)
+	}
 	for _, id := range []string{
 		"actionlint", "apidiff", "checkov", "codeql", "dependency-review", "gitleaks",
 		"golangci-lint", "goimports", "gopls", "govulncheck", "gremlins", "grype",
 		"hadolint", "markdownlint", "osv-scanner", "scorecard", "semgrep", "shellcheck",
 		"shfmt", "staticcheck", "syft", "trivy", "yamllint", "zizmor",
 	} {
-		if !strings.Contains(text, "id: "+id+"\n") && !strings.Contains(text, "id: "+id+"-") {
+		found := false
+		for _, identity := range identities {
+			found = found || identity == id || strings.HasPrefix(identity, id+"-")
+		}
+		if !found {
 			t.Errorf("tool policy is missing %s", id)
 		}
 	}

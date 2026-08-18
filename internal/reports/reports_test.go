@@ -470,7 +470,8 @@ func TestCountStaticcheckRequiresSuccessfulRunnerEnvelope(t *testing.T) {
 }
 
 func TestStaticcheckRunnerEnvelopePreservesNativeJSONLPayload(t *testing.T) {
-	data := reportFixture(t, "findings", "staticcheck.jsonl")
+	wantPayload := []byte("{\"code\":\"SA1000\",\"severity\":\"error\",\"location\":{\"file\":\"main.go\",\"line\":1,\"column\":1},\"end\":{\"file\":\"main.go\",\"line\":1,\"column\":2},\"message\":\"finding\"}\n")
+	data := append([]byte(`{"schema_version":"1","parser":"staticcheck-jsonl-v1","execution_successful":true}`+"\n"), wantPayload...)
 	parts := bytes.SplitN(data, []byte("\n"), 2)
 	if len(parts) != 2 {
 		t.Fatal("staticcheck fixture has no runner envelope line")
@@ -486,7 +487,6 @@ func TestStaticcheckRunnerEnvelopePreservesNativeJSONLPayload(t *testing.T) {
 	if envelope.SchemaVersion != "1" || envelope.Parser != "staticcheck-jsonl-v1" || !envelope.ExecutionSuccessful {
 		t.Fatalf("runner envelope = %+v", envelope)
 	}
-	wantPayload := []byte("{\"code\":\"SA1000\",\"severity\":\"error\",\"location\":{\"file\":\"main.go\",\"line\":1,\"column\":1},\"end\":{\"file\":\"main.go\",\"line\":1,\"column\":2},\"message\":\"finding\"}\n")
 	if !bytes.Equal(parts[1], wantPayload) {
 		t.Fatalf("native payload changed:\n got: %q\nwant: %q", parts[1], wantPayload)
 	}

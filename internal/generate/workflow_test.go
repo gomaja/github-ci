@@ -27,6 +27,26 @@ func TestGoWorkflowContract(t *testing.T) {
 	assertWorkflowTextContracts(t, string(data))
 }
 
+func TestGeneratedWorkflowsUseFoldedEgressAllowLists(t *testing.T) {
+	for _, name := range []string{
+		"../../.github/workflows/go.yml",
+		"../../.github/workflows/deep.yml",
+		"../../.github/workflows/release.yml",
+	} {
+		data, err := os.ReadFile(name)
+		if err != nil {
+			t.Fatalf("read %s: %v", name, err)
+		}
+		text := string(data)
+		if strings.Contains(text, "allowed-endpoints: |\n") {
+			t.Errorf("%s uses a newline-delimited Harden Runner allowlist", name)
+		}
+		if !strings.Contains(text, "allowed-endpoints: >-\n") {
+			t.Errorf("%s has no space-folded Harden Runner allowlist", name)
+		}
+	}
+}
+
 func assertWorkflowCallContract(t *testing.T, workflow map[string]any) {
 	t.Helper()
 	on := mapping(t, workflow["on"], "on")
