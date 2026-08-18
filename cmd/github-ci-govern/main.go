@@ -1,3 +1,4 @@
+// Package main runs the github-ci repository governance command.
 package main
 
 import (

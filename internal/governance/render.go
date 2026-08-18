@@ -87,6 +87,9 @@ permissions:
 
 jobs:
   gate:
+    permissions:
+      contents: read
+      security-events: write  # CodeQL publishes results evaluated by the local gate.
     uses: gomaja/github-ci/.github/workflows/go.yml@%s
     with:
       profile: %s
@@ -122,11 +125,13 @@ on:
 
 permissions:
   contents: read
-  id-token: write
-  attestations: write
 
 jobs:
   assurance:
+    permissions:
+      contents: read
+      id-token: write  # Provenance attestation requires an OIDC identity.
+      attestations: write  # The called workflow records build provenance.
     uses: gomaja/github-ci/.github/workflows/release.yml@%s
 `, sha, sha)
 }
@@ -135,7 +140,7 @@ func writeFileAtomic(name string, data []byte, mode os.FileMode) error {
 	if strings.ContainsRune(name, '\x00') {
 		return errors.New("output path contains a null byte")
 	}
-	if err := os.MkdirAll(filepath.Dir(name), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(name), 0o750); err != nil {
 		return fmt.Errorf("create output directory: %w", err)
 	}
 	temporary, err := os.CreateTemp(filepath.Dir(name), ".github-ci-*")

@@ -123,7 +123,7 @@ func FuzzClientResponseDecoding(f *testing.F) {
 			writer.Header().Set("Content-Type", "application/json")
 			_, _ = fmt.Fprint(writer, body)
 		}))
-		defer server.Close()
+		t.Cleanup(server.Close)
 		client := Client{BaseURL: server.URL, APIVersion: "2026-03-10", HTTP: server.Client()}
 		var output map[string]any
 		_, _ = client.do(context.Background(), http.MethodGet, "/repos/gomaja/example", nil, &output)

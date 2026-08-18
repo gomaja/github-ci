@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"path"
 	"regexp"
+	"slices"
 	"strings"
 	"unicode"
 )
@@ -30,10 +31,8 @@ func Validate(field, value string) error {
 	if strings.Contains(value, `\`) {
 		return fmt.Errorf("%s must use slash-separated paths: %q", field, value)
 	}
-	for _, part := range strings.Split(value, "/") {
-		if part == ".." {
-			return fmt.Errorf("%s must not contain traversal: %q", field, value)
-		}
+	if slices.Contains(strings.Split(value, "/"), "..") {
+		return fmt.Errorf("%s must not contain traversal: %q", field, value)
 	}
 	if !schemaPattern.MatchString(value) {
 		return fmt.Errorf("%s is not a valid repository-relative path: %q", field, value)

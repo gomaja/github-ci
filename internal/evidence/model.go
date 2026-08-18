@@ -4,6 +4,7 @@ package evidence
 import (
 	"crypto/sha256"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"regexp"
 	"strings"
@@ -12,6 +13,7 @@ import (
 	"github.com/gomaja/github-ci/internal/pathpolicy"
 )
 
+// SchemaVersion is the normalized evidence contract version.
 const SchemaVersion = "1"
 
 var (
@@ -25,7 +27,9 @@ var (
 type Applicability string
 
 const (
-	Applicable    Applicability = "applicable"
+	// Applicable and NotApplicable are the only accepted applicability states.
+	Applicable Applicability = "applicable"
+	// NotApplicable means the tracked-tree detector proved an analyzer is irrelevant.
 	NotApplicable Applicability = "not-applicable"
 )
 
@@ -33,8 +37,11 @@ const (
 type Outcome string
 
 const (
-	OutcomePass          Outcome = "pass"
-	OutcomeFail          Outcome = "fail"
+	// OutcomePass and the following values are normalized analyzer outcomes.
+	OutcomePass Outcome = "pass"
+	// OutcomeFail means an applicable analyzer did not produce clean evidence.
+	OutcomeFail Outcome = "fail"
+	// OutcomeNotApplicable is reserved for detector-backed omitted analyzers.
 	OutcomeNotApplicable Outcome = "N/A"
 )
 
@@ -104,6 +111,16 @@ func (record Record) MarshalJSON() ([]byte, error) {
 
 // ValidateRecord verifies the standalone evidence contract.
 func ValidateRecord(record Record) error {
+	if err := validateRecordIdentity(record); err != nil {
+		return err
+	}
+	if err := validateRecordResult(record); err != nil {
+		return err
+	}
+	return validateRecordApplicability(record)
+}
+
+func validateRecordIdentity(record Record) error {
 	if record.SchemaVersion != SchemaVersion {
 		return fmt.Errorf("schema_version must be %q", SchemaVersion)
 	}
@@ -114,10 +131,10 @@ func ValidateRecord(record Record) error {
 		return err
 	}
 	if !sha256Pattern.MatchString(record.PolicyVersion) {
-		return fmt.Errorf("policy_version must be a lowercase SHA-256 digest")
+		return errors.New("policy_version must be a lowercase SHA-256 digest")
 	}
 	if !gitSHAPattern.MatchString(record.SubjectSHA) {
-		return fmt.Errorf("subject_sha must be a 40-character lowercase hexadecimal commit SHA")
+		return errors.New("subject_sha must be a 40-character lowercase hexadecimal commit SHA")
 	}
 	if record.Applicability != Applicable && record.Applicability != NotApplicable {
 		return fmt.Errorf("unsupported applicability %q", record.Applicability)
@@ -125,33 +142,40 @@ func ValidateRecord(record Record) error {
 	if err := pathpolicy.Validate("command_id", record.CommandID); err != nil {
 		return err
 	}
+	return nil
+}
+
+func validateRecordResult(record Record) error {
 	if record.ExitCode < 0 {
-		return fmt.Errorf("exit_code must not be negative")
+		return errors.New("exit_code must not be negative")
 	}
 	if record.FindingCount < 0 {
-		return fmt.Errorf("finding_count must not be negative")
+		return errors.New("finding_count must not be negative")
 	}
 	if record.Suppressed < 0 {
-		return fmt.Errorf("suppressed_count must not be negative")
+		return errors.New("suppressed_count must not be negative")
 	}
 	if record.Outcome != OutcomePass && record.Outcome != OutcomeFail && record.Outcome != OutcomeNotApplicable {
 		return fmt.Errorf("unsupported outcome %q", record.Outcome)
 	}
+	return nil
+}
 
+func validateRecordApplicability(record Record) error {
 	if record.Applicability == NotApplicable {
 		if record.Outcome != OutcomeNotApplicable || record.ExitCode != 0 || record.FindingCount != 0 || record.Suppressed != 0 || record.ReportSHA256 != "" {
-			return fmt.Errorf("N/A record must have outcome N/A, zero counts and exit code, and no report_sha256")
+			return errors.New("N/A record must have outcome N/A, zero counts and exit code, and no report_sha256")
 		}
 		return nil
 	}
 	if record.Outcome == OutcomeNotApplicable {
-		return fmt.Errorf("applicable record must not have outcome N/A")
+		return errors.New("applicable record must not have outcome N/A")
 	}
 	if !sha256Pattern.MatchString(record.ReportSHA256) {
-		return fmt.Errorf("report_sha256 must be a lowercase SHA-256 digest for applicable evidence")
+		return errors.New("report_sha256 must be a lowercase SHA-256 digest for applicable evidence")
 	}
 	if record.Outcome == OutcomePass && (record.ExitCode != 0 || record.FindingCount != 0) {
-		return fmt.Errorf("passing record must have zero exit_code and finding_count")
+		return errors.New("passing record must have zero exit_code and finding_count")
 	}
 	return nil
 }
@@ -159,7 +183,7 @@ func ValidateRecord(record Record) error {
 // ValidateRecords validates records against a subject and rejects duplicate identities.
 func ValidateRecords(subjectSHA string, records []Record) error {
 	if !gitSHAPattern.MatchString(subjectSHA) {
-		return fmt.Errorf("expected subject_sha must be a 40-character lowercase hexadecimal commit SHA")
+		return errors.New("expected subject_sha must be a 40-character lowercase hexadecimal commit SHA")
 	}
 	identities := make(map[string]struct{}, len(records))
 	for index, record := range records {
@@ -187,16 +211,16 @@ func ValidatePlan(plan Plan) error {
 		return err
 	}
 	if !gitSHAPattern.MatchString(plan.SubjectSHA) {
-		return fmt.Errorf("subject_sha must be a 40-character lowercase hexadecimal commit SHA")
+		return errors.New("subject_sha must be a 40-character lowercase hexadecimal commit SHA")
 	}
 	if !sha256Pattern.MatchString(plan.TreeSHA256) {
-		return fmt.Errorf("tree_sha256 must be a lowercase SHA-256 digest")
+		return errors.New("tree_sha256 must be a lowercase SHA-256 digest")
 	}
 	if !sha256Pattern.MatchString(plan.PolicySHA256) {
-		return fmt.Errorf("policy_sha256 must be a lowercase SHA-256 digest")
+		return errors.New("policy_sha256 must be a lowercase SHA-256 digest")
 	}
 	if len(plan.Expected) == 0 {
-		return fmt.Errorf("expected must contain at least one analyzer identity")
+		return errors.New("expected must contain at least one analyzer identity")
 	}
 
 	identities := make(map[string]struct{}, len(plan.Expected))

@@ -14,6 +14,8 @@ import (
 	"github.com/gomaja/github-ci/internal/config"
 )
 
+const securityEnabled = "enabled"
+
 // Plan is an ordered, content-addressed desired-state change set.
 type Plan struct {
 	SchemaVersion string      `json:"schema_version"`
@@ -261,10 +263,10 @@ func appendActionsOperations(ctx context.Context, client Client, operations []Op
 }
 
 func appendSecurityOperations(ctx context.Context, client Client, operations []Operation, observed []json.RawMessage, fullName, base string, state repositoryState) ([]Operation, []json.RawMessage, error) {
-	if state.SecurityAndAnalysis.SecretScanning.Status != "enabled" || state.SecurityAndAnalysis.PushProtection.Status != "enabled" {
+	if state.SecurityAndAnalysis.SecretScanning.Status != securityEnabled || state.SecurityAndAnalysis.PushProtection.Status != securityEnabled {
 		body := mustJSON(map[string]any{"security_and_analysis": map[string]any{
-			"secret_scanning":                 map[string]string{"status": "enabled"},
-			"secret_scanning_push_protection": map[string]string{"status": "enabled"},
+			"secret_scanning":                 map[string]string{"status": securityEnabled},
+			"secret_scanning_push_protection": map[string]string{"status": securityEnabled},
 		}})
 		operations = append(operations, operation(fullName, "secret-scanning", http.MethodPatch, base, body))
 	}

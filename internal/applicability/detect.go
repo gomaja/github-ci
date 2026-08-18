@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
@@ -16,6 +17,7 @@ import (
 )
 
 const (
+	// DetectorVersion identifies the tracked-tree applicability algorithm.
 	DetectorVersion = "applicability/v1"
 	maxTrackedFile  = 256 << 20
 	maxTrackedTree  = 2 << 30
@@ -50,7 +52,7 @@ type repositoryShape struct {
 // Detect builds a deterministic assurance plan from a tracked-only file system.
 func Detect(tracked fs.FS, input Input) (evidence.Plan, error) {
 	if tracked == nil {
-		return evidence.Plan{}, fmt.Errorf("tracked filesystem must not be nil")
+		return evidence.Plan{}, errors.New("tracked filesystem must not be nil")
 	}
 	if err := input.Consumer.Validate(); err != nil {
 		return evidence.Plan{}, fmt.Errorf("consumer configuration: %w", err)

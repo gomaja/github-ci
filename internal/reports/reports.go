@@ -61,8 +61,10 @@ var parsers = map[string]func([]byte) (int, error){
 	"semgrep":        countSemgrep,
 	"checkov":        countCheckov,
 	"actionlint":     countActionlint,
-	"spdx":           countSPDX,
-	"license":        countLicenseInventory,
+	"spdx": func(data []byte) (int, error) {
+		return 0, validateSPDX(data)
+	},
+	"license": countLicenseInventory,
 }
 
 var parserTools = map[string]string{

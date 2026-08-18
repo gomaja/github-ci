@@ -20,11 +20,8 @@ jobs:
   release-evidence:
     name: release evidence
     permissions:
-      # Attestations require an OIDC identity bound to this workflow run.
-      id-token: write
-      # The attestation action writes provenance without creating a release.
-      attestations: write
-      # Checkout and metadata generation read the tagged source.
+      id-token: write  # Provenance attestation requires an OIDC identity.
+      attestations: write  # The action records provenance without publishing a release.
       contents: read
     runs-on: ubuntu-latest
     timeout-minutes: 60

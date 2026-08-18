@@ -13,7 +13,7 @@ func FuzzLoadPolicy(f *testing.F) {
 	}
 	f.Add(seed)
 	f.Add([]byte("schema-version: 1\nactions: []\ntools: []\n"))
-	f.Fuzz(func(t *testing.T, data []byte) {
+	f.Fuzz(func(_ *testing.T, data []byte) {
 		_, _ = LoadPolicy(strings.NewReader(string(data)))
 	})
 }
@@ -25,7 +25,7 @@ func FuzzLoadLinters(f *testing.F) {
 	}
 	f.Add(seed)
 	f.Add([]byte("schema-version: 1\nlinters: []\n"))
-	f.Fuzz(func(t *testing.T, data []byte) {
+	f.Fuzz(func(_ *testing.T, data []byte) {
 		_, _ = LoadLinters(strings.NewReader(string(data)))
 	})
 }

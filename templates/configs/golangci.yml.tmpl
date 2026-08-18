@@ -6,6 +6,37 @@ linters:
   enable:
 [%range .Linters%]    - [%.%]
 [%end%]
+  settings:
+    cyclop:
+      max-complexity: 20
+    depguard:
+      rules:
+        main:
+          list-mode: original
+          deny:
+            - pkg: github.com/pkg/errors$
+              desc: use the standard library errors package
+            - pkg: github.com/satori/go.uuid$
+              desc: use github.com/google/uuid
+            - pkg: gopkg.in/yaml.v2$
+              desc: use gopkg.in/yaml.v3
+            - pkg: io/ioutil$
+              desc: use the corresponding os or io package API
+    gocognit:
+      min-complexity: 30
+    goconst:
+      ignore-tests: true
+    recvcheck:
+      exclusions:
+        - "*.UnmarshalJSON"
+  exclusions:
+    generated: strict
+    warn-unused: true
+    rules:
+      - path: _test\.go
+        linters:
+          - gosec
+
 issues:
   max-issues-per-linter: 0
   max-same-issues: 0

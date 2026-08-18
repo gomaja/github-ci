@@ -315,7 +315,7 @@ func FuzzEvaluate(f *testing.F) {
 	f.Add(seed)
 	f.Add([]byte(`{"plan":{}}`))
 	f.Add([]byte(`{"records":[`))
-	f.Fuzz(func(t *testing.T, data []byte) {
+	f.Fuzz(func(_ *testing.T, data []byte) {
 		var candidate Input
 		if err := json.Unmarshal(data, &candidate); err != nil {
 			return
@@ -324,8 +324,8 @@ func FuzzEvaluate(f *testing.F) {
 	})
 }
 
-func validInput(t testing.TB) Input {
-	t.Helper()
+func validInput(tb testing.TB) Input {
+	tb.Helper()
 	plan := evidence.Plan{
 		SchemaVersion: evidence.SchemaVersion, DetectorVersion: "applicability/v1",
 		SubjectSHA: testSubject, TreeSHA256: testTree, PolicySHA256: testPolicy,
@@ -336,7 +336,7 @@ func validInput(t testing.TB) Input {
 	}
 	planDigest, err := plan.Digest()
 	if err != nil {
-		t.Fatalf("Digest() error = %v", err)
+		tb.Fatalf("Digest() error = %v", err)
 	}
 	record := evidence.Record{
 		SchemaVersion: evidence.SchemaVersion, Tool: "staticcheck", ToolVersion: "2026.1",
@@ -358,14 +358,14 @@ func validInput(t testing.TB) Input {
 	}
 }
 
-func validNotApplicableInput(t testing.TB) Input {
-	t.Helper()
-	input := validInput(t)
+func validNotApplicableInput(tb testing.TB) Input {
+	tb.Helper()
+	input := validInput(tb)
 	input.Plan.Expected[0].Applicability = evidence.NotApplicable
 	input.Plan.Expected[0].ReasonCode = "no-go-module"
 	digest, err := input.Plan.Digest()
 	if err != nil {
-		t.Fatalf("Digest() error = %v", err)
+		tb.Fatalf("Digest() error = %v", err)
 	}
 	input.ObservedPlanSHA256 = digest
 	input.Records[0].Applicability = evidence.NotApplicable
@@ -422,8 +422,8 @@ func hasFinding(result Result, code string) bool {
 	return slices.ContainsFunc(result.Findings, func(finding Finding) bool { return finding.Code == code })
 }
 
-func validExceptionSet(t testing.TB, observation Observation) exceptions.Set {
-	t.Helper()
+func validExceptionSet(tb testing.TB, observation Observation) exceptions.Set {
+	tb.Helper()
 	document := fmt.Sprintf(`schema-version: 1
 exceptions:
   - tool: %s
@@ -438,7 +438,7 @@ exceptions:
 `, observation.Tool, observation.Rule, observation.Fingerprint, observation.Scope)
 	set, issues, err := exceptions.LoadDetailed(strings.NewReader(document), time.Date(2026, 8, 18, 0, 0, 0, 0, time.UTC))
 	if err != nil || len(issues) != 0 {
-		t.Fatalf("LoadDetailed() issues = %#v, error = %v", issues, err)
+		tb.Fatalf("LoadDetailed() issues = %#v, error = %v", issues, err)
 	}
 	return set
 }

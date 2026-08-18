@@ -81,11 +81,13 @@ func TestGoCommandHarnessBlocksFindings(t *testing.T) {
 		mutate    func(*testing.T, string)
 	}{
 		{name: "formatting", group: "formatting", tool: "gofmt", commandID: "gofmt/tracked-go", mutate: func(t *testing.T, root string) {
+			t.Helper()
 			writeFixtureFile(t, root, "clean.go", "// Package clean provides a validation fixture.\npackage clean\nfunc Add(left,right int)int{return left+right}\n")
 		}},
 		{name: "build", group: "core", tool: "go", commandID: "go/build", mutate: addSyntaxError},
 		{name: "gopls", group: "core", tool: "gopls", commandID: "gopls/tracked-go", mutate: addSyntaxError},
 		{name: "test", group: "tests", tool: "go", commandID: "go/test", mutate: func(t *testing.T, root string) {
+			t.Helper()
 			path := filepath.Join(root, "clean_test.go")
 			data, err := os.ReadFile(path)
 			if err != nil {
@@ -94,6 +96,7 @@ func TestGoCommandHarnessBlocksFindings(t *testing.T) {
 			writeFixtureFile(t, root, "clean_test.go", strings.Replace(string(data), "!= 5", "!= 6", 1))
 		}},
 		{name: "race", group: "tests", tool: "go", commandID: "go/race", mutate: func(t *testing.T, root string) {
+			t.Helper()
 			writeFixtureFile(t, root, "race_test.go", `package clean
 
 import "testing"
@@ -111,12 +114,15 @@ func TestDeliberateRace(t *testing.T) {
 `)
 		}},
 		{name: "vet", group: "core", tool: "go", commandID: "go/vet", mutate: func(t *testing.T, root string) {
+			t.Helper()
 			writeFixtureFile(t, root, "vet.go", "package clean\n\nimport \"fmt\"\n\nfunc invalidFormat() { fmt.Printf(\"%d\", \"text\") }\n")
 		}},
 		{name: "staticcheck", group: "analysis", tool: "staticcheck", commandID: "staticcheck/default", mutate: func(t *testing.T, root string) {
+			t.Helper()
 			writeFixtureFile(t, root, "staticcheck.go", "package clean\n\nimport \"time\"\n\nfunc shortSleep() { time.Sleep(1) }\n")
 		}},
 		{name: "golangci-lint", group: "analysis", tool: "golangci-lint", commandID: "golangci-lint/default", mutate: func(t *testing.T, root string) {
+			t.Helper()
 			writeFixtureFile(t, root, "lint.go", "package clean\n\n// TODO: remove the deliberate lint marker.\nfunc lintMarker() {}\n")
 		}},
 		{name: "govulncheck", group: "analysis", tool: "govulncheck", commandID: "govulncheck/modules", mutate: addSyntaxError},
@@ -238,7 +244,7 @@ func addSyntaxError(t *testing.T, root string) {
 
 func runCommand(t *testing.T, directory string, environment []string, name string, arguments ...string) {
 	t.Helper()
-	command := exec.Command(name, arguments...)
+	command := exec.CommandContext(t.Context(), name, arguments...)
 	command.Dir = directory
 	command.Env = append(os.Environ(), environment...)
 	var output bytes.Buffer

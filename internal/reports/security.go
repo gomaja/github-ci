@@ -39,7 +39,7 @@ func countActionlint(data []byte) (int, error) {
 	return len(findings), nil
 }
 
-func countSPDX(data []byte) (int, error) {
+func validateSPDX(data []byte) error {
 	var document struct {
 		SPDXVersion          string            `json:"spdxVersion"`
 		DataLicense          string            `json:"dataLicense"`
@@ -55,23 +55,23 @@ func countSPDX(data []byte) (int, error) {
 		ExternalDocumentRefs []json.RawMessage `json:"externalDocumentRefs,omitempty"`
 	}
 	if err := decodeStrictJSON(data, &document); err != nil {
-		return 0, err
+		return err
 	}
 	if document.SPDXVersion != "SPDX-2.3" || document.DataLicense != "CC0-1.0" || document.SPDXID != "SPDXRef-DOCUMENT" {
-		return 0, errors.New("unsupported SPDX document identity")
+		return errors.New("unsupported SPDX document identity")
 	}
 	if strings.TrimSpace(document.Name) == "" || strings.TrimSpace(document.DocumentNamespace) == "" {
-		return 0, errors.New("SPDX document has no name or namespace")
+		return errors.New("SPDX document has no name or namespace")
 	}
 	creation, err := decodeJSONObject(document.CreationInfo, "SPDX creationInfo")
 	if err != nil {
-		return 0, err
+		return err
 	}
 	if len(creation["created"]) == 0 || len(creation["creators"]) == 0 {
-		return 0, errors.New("SPDX creationInfo is incomplete")
+		return errors.New("SPDX creationInfo is incomplete")
 	}
 	if len(document.Packages)+len(document.Files) == 0 {
-		return 0, errors.New("SPDX document has no described subject")
+		return errors.New("SPDX document has no described subject")
 	}
 	describesSubject := len(document.DocumentDescribes) != 0
 	for index, raw := range document.Relationships {
@@ -82,21 +82,21 @@ func countSPDX(data []byte) (int, error) {
 			Comment            string `json:"comment,omitempty"`
 		}
 		if err := decodeStrictJSON(raw, &relationship); err != nil {
-			return 0, fmt.Errorf("SPDX relationship %d: %w", index, err)
+			return fmt.Errorf("SPDX relationship %d: %w", index, err)
 		}
 		if relationship.SPDXElementID == "SPDXRef-DOCUMENT" && relationship.RelationshipType == "DESCRIBES" && relationship.RelatedSPDXElement != "" {
 			describesSubject = true
 		}
 	}
 	if !describesSubject {
-		return 0, errors.New("SPDX document has no described subject")
+		return errors.New("SPDX document has no described subject")
 	}
 	for _, group := range [][]json.RawMessage{document.Packages, document.Files, document.Relationships, document.Annotations, document.ExternalDocumentRefs} {
 		if err := validateObjects(group, "SPDX entry"); err != nil {
-			return 0, err
+			return err
 		}
 	}
-	return 0, nil
+	return nil
 }
 
 func countLicenseInventory(data []byte) (int, error) {

@@ -1,0 +1,150 @@
+package repositorycontract
+
+import (
+	"bufio"
+	"os"
+	"path/filepath"
+	"regexp"
+	"strings"
+	"testing"
+)
+
+var immutableUse = regexp.MustCompile(`^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)?@[0-9a-f]{40}$`)
+
+func TestRepositoryRequiredFiles(t *testing.T) {
+	t.Parallel()
+	root := repositoryRoot(t)
+	files := []string{
+		"LICENSE", "README.md", "CONTRIBUTING.md", "SECURITY.md", "Makefile",
+		".github/CODEOWNERS", ".github/dependabot.yml", ".github/github-ci.yaml",
+		".github/workflows/ci.yml", ".github/workflows/deep-schedule.yml",
+		".github/workflows/go.yml", ".github/workflows/deep.yml", ".github/workflows/release.yml",
+		".golangci.yml", ".markdownlint-cli2.yaml",
+		"docs/adoption.md", "docs/exceptions.md", "docs/governance.md", "docs/policy.md",
+		"docs/releases.md", "docs/security-model.md", "docs/troubleshooting.md",
+	}
+	for _, name := range files {
+		if info, err := os.Stat(filepath.Join(root, filepath.FromSlash(name))); err != nil || info.IsDir() {
+			t.Errorf("required file %s is missing", name)
+		}
+	}
+}
+
+func TestRepositoryWorkflowUsesAreImmutable(t *testing.T) {
+	t.Parallel()
+	root := repositoryRoot(t)
+	workflows, err := filepath.Glob(filepath.Join(root, ".github", "workflows", "*.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(workflows) < 5 {
+		t.Fatalf("workflow count = %d, want at least 5", len(workflows))
+	}
+	for _, name := range workflows {
+		file, err := os.Open(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		scanner := bufio.NewScanner(file)
+		for scanner.Scan() {
+			line := strings.TrimSpace(scanner.Text())
+			if !strings.HasPrefix(line, "uses:") && !strings.Contains(line, " uses:") {
+				continue
+			}
+			_, value, found := strings.Cut(line, "uses:")
+			if !found {
+				continue
+			}
+			value = strings.TrimSpace(value)
+			if !strings.HasPrefix(value, "./") && !immutableUse.MatchString(value) {
+				t.Errorf("%s contains mutable or invalid action use %q", filepath.Base(name), value)
+			}
+		}
+		if err := scanner.Err(); err != nil {
+			t.Fatal(err)
+		}
+		if err := file.Close(); err != nil {
+			t.Fatal(err)
+		}
+		data, err := os.ReadFile(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		text := string(data)
+		for _, forbidden := range []string{"pull_request_target:", "permissions: write-all", "curl | sh", "curl|sh"} {
+			if strings.Contains(text, forbidden) {
+				t.Errorf("%s contains forbidden workflow pattern %q", filepath.Base(name), forbidden)
+			}
+		}
+	}
+}
+
+func TestRepositoryScannerInventory(t *testing.T) {
+	t.Parallel()
+	root := repositoryRoot(t)
+	data, err := os.ReadFile(filepath.Join(root, "policies", "tools.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(data)
+	for _, id := range []string{
+		"actionlint", "apidiff", "checkov", "codeql", "dependency-review", "gitleaks",
+		"golangci-lint", "goimports", "gopls", "govulncheck", "gremlins", "grype",
+		"hadolint", "markdownlint", "osv-scanner", "scorecard", "semgrep", "shellcheck",
+		"shfmt", "staticcheck", "syft", "trivy", "yamllint", "zizmor",
+	} {
+		if !strings.Contains(text, "id: "+id+"\n") && !strings.Contains(text, "id: "+id+"-") {
+			t.Errorf("tool policy is missing %s", id)
+		}
+	}
+}
+
+func TestRepositoryScannerScriptsFailClosed(t *testing.T) {
+	t.Parallel()
+	root := repositoryRoot(t)
+	data, err := os.ReadFile(filepath.Join(root, "scripts", "run-scanners.sh"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(data)
+	for _, required := range []string{
+		"set -euo pipefail",
+		"osv-scanner scan source --recursive --no-ignore",
+		"--network none --cap-drop ALL --security-opt no-new-privileges --read-only",
+	} {
+		if !strings.Contains(text, required) {
+			t.Errorf("scanner runner is missing fail-closed contract %q", required)
+		}
+	}
+}
+
+func TestRepositoryDocumentationLinksResolve(t *testing.T) {
+	t.Parallel()
+	root := repositoryRoot(t)
+	data, err := os.ReadFile(filepath.Join(root, "README.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	links := regexp.MustCompile(`\[[^]]+\]\(([^)]+)\)`).FindAllStringSubmatch(string(data), -1)
+	if len(links) < 8 {
+		t.Fatalf("README local link count = %d, want at least 8", len(links))
+	}
+	for _, match := range links {
+		target := strings.Split(match[1], "#")[0]
+		if target == "" || strings.Contains(target, "://") {
+			continue
+		}
+		if _, err := os.Stat(filepath.Join(root, filepath.FromSlash(target))); err != nil {
+			t.Errorf("README link %q does not resolve", match[1])
+		}
+	}
+}
+
+func repositoryRoot(t *testing.T) string {
+	t.Helper()
+	root, err := filepath.Abs(filepath.Join("..", ".."))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return root
+}

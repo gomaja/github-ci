@@ -2,6 +2,7 @@
 package applicability
 
 import (
+	"errors"
 	"fmt"
 	"regexp"
 	"slices"
@@ -14,28 +15,53 @@ import (
 type Capability string
 
 const (
-	CapabilityAlways     Capability = "always"
-	CapabilityGo         Capability = "go"
-	CapabilityOrdinaryGo Capability = "ordinary-go"
-	CapabilityShell      Capability = "shell"
-	CapabilityDocker     Capability = "docker"
-	CapabilityWorkflow   Capability = "workflow"
-	CapabilityTerraform  Capability = "terraform"
-	CapabilityMarkdown   Capability = "markdown"
-	CapabilityYAML       Capability = "yaml"
-	CapabilityJSON       Capability = "json"
+	parserCommandStatus = "command-status/v1"
+	parserPathList      = "path-list/v1"
+	parserSARIF         = "sarif/v1"
 )
 
 const (
-	ReasonNoGoModule        = "no-go-module"
+	// CapabilityAlways and the following values identify tracked-file capabilities.
+	CapabilityAlways Capability = "always"
+	// CapabilityGo activates analyzers for repositories containing a Go module.
+	CapabilityGo Capability = "go"
+	// CapabilityOrdinaryGo activates analyzers for non-generated Go source.
+	CapabilityOrdinaryGo Capability = "ordinary-go"
+	// CapabilityShell activates analyzers for shell scripts.
+	CapabilityShell Capability = "shell"
+	// CapabilityDocker activates analyzers for Dockerfiles.
+	CapabilityDocker Capability = "docker"
+	// CapabilityWorkflow activates analyzers for GitHub Actions workflows.
+	CapabilityWorkflow Capability = "workflow"
+	// CapabilityTerraform activates analyzers for Terraform files.
+	CapabilityTerraform Capability = "terraform"
+	// CapabilityMarkdown activates analyzers for Markdown files.
+	CapabilityMarkdown Capability = "markdown"
+	// CapabilityYAML activates analyzers for YAML files.
+	CapabilityYAML Capability = "yaml"
+	// CapabilityJSON activates analyzers for JSON files.
+	CapabilityJSON Capability = "json"
+)
+
+const (
+	// ReasonNoGoModule and the following values explain why a capability is absent.
+	ReasonNoGoModule = "no-go-module"
+	// ReasonNoOrdinaryGoFiles means only generated Go files were detected.
 	ReasonNoOrdinaryGoFiles = "no-ordinary-go-files"
-	ReasonNoShellFiles      = "no-shell-files"
-	ReasonNoDockerfiles     = "no-dockerfiles"
-	ReasonNoWorkflows       = "no-github-workflows"
-	ReasonNoTerraform       = "no-terraform-files"
-	ReasonNoMarkdown        = "no-markdown-files"
-	ReasonNoYAML            = "no-yaml-files"
-	ReasonNoJSON            = "no-json-files"
+	// ReasonNoShellFiles means no tracked shell script was detected.
+	ReasonNoShellFiles = "no-shell-files"
+	// ReasonNoDockerfiles means no tracked Dockerfile was detected.
+	ReasonNoDockerfiles = "no-dockerfiles"
+	// ReasonNoWorkflows means no tracked GitHub Actions workflow was detected.
+	ReasonNoWorkflows = "no-github-workflows"
+	// ReasonNoTerraform means no tracked Terraform file was detected.
+	ReasonNoTerraform = "no-terraform-files"
+	// ReasonNoMarkdown means no tracked Markdown file was detected.
+	ReasonNoMarkdown = "no-markdown-files"
+	// ReasonNoYAML means no tracked YAML file was detected.
+	ReasonNoYAML = "no-yaml-files"
+	// ReasonNoJSON means no tracked JSON file was detected.
+	ReasonNoJSON = "no-json-files"
 )
 
 var identifierPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]*$`)
@@ -55,40 +81,40 @@ type Catalog []Entry
 
 var defaultCatalog = Catalog{
 	{Tool: "actionlint", CommandID: "actionlint/workflows", ParserVersion: "actionlint-json/v1", Capability: CapabilityWorkflow, ReasonCode: ReasonNoWorkflows, Profiles: allProfiles()},
-	{Tool: "apidiff", CommandID: "apidiff/public-api", ParserVersion: "path-list/v1", Capability: CapabilityGo, ReasonCode: ReasonNoGoModule, Profiles: goProfiles()},
-	{Tool: "bash", CommandID: "bash/scripts", ParserVersion: "path-list/v1", Capability: CapabilityShell, ReasonCode: ReasonNoShellFiles, Profiles: allProfiles()},
+	{Tool: "apidiff", CommandID: "apidiff/public-api", ParserVersion: parserPathList, Capability: CapabilityGo, ReasonCode: ReasonNoGoModule, Profiles: goProfiles()},
+	{Tool: "bash", CommandID: "bash/scripts", ParserVersion: parserPathList, Capability: CapabilityShell, ReasonCode: ReasonNoShellFiles, Profiles: allProfiles()},
 	{Tool: "checkov", CommandID: "checkov/infrastructure", ParserVersion: "checkov-json/v1", Capability: CapabilityTerraform, ReasonCode: ReasonNoTerraform, Profiles: allProfiles()},
-	{Tool: "codeql", CommandID: "codeql/actions", ParserVersion: "sarif/v1", Capability: CapabilityWorkflow, ReasonCode: ReasonNoWorkflows, Profiles: allProfiles()},
-	{Tool: "codeql", CommandID: "codeql/go", ParserVersion: "sarif/v1", Capability: CapabilityGo, ReasonCode: ReasonNoGoModule, Profiles: goProfiles()},
-	{Tool: "dependency-review", CommandID: "dependency-review/changes", ParserVersion: "command-status/v1", Capability: CapabilityAlways, Profiles: allProfiles()},
+	{Tool: "codeql", CommandID: "codeql/actions", ParserVersion: parserSARIF, Capability: CapabilityWorkflow, ReasonCode: ReasonNoWorkflows, Profiles: allProfiles()},
+	{Tool: "codeql", CommandID: "codeql/go", ParserVersion: parserSARIF, Capability: CapabilityGo, ReasonCode: ReasonNoGoModule, Profiles: goProfiles()},
+	{Tool: "dependency-review", CommandID: "dependency-review/changes", ParserVersion: parserCommandStatus, Capability: CapabilityAlways, Profiles: allProfiles()},
 	{Tool: "gitleaks", CommandID: "gitleaks/content", ParserVersion: "gitleaks-json/v1", Capability: CapabilityAlways, Profiles: allProfiles()},
-	{Tool: "generated", CommandID: "generated/files", ParserVersion: "path-list/v1", Capability: CapabilityAlways, Profiles: allProfiles()},
-	{Tool: "go", CommandID: "go/build", ParserVersion: "command-status/v1", Capability: CapabilityGo, ReasonCode: ReasonNoGoModule, Profiles: goProfiles()},
-	{Tool: "go", CommandID: "go/module-integrity", ParserVersion: "command-status/v1", Capability: CapabilityGo, ReasonCode: ReasonNoGoModule, Profiles: goProfiles()},
+	{Tool: "generated", CommandID: "generated/files", ParserVersion: parserPathList, Capability: CapabilityAlways, Profiles: allProfiles()},
+	{Tool: "go", CommandID: "go/build", ParserVersion: parserCommandStatus, Capability: CapabilityGo, ReasonCode: ReasonNoGoModule, Profiles: goProfiles()},
+	{Tool: "go", CommandID: "go/module-integrity", ParserVersion: parserCommandStatus, Capability: CapabilityGo, ReasonCode: ReasonNoGoModule, Profiles: goProfiles()},
 	{Tool: "go", CommandID: "go/race", ParserVersion: "gotestsum-junit/v1", Capability: CapabilityGo, ReasonCode: ReasonNoGoModule, Profiles: goProfiles()},
 	{Tool: "go", CommandID: "go/test", ParserVersion: "gotestsum-junit/v1", Capability: CapabilityGo, ReasonCode: ReasonNoGoModule, Profiles: goProfiles()},
-	{Tool: "go", CommandID: "go/vet", ParserVersion: "command-status/v1", Capability: CapabilityGo, ReasonCode: ReasonNoGoModule, Profiles: goProfiles()},
-	{Tool: "gofmt", CommandID: "gofmt/tracked-go", ParserVersion: "path-list/v1", Capability: CapabilityOrdinaryGo, ReasonCode: ReasonNoOrdinaryGoFiles, Profiles: goProfiles()},
-	{Tool: "goimports", CommandID: "goimports/tracked-go", ParserVersion: "path-list/v1", Capability: CapabilityOrdinaryGo, ReasonCode: ReasonNoOrdinaryGoFiles, Profiles: goProfiles()},
+	{Tool: "go", CommandID: "go/vet", ParserVersion: parserCommandStatus, Capability: CapabilityGo, ReasonCode: ReasonNoGoModule, Profiles: goProfiles()},
+	{Tool: "gofmt", CommandID: "gofmt/tracked-go", ParserVersion: parserPathList, Capability: CapabilityOrdinaryGo, ReasonCode: ReasonNoOrdinaryGoFiles, Profiles: goProfiles()},
+	{Tool: "goimports", CommandID: "goimports/tracked-go", ParserVersion: parserPathList, Capability: CapabilityOrdinaryGo, ReasonCode: ReasonNoOrdinaryGoFiles, Profiles: goProfiles()},
 	{Tool: "golangci-lint", CommandID: "golangci-lint/default", ParserVersion: "golangci-lint-json/v1", Capability: CapabilityGo, ReasonCode: ReasonNoGoModule, Profiles: goProfiles()},
 	{Tool: "gopls", CommandID: "gopls/tracked-go", ParserVersion: "gopls-diagnostics/v1", Capability: CapabilityGo, ReasonCode: ReasonNoGoModule, Profiles: goProfiles()},
 	{Tool: "govulncheck", CommandID: "govulncheck/modules", ParserVersion: "govulncheck-json/v1", Capability: CapabilityGo, ReasonCode: ReasonNoGoModule, Profiles: goProfiles()},
 	{Tool: "grype", CommandID: "grype/sbom", ParserVersion: "grype-json/v1", Capability: CapabilityAlways, Profiles: allProfiles()},
-	{Tool: "hadolint", CommandID: "hadolint/dockerfiles", ParserVersion: "sarif/v1", Capability: CapabilityDocker, ReasonCode: ReasonNoDockerfiles, Profiles: allProfiles()},
-	{Tool: "json", CommandID: "json/documents", ParserVersion: "path-list/v1", Capability: CapabilityJSON, ReasonCode: ReasonNoJSON, Profiles: allProfiles()},
+	{Tool: "hadolint", CommandID: "hadolint/dockerfiles", ParserVersion: parserSARIF, Capability: CapabilityDocker, ReasonCode: ReasonNoDockerfiles, Profiles: allProfiles()},
+	{Tool: "json", CommandID: "json/documents", ParserVersion: parserPathList, Capability: CapabilityJSON, ReasonCode: ReasonNoJSON, Profiles: allProfiles()},
 	{Tool: "license", CommandID: "license/dependencies", ParserVersion: "license-inventory/v1", Capability: CapabilityGo, ReasonCode: ReasonNoGoModule, Profiles: goProfiles()},
-	{Tool: "markdownlint", CommandID: "markdownlint/documents", ParserVersion: "path-list/v1", Capability: CapabilityMarkdown, ReasonCode: ReasonNoMarkdown, Profiles: allProfiles()},
+	{Tool: "markdownlint", CommandID: "markdownlint/documents", ParserVersion: parserPathList, Capability: CapabilityMarkdown, ReasonCode: ReasonNoMarkdown, Profiles: allProfiles()},
 	{Tool: "osv-scanner", CommandID: "osv-scanner/dependencies", ParserVersion: "osv-json/v1", Capability: CapabilityGo, ReasonCode: ReasonNoGoModule, Profiles: goProfiles()},
-	{Tool: "repository", CommandID: "repository/hygiene", ParserVersion: "path-list/v1", Capability: CapabilityAlways, Profiles: allProfiles()},
-	{Tool: "scorecard", CommandID: "scorecard/repository", ParserVersion: "sarif/v1", Capability: CapabilityAlways, Profiles: allProfiles()},
+	{Tool: "repository", CommandID: "repository/hygiene", ParserVersion: parserPathList, Capability: CapabilityAlways, Profiles: allProfiles()},
+	{Tool: "scorecard", CommandID: "scorecard/repository", ParserVersion: parserSARIF, Capability: CapabilityAlways, Profiles: allProfiles()},
 	{Tool: "semgrep", CommandID: "semgrep/source", ParserVersion: "semgrep-json/v1", Capability: CapabilityAlways, Profiles: allProfiles()},
 	{Tool: "shellcheck", CommandID: "shellcheck/scripts", ParserVersion: "shellcheck-json/v1", Capability: CapabilityShell, ReasonCode: ReasonNoShellFiles, Profiles: allProfiles()},
-	{Tool: "shfmt", CommandID: "shfmt/scripts", ParserVersion: "path-list/v1", Capability: CapabilityShell, ReasonCode: ReasonNoShellFiles, Profiles: allProfiles()},
+	{Tool: "shfmt", CommandID: "shfmt/scripts", ParserVersion: parserPathList, Capability: CapabilityShell, ReasonCode: ReasonNoShellFiles, Profiles: allProfiles()},
 	{Tool: "staticcheck", CommandID: "staticcheck/default", ParserVersion: "staticcheck-jsonl/v1", Capability: CapabilityGo, ReasonCode: ReasonNoGoModule, Profiles: goProfiles()},
 	{Tool: "syft", CommandID: "syft/sbom", ParserVersion: "spdx-json/v1", Capability: CapabilityAlways, Profiles: allProfiles()},
 	{Tool: "trivy", CommandID: "trivy/filesystem", ParserVersion: "trivy-json/v1", Capability: CapabilityAlways, Profiles: allProfiles()},
 	{Tool: "yamllint", CommandID: "yamllint/documents", ParserVersion: "yamllint-parsable/v1", Capability: CapabilityYAML, ReasonCode: ReasonNoYAML, Profiles: allProfiles()},
-	{Tool: "zizmor", CommandID: "zizmor/workflows", ParserVersion: "sarif/v1", Capability: CapabilityWorkflow, ReasonCode: ReasonNoWorkflows, Profiles: allProfiles()},
+	{Tool: "zizmor", CommandID: "zizmor/workflows", ParserVersion: parserSARIF, Capability: CapabilityWorkflow, ReasonCode: ReasonNoWorkflows, Profiles: allProfiles()},
 }
 
 // DefaultCatalog returns an independent copy of the policy catalog.
@@ -103,7 +129,7 @@ func DefaultCatalog() Catalog {
 // Validate rejects incomplete, duplicate, or contradictory catalog entries.
 func (catalog Catalog) Validate() error {
 	if len(catalog) == 0 {
-		return fmt.Errorf("catalog must contain at least one analyzer command")
+		return errors.New("catalog must contain at least one analyzer command")
 	}
 	identities := make(map[string]struct{}, len(catalog))
 	for index, entry := range catalog {

@@ -259,7 +259,7 @@ func FuzzLoadDetailed(f *testing.F) {
 	f.Add([]byte("schema-version: 1\nexceptions: ["))
 	f.Add([]byte("schema-version: 1\nschema-version: 1\nexceptions: []\n"))
 	f.Add([]byte("schema-version: 1\nexceptions: []\n---\n{}\n"))
-	f.Fuzz(func(t *testing.T, data []byte) {
+	f.Fuzz(func(_ *testing.T, data []byte) {
 		_, _, _ = LoadDetailed(strings.NewReader(string(data)), testNow)
 	})
 }
@@ -277,7 +277,7 @@ func FuzzSetJSON(f *testing.F) {
 	f.Add([]byte(`{"schema_version":1,"entries":[]}`))
 	f.Add([]byte(`{"schema_version":1,"schema_version":1,"entries":[]}`))
 	f.Add([]byte(`{"schema_version":1,"entries":[`))
-	f.Fuzz(func(t *testing.T, data []byte) {
+	f.Fuzz(func(_ *testing.T, data []byte) {
 		var candidate Set
 		_ = json.Unmarshal(data, &candidate)
 	})
@@ -300,8 +300,8 @@ exceptions:
 `
 }
 
-func replace(old, new string) func(string) string {
-	return func(document string) string { return strings.Replace(document, old, new, 1) }
+func replace(old, replacement string) func(string) string {
+	return func(document string) string { return strings.Replace(document, old, replacement, 1) }
 }
 
 func hasIssue(issues []Issue, code string) bool {

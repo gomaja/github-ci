@@ -466,6 +466,9 @@ jobs:
   codeql:
     name: CodeQL ${{ matrix.language }}
     needs: preflight
+    permissions:
+      contents: read
+      security-events: write  # CodeQL publishes results evaluated by the local gate.
     strategy:
       fail-fast: false
       matrix:
@@ -544,7 +547,7 @@ jobs:
         with:
           checkout_path: source
           output: ${{ runner.temp }}/github-ci-codeql
-          upload: never
+          upload: always
       - name: Record CodeQL evidence
         if: ${{ always() && (matrix.language != 'go' || inputs.profile != 'repository-only') }}
         env:
@@ -875,10 +878,8 @@ jobs:
     name: OpenSSF Scorecard
     needs: preflight
     permissions:
-      # Checkout reads source for local repository checks.
       contents: read
-      # Scorecard reads security metadata without publishing results.
-      security-events: read
+      security-events: read  # Scorecard reads security metadata without publishing.
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:

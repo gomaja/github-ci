@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -45,6 +46,15 @@ func TestRunRejectsUnknownAndIncompleteCommands(t *testing.T) {
 				t.Fatalf("stderr disclosed a flag value: %q", stderr.String())
 			}
 		})
+	}
+}
+
+func TestRunRejectsNilContext(t *testing.T) {
+	var stderr bytes.Buffer
+	var nilContext context.Context
+	code := Run(nilContext, nil, strings.NewReader(""), io.Discard, &stderr, fixedNow)
+	if code != exitError || !strings.Contains(stderr.String(), "context must not be nil") {
+		t.Fatalf("Run(nil) code = %d, stderr = %q", code, stderr.String())
 	}
 }
 
@@ -110,7 +120,7 @@ func TestRunFilesClassifiesTrackedRepository(t *testing.T) {
 		}
 		mustWrite(t, path, contents)
 	}
-	command := exec.Command("git", "add", ".")
+	command := exec.CommandContext(t.Context(), "git", "add", ".")
 	command.Dir = repository
 	if output, err := command.CombinedOutput(); err != nil {
 		t.Fatalf("git add fixtures: %v: %s", err, output)
@@ -365,7 +375,7 @@ func newRepository(t *testing.T) string {
 		{"add", "."},
 		{"commit", "-m", "test: initialize fixture"},
 	} {
-		command := exec.Command("git", args...)
+		command := exec.CommandContext(t.Context(), "git", args...)
 		command.Dir = root
 		if output, err := command.CombinedOutput(); err != nil {
 			t.Fatalf("git %s: %v: %s", strings.Join(args, " "), err, output)

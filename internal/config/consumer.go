@@ -1,3 +1,4 @@
+// Package config defines strict consumer and governance configuration contracts.
 package config
 
 import (
@@ -20,8 +21,11 @@ var buildTagPattern = regexp.MustCompile(`^[A-Za-z0-9_.]+$`)
 type Profile string
 
 const (
-	ProfileGoStrict       Profile = "go-strict"
-	ProfileGoLibrary      Profile = "go-library"
+	// ProfileGoStrict and the following values select fixed assurance profiles.
+	ProfileGoStrict Profile = "go-strict"
+	// ProfileGoLibrary applies the public-library compatibility profile.
+	ProfileGoLibrary Profile = "go-library"
+	// ProfileRepositoryOnly applies repository scanners without Go analyzers.
 	ProfileRepositoryOnly Profile = "repository-only"
 )
 
@@ -32,8 +36,10 @@ type Module string
 type Service string
 
 const (
+	// ServicePostgreSQL and the following values select supported service fixtures.
 	ServicePostgreSQL Service = "postgresql"
-	ServiceRedis      Service = "redis"
+	// ServiceRedis enables the pinned Redis service fixture.
+	ServiceRedis Service = "redis"
 )
 
 // Consumer configures a reusable workflow consumer.
@@ -126,7 +132,7 @@ func decodeStrictYAML(reader io.Reader, destination any) error {
 	}
 
 	var trailing yaml.Node
-	if err := decoder.Decode(&trailing); err != io.EOF {
+	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
 		if err == nil {
 			return errors.New("configuration contains multiple YAML documents")
 		}

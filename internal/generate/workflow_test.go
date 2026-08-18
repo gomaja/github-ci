@@ -3,6 +3,7 @@ package generate
 import (
 	"os"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 
@@ -18,6 +19,16 @@ func TestGoWorkflowContract(t *testing.T) {
 	if err := yaml.Unmarshal(data, &workflow); err != nil {
 		t.Fatalf("decode Go workflow: %v", err)
 	}
+	assertWorkflowCallContract(t, workflow)
+	assertWorkflowPermissions(t, workflow)
+	jobs := assertWorkflowJobs(t, workflow)
+	assertWorkflowJobContracts(t, jobs)
+	assertWorkflowExecutionContracts(t, jobs)
+	assertWorkflowTextContracts(t, string(data))
+}
+
+func assertWorkflowCallContract(t *testing.T, workflow map[string]any) {
+	t.Helper()
 	on := mapping(t, workflow["on"], "on")
 	workflowCall := mapping(t, on["workflow_call"], "on.workflow_call")
 	inputs := mapping(t, workflowCall["inputs"], "on.workflow_call.inputs")
@@ -26,17 +37,29 @@ func TestGoWorkflowContract(t *testing.T) {
 			t.Errorf("workflow_call input %q is missing", input)
 		}
 	}
+}
+
+func assertWorkflowPermissions(t *testing.T, workflow map[string]any) {
+	t.Helper()
 	permissions := mapping(t, workflow["permissions"], "permissions")
 	if len(permissions) != 1 || permissions["contents"] != "read" {
 		t.Errorf("workflow permissions = %#v, want contents: read only", permissions)
 	}
+}
 
+func assertWorkflowJobs(t *testing.T, workflow map[string]any) map[string]any {
+	t.Helper()
 	jobs := mapping(t, workflow["jobs"], "jobs")
 	for _, name := range []string{"preflight", "formatting", "core", "tests", "analysis", "compatibility", "codeql", "dependency-review", "security", "supply-chain", "repository", "scorecard", "evidence", "gate"} {
 		if _, exists := jobs[name]; !exists {
 			t.Errorf("required job %q is missing", name)
 		}
 	}
+	return jobs
+}
+
+func assertWorkflowJobContracts(t *testing.T, jobs map[string]any) {
+	t.Helper()
 	for name, raw := range jobs {
 		job := mapping(t, raw, "job "+name)
 		if timeout, ok := job["timeout-minutes"].(int); !ok || timeout <= 0 || timeout > 60 {
@@ -44,7 +67,10 @@ func TestGoWorkflowContract(t *testing.T) {
 		}
 		assertNoExpressionsInRun(t, name, job)
 	}
+}
 
+func assertWorkflowExecutionContracts(t *testing.T, jobs map[string]any) {
+	t.Helper()
 	preflight := mapping(t, jobs["preflight"], "preflight")
 	assertDualCheckout(t, preflight)
 	compatibility := mapping(t, jobs["compatibility"], "compatibility")
@@ -62,15 +88,94 @@ func TestGoWorkflowContract(t *testing.T) {
 	if gate["name"] != "gate" {
 		t.Errorf("gate name = %#v, want gate", gate["name"])
 	}
+	codeql := mapping(t, jobs["codeql"], "codeql")
+	codeqlPermissions := mapping(t, codeql["permissions"], "codeql.permissions")
+	if codeqlPermissions["contents"] != "read" || codeqlPermissions["security-events"] != "write" {
+		t.Errorf("CodeQL permissions = %#v", codeqlPermissions)
+	}
+}
 
-	text := string(data)
+func assertWorkflowTextContracts(t *testing.T, text string) {
+	t.Helper()
 	if !strings.Contains(text, "retention-days: 7") {
 		t.Error("workflow has no seven-day evidence retention")
 	}
 	if strings.Contains(text, "continue-on-error:") {
 		t.Error("workflow uses continue-on-error")
 	}
+	if !strings.Contains(text, "upload: always") || strings.Contains(text, "upload: never") {
+		t.Error("CodeQL results are not uploaded to code scanning")
+	}
 	assertImmutableUses(t, text)
+}
+
+func TestGolangCILintConfigContract(t *testing.T) {
+	data, err := os.ReadFile("../../configs/golangci.yml")
+	if err != nil {
+		t.Fatalf("read golangci-lint config: %v", err)
+	}
+	var configuration map[string]any
+	if err := yaml.Unmarshal(data, &configuration); err != nil {
+		t.Fatalf("decode golangci-lint config: %v", err)
+	}
+
+	linters := mapping(t, configuration["linters"], "linters")
+	if linters["default"] != "none" {
+		t.Errorf("linters.default = %#v, want none", linters["default"])
+	}
+	enabled := sequence(t, linters["enable"], "linters.enable")
+	if len(enabled) != 74 {
+		t.Errorf("enabled linter count = %d, want 74", len(enabled))
+	}
+
+	settings := mapping(t, linters["settings"], "linters.settings")
+	cyclop := mapping(t, settings["cyclop"], "linters.settings.cyclop")
+	if cyclop["max-complexity"] != 20 {
+		t.Errorf("cyclop max-complexity = %#v, want 20", cyclop["max-complexity"])
+	}
+	gocognit := mapping(t, settings["gocognit"], "linters.settings.gocognit")
+	if gocognit["min-complexity"] != 30 {
+		t.Errorf("gocognit min-complexity = %#v, want 30", gocognit["min-complexity"])
+	}
+	goconst := mapping(t, settings["goconst"], "linters.settings.goconst")
+	if goconst["ignore-tests"] != true {
+		t.Errorf("goconst ignore-tests = %#v, want true", goconst["ignore-tests"])
+	}
+	depguard := mapping(t, settings["depguard"], "linters.settings.depguard")
+	rules := mapping(t, depguard["rules"], "linters.settings.depguard.rules")
+	mainRule := mapping(t, rules["main"], "linters.settings.depguard.rules.main")
+	if _, exists := mainRule["allow"]; exists {
+		t.Error("depguard main rule has a repository-specific allowlist")
+	}
+	if len(sequence(t, mainRule["deny"], "linters.settings.depguard.rules.main.deny")) == 0 {
+		t.Error("depguard main rule has no denied dependencies")
+	}
+	recvcheck := mapping(t, settings["recvcheck"], "linters.settings.recvcheck")
+	if !slices.Equal(sequence(t, recvcheck["exclusions"], "linters.settings.recvcheck.exclusions"), []any{"*.UnmarshalJSON"}) {
+		t.Errorf("recvcheck exclusions = %#v", recvcheck["exclusions"])
+	}
+
+	exclusions := mapping(t, linters["exclusions"], "linters.exclusions")
+	if exclusions["generated"] != "strict" || exclusions["warn-unused"] != true {
+		t.Errorf("linters.exclusions = %#v, want strict generation and unused warnings", exclusions)
+	}
+	exclusionRules := sequence(t, exclusions["rules"], "linters.exclusions.rules")
+	if len(exclusionRules) != 1 {
+		t.Fatalf("exclusion rule count = %d, want 1", len(exclusionRules))
+	}
+	testRule := mapping(t, exclusionRules[0], "linters.exclusions.rules[0]")
+	if testRule["path"] != `_test\.go` {
+		t.Errorf("test exclusion path = %#v", testRule["path"])
+	}
+	excludedLinters := sequence(t, testRule["linters"], "linters.exclusions.rules[0].linters")
+	if !slices.Equal(excludedLinters, []any{"gosec"}) {
+		t.Errorf("test exclusions = %#v, want gosec", excludedLinters)
+	}
+
+	issues := mapping(t, configuration["issues"], "issues")
+	if issues["max-issues-per-linter"] != 0 || issues["max-same-issues"] != 0 {
+		t.Errorf("issues limits = %#v, want unlimited reporting", issues)
+	}
 }
 
 func TestScannerInventory(t *testing.T) {
@@ -221,7 +326,7 @@ func assertNoExpressionsInRun(t *testing.T, jobName string, job map[string]any) 
 func assertImmutableUses(t *testing.T, text string) {
 	t.Helper()
 	immutable := regexp.MustCompile(`^[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)+@[0-9a-f]{40}$`)
-	for _, line := range strings.Split(text, "\n") {
+	for line := range strings.SplitSeq(text, "\n") {
 		trimmed := strings.TrimSpace(line)
 		if !strings.HasPrefix(trimmed, "uses:") {
 			continue

@@ -1,6 +1,7 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"regexp"
@@ -98,7 +99,7 @@ func (governance Governance) Validate() error {
 		owners[owner.Name] = struct{}{}
 	}
 	if len(owners) == 0 {
-		return fmt.Errorf("at least one owner is required")
+		return errors.New("at least one owner is required")
 	}
 
 	repositories := make(map[string]struct{}, len(governance.Repositories))
@@ -112,7 +113,7 @@ func (governance Governance) Validate() error {
 		repositories[repository.Name] = struct{}{}
 	}
 	if len(repositories) == 0 {
-		return fmt.Errorf("at least one repository is required")
+		return errors.New("at least one repository is required")
 	}
 	return nil
 }
@@ -128,19 +129,19 @@ func (defaults GovernanceDefaults) validate() error {
 		return err
 	}
 	if !defaults.PublicOnly {
-		return fmt.Errorf("public-only must be true")
+		return errors.New("public-only must be true")
 	}
 	if !defaults.RefuseForks {
-		return fmt.Errorf("refuse-forks must be true")
+		return errors.New("refuse-forks must be true")
 	}
 	if !defaults.RefuseArchived {
-		return fmt.Errorf("refuse-archived must be true")
+		return errors.New("refuse-archived must be true")
 	}
 	if !defaults.RefusePrivate {
-		return fmt.Errorf("refuse-private must be true")
+		return errors.New("refuse-private must be true")
 	}
 	if !defaults.RefuseUnexpectedOwners {
-		return fmt.Errorf("refuse-unexpected-owners must be true")
+		return errors.New("refuse-unexpected-owners must be true")
 	}
 	return nil
 }

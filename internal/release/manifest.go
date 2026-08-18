@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/gomaja/github-ci/internal/pathpolicy"
+	"github.com/gomaja/github-ci/internal/securefs"
 )
 
 const schemaVersion = "1"
@@ -108,7 +109,7 @@ func WriteEvidence(input Input, manifestPath, sumsPath string) error {
 
 // Verify proves that a manifest, checksum file, and current artifact bytes agree.
 func Verify(root, manifestPath, sumsPath string) error {
-	manifestData, err := os.ReadFile(manifestPath)
+	manifestData, err := securefs.ReadFile(manifestPath)
 	if err != nil {
 		return fmt.Errorf("read release manifest: %w", err)
 	}
@@ -148,7 +149,7 @@ func Verify(root, manifestPath, sumsPath string) error {
 			fmt.Fprintf(&sums, "%s  %s\n", expected.SHA256, expected.Path)
 		}
 	}
-	actualSums, err := os.ReadFile(sumsPath)
+	actualSums, err := securefs.ReadFile(sumsPath)
 	if err != nil {
 		return fmt.Errorf("read SHA256SUMS: %w", err)
 	}
@@ -204,24 +205,24 @@ func digestFile(root, name, kind string) (FileDigest, error) {
 	if kind != "asset" && kind != "metadata" {
 		return FileDigest{}, fmt.Errorf("unsupported release file kind %q", kind)
 	}
-	fullName := filepath.Join(root, filepath.FromSlash(name))
-	info, err := os.Lstat(fullName)
+	file, err := securefs.OpenRegularInRoot(root, filepath.FromSlash(name))
 	if err != nil {
-		return FileDigest{}, fmt.Errorf("stat release file %q: %w", name, err)
+		return FileDigest{}, fmt.Errorf("open release file %q: %w", name, err)
 	}
-	if !info.Mode().IsRegular() {
-		return FileDigest{}, fmt.Errorf("release file %q is not regular", name)
+	data, readErr := io.ReadAll(file)
+	closeErr := file.Close()
+	if readErr != nil {
+		return FileDigest{}, fmt.Errorf("read release file %q: %w", name, readErr)
 	}
-	data, err := os.ReadFile(fullName)
-	if err != nil {
-		return FileDigest{}, fmt.Errorf("read release file %q: %w", name, err)
+	if closeErr != nil {
+		return FileDigest{}, fmt.Errorf("close release file %q: %w", name, closeErr)
 	}
 	digest := sha256.Sum256(data)
 	return FileDigest{Path: name, SHA256: hex.EncodeToString(digest[:]), Size: int64(len(data)), Kind: kind}, nil
 }
 
 func writeAtomic(name string, data []byte) error {
-	if err := os.MkdirAll(filepath.Dir(name), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(name), 0o750); err != nil {
 		return fmt.Errorf("create evidence directory: %w", err)
 	}
 	temporary, err := os.CreateTemp(filepath.Dir(name), ".release-*")

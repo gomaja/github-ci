@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/gomaja/github-ci/internal/config"
+	"github.com/gomaja/github-ci/internal/securefs"
 )
 
 const maxPlanBytes = 16 << 20
@@ -177,7 +178,7 @@ func newAPIClient(baseURL, apiVersion string) Client {
 }
 
 func readManifest(name string) (config.Governance, error) {
-	file, err := os.Open(name)
+	file, err := securefs.Open(name)
 	if err != nil {
 		return config.Governance{}, fmt.Errorf("open governance manifest: %w", err)
 	}
@@ -193,7 +194,7 @@ func readManifest(name string) (config.Governance, error) {
 }
 
 func readPlan(name string) (Plan, error) {
-	data, err := os.ReadFile(name)
+	data, err := securefs.ReadFile(name)
 	if err != nil {
 		return Plan{}, fmt.Errorf("read governance plan: %w", err)
 	}

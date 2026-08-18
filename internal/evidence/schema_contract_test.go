@@ -117,6 +117,22 @@ func validateRecordAgainstSchema(record Record, schema schemaRule) error {
 }
 
 func validateSchemaRule(rule schemaRule, value any, field string) error {
+	if err := validateSchemaIdentity(rule, value, field); err != nil {
+		return err
+	}
+	if err := validateSchemaType(rule, value, field); err != nil {
+		return err
+	}
+	if err := validateSchemaScalar(rule, value, field); err != nil {
+		return err
+	}
+	if err := validateSchemaObject(rule, value, field); err != nil {
+		return err
+	}
+	return validateSchemaCombinators(rule, value, field)
+}
+
+func validateSchemaIdentity(rule schemaRule, value any, field string) error {
 	if rule.Const != nil && !reflect.DeepEqual(rule.Const, value) {
 		return fmt.Errorf("%s does not equal const", field)
 	}
@@ -129,7 +145,10 @@ func validateSchemaRule(rule schemaRule, value any, field string) error {
 			return fmt.Errorf("%s is not in enum", field)
 		}
 	}
+	return nil
+}
 
+func validateSchemaType(rule schemaRule, value any, field string) error {
 	switch rule.Type {
 	case "object":
 		if _, ok := value.(map[string]any); !ok {
@@ -145,7 +164,10 @@ func validateSchemaRule(rule schemaRule, value any, field string) error {
 			return fmt.Errorf("%s is not an integer", field)
 		}
 	}
+	return nil
+}
 
+func validateSchemaScalar(rule schemaRule, value any, field string) error {
 	if text, ok := value.(string); ok {
 		if rule.MinLength != nil && utf8.RuneCountInString(text) < *rule.MinLength {
 			return fmt.Errorf("%s is shorter than minLength", field)
@@ -163,7 +185,10 @@ func validateSchemaRule(rule schemaRule, value any, field string) error {
 	if number, ok := value.(float64); ok && rule.Minimum != nil && number < *rule.Minimum {
 		return fmt.Errorf("%s is below minimum", field)
 	}
+	return nil
+}
 
+func validateSchemaObject(rule schemaRule, value any, field string) error {
 	if len(rule.Required) != 0 || len(rule.Properties) != 0 {
 		object, ok := value.(map[string]any)
 		if !ok {
@@ -190,7 +215,10 @@ func validateSchemaRule(rule schemaRule, value any, field string) error {
 			}
 		}
 	}
+	return nil
+}
 
+func validateSchemaCombinators(rule schemaRule, value any, field string) error {
 	for _, nested := range rule.AllOf {
 		if err := validateSchemaRule(nested, value, field); err != nil {
 			return err

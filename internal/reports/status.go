@@ -139,15 +139,15 @@ func optionalNonnegative(field, value string) (int, error) {
 var yamllintLine = regexp.MustCompile(`^(.+):([0-9]+):([0-9]+): \[(warning|error)\] .+ \([A-Za-z0-9_-]+\)$`)
 
 func countYamllint(data []byte) (int, error) {
-	newline := bytes.IndexByte(data, '\n')
-	if newline < 0 {
+	before, after, ok := bytes.Cut(data, []byte{'\n'})
+	if !ok {
 		return 0, errors.New("yamllint report has no runner envelope")
 	}
 	var envelope struct {
 		SchemaVersion       string `json:"schema_version"`
 		ExecutionSuccessful *bool  `json:"execution_successful"`
 	}
-	if err := decodeStrictJSON(data[:newline], &envelope); err != nil {
+	if err := decodeStrictJSON(before, &envelope); err != nil {
 		return 0, fmt.Errorf("decode yamllint runner envelope: %w", err)
 	}
 	if envelope.SchemaVersion != "1" {
@@ -156,7 +156,7 @@ func countYamllint(data []byte) (int, error) {
 	if envelope.ExecutionSuccessful == nil || !*envelope.ExecutionSuccessful {
 		return 0, errors.New("yamllint runner execution_successful is not true")
 	}
-	payload := strings.TrimSuffix(string(data[newline+1:]), "\n")
+	payload := strings.TrimSuffix(string(after), "\n")
 	if payload == "" {
 		return 0, nil
 	}
@@ -174,8 +174,8 @@ func countYamllint(data []byte) (int, error) {
 }
 
 func countGopls(data []byte) (int, error) {
-	newline := bytes.IndexByte(data, '\n')
-	if newline < 0 {
+	before, after, ok := bytes.Cut(data, []byte{'\n'})
+	if !ok {
 		return 0, errors.New("gopls report has no runner envelope")
 	}
 	var envelope struct {
@@ -183,7 +183,7 @@ func countGopls(data []byte) (int, error) {
 		Parser              string `json:"parser"`
 		ExecutionSuccessful *bool  `json:"execution_successful"`
 	}
-	if err := decodeStrictJSON(data[:newline], &envelope); err != nil {
+	if err := decodeStrictJSON(before, &envelope); err != nil {
 		return 0, fmt.Errorf("decode gopls runner envelope: %w", err)
 	}
 	if envelope.SchemaVersion != "1" || envelope.Parser != "gopls-diagnostics-v1" {
@@ -192,7 +192,7 @@ func countGopls(data []byte) (int, error) {
 	if envelope.ExecutionSuccessful == nil || !*envelope.ExecutionSuccessful {
 		return 0, errors.New("gopls runner execution_successful is not true")
 	}
-	payload := strings.TrimSuffix(string(data[newline+1:]), "\n")
+	payload := strings.TrimSuffix(string(after), "\n")
 	if payload == "" {
 		return 0, nil
 	}

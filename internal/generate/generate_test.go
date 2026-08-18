@@ -83,7 +83,7 @@ tools:
 func TestLoadLintersRequiresExactly74UniqueEntries(t *testing.T) {
 	var body strings.Builder
 	body.WriteString("schema-version: 1\nlinters:\n")
-	for index := 0; index < 74; index++ {
+	for index := range 74 {
 		fmt.Fprintf(&body, "  - linter%02d\n", index)
 	}
 	if _, err := LoadLinters(strings.NewReader(body.String())); err != nil {
@@ -203,7 +203,7 @@ func TestGeneratedArtifactsRejectUnsafeWorkflowConstructs(t *testing.T) {
 				t.Fatalf("%s contains forbidden %q", name, forbidden)
 			}
 		}
-		for _, line := range strings.Split(text, "\n") {
+		for line := range strings.SplitSeq(text, "\n") {
 			if strings.Contains(line, "uses:") && !strings.Contains(line, "./") && !shaUse.MatchString(line) {
 				t.Fatalf("%s has mutable action reference %q", name, line)
 			}

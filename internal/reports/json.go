@@ -29,20 +29,21 @@ func countGolangCILint(data []byte) (int, error) {
 	return len(*report.Issues), nil
 }
 
+type govulncheckMessage struct {
+	Config   json.RawMessage `json:"config,omitempty"`
+	Progress json.RawMessage `json:"progress,omitempty"`
+	SBOM     json.RawMessage `json:"SBOM,omitempty"`
+	OSV      json.RawMessage `json:"osv,omitempty"`
+	Finding  json.RawMessage `json:"finding,omitempty"`
+}
+
 func countGovulncheck(data []byte) (int, error) {
-	type message struct {
-		Config   json.RawMessage `json:"config,omitempty"`
-		Progress json.RawMessage `json:"progress,omitempty"`
-		SBOM     json.RawMessage `json:"SBOM,omitempty"`
-		OSV      json.RawMessage `json:"osv,omitempty"`
-		Finding  json.RawMessage `json:"finding,omitempty"`
-	}
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.DisallowUnknownFields()
 	messages := 0
 	findings := 0
 	for {
-		var entry message
+		var entry govulncheckMessage
 		err := decoder.Decode(&entry)
 		if errors.Is(err, io.EOF) {
 			break
@@ -50,48 +51,11 @@ func countGovulncheck(data []byte) (int, error) {
 		if err != nil {
 			return 0, fmt.Errorf("decode govulncheck message %d: %w", messages, err)
 		}
-		fields := []json.RawMessage{entry.Config, entry.Progress, entry.SBOM, entry.OSV, entry.Finding}
-		present := 0
-		for fieldIndex, field := range fields {
-			if field != nil {
-				present++
-				if fieldIndex != len(fields)-1 {
-					if err := requireJSONObjectAllowEmpty(field, "govulncheck protocol field"); err != nil {
-						return 0, fmt.Errorf("message %d: %w", messages, err)
-					}
-				}
-			}
+		finding, err := validateGovulncheckMessage(entry, messages)
+		if err != nil {
+			return 0, err
 		}
-		if present != 1 {
-			return 0, fmt.Errorf("govulncheck message %d must contain exactly one protocol field", messages)
-		}
-		if messages == 0 {
-			if entry.Config == nil {
-				return 0, errors.New("first govulncheck message is not config")
-			}
-			var config struct {
-				ProtocolVersion string `json:"protocol_version"`
-				ScannerName     string `json:"scanner_name,omitempty"`
-				ScannerVersion  string `json:"scanner_version,omitempty"`
-				DB              string `json:"db,omitempty"`
-				DBLastModified  string `json:"db_last_modified,omitempty"`
-				GoVersion       string `json:"go_version,omitempty"`
-				ScanLevel       string `json:"scan_level,omitempty"`
-				ScanMode        string `json:"scan_mode,omitempty"`
-			}
-			if err := decodeStrictJSON(entry.Config, &config); err != nil {
-				return 0, fmt.Errorf("decode govulncheck config: %w", err)
-			}
-			if config.ProtocolVersion != "v1.0.0" {
-				return 0, fmt.Errorf("unsupported govulncheck protocol %q", config.ProtocolVersion)
-			}
-		} else if entry.Config != nil {
-			return 0, fmt.Errorf("govulncheck config repeated at message %d", messages)
-		}
-		if entry.Finding != nil {
-			if err := requireJSONObject(entry.Finding, "govulncheck finding"); err != nil {
-				return 0, err
-			}
+		if finding {
 			findings++
 		}
 		messages++
@@ -100,6 +64,61 @@ func countGovulncheck(data []byte) (int, error) {
 		return 0, errors.New("empty govulncheck stream")
 	}
 	return findings, nil
+}
+
+func validateGovulncheckMessage(entry govulncheckMessage, index int) (bool, error) {
+	fields := []json.RawMessage{entry.Config, entry.Progress, entry.SBOM, entry.OSV, entry.Finding}
+	present := 0
+	for fieldIndex, field := range fields {
+		if field == nil {
+			continue
+		}
+		present++
+		if fieldIndex != len(fields)-1 {
+			if err := requireJSONObjectAllowEmpty(field, "govulncheck protocol field"); err != nil {
+				return false, fmt.Errorf("message %d: %w", index, err)
+			}
+		}
+	}
+	if present != 1 {
+		return false, fmt.Errorf("govulncheck message %d must contain exactly one protocol field", index)
+	}
+	if index == 0 {
+		if entry.Config == nil {
+			return false, errors.New("first govulncheck message is not config")
+		}
+		return false, validateGovulncheckConfig(entry.Config)
+	}
+	if entry.Config != nil {
+		return false, fmt.Errorf("govulncheck config repeated at message %d", index)
+	}
+	if entry.Finding == nil {
+		return false, nil
+	}
+	if err := requireJSONObject(entry.Finding, "govulncheck finding"); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+func validateGovulncheckConfig(raw json.RawMessage) error {
+	var config struct {
+		ProtocolVersion string `json:"protocol_version"`
+		ScannerName     string `json:"scanner_name,omitempty"`
+		ScannerVersion  string `json:"scanner_version,omitempty"`
+		DB              string `json:"db,omitempty"`
+		DBLastModified  string `json:"db_last_modified,omitempty"`
+		GoVersion       string `json:"go_version,omitempty"`
+		ScanLevel       string `json:"scan_level,omitempty"`
+		ScanMode        string `json:"scan_mode,omitempty"`
+	}
+	if err := decodeStrictJSON(raw, &config); err != nil {
+		return fmt.Errorf("decode govulncheck config: %w", err)
+	}
+	if config.ProtocolVersion != "v1.0.0" {
+		return fmt.Errorf("unsupported govulncheck protocol %q", config.ProtocolVersion)
+	}
+	return nil
 }
 
 func countStaticcheck(data []byte) (int, error) {
@@ -137,8 +156,8 @@ const staticcheckJSONLParserIdentity = "staticcheck-jsonl-v1"
 
 // staticcheckNativePayload keeps bytes after the first LF as the unchanged staticcheck -f json artifact.
 func staticcheckNativePayload(data []byte) ([]byte, error) {
-	newline := bytes.IndexByte(data, '\n')
-	if newline < 0 {
+	before, after, ok := bytes.Cut(data, []byte{'\n'})
+	if !ok {
 		return nil, errors.New("staticcheck report has no runner envelope")
 	}
 	var envelope struct {
@@ -146,7 +165,7 @@ func staticcheckNativePayload(data []byte) ([]byte, error) {
 		Parser              string `json:"parser"`
 		ExecutionSuccessful *bool  `json:"execution_successful"`
 	}
-	if err := decodeStrictJSON(data[:newline], &envelope); err != nil {
+	if err := decodeStrictJSON(before, &envelope); err != nil {
 		return nil, fmt.Errorf("decode staticcheck runner envelope: %w", err)
 	}
 	if envelope.SchemaVersion != "1" {
@@ -158,7 +177,7 @@ func staticcheckNativePayload(data []byte) ([]byte, error) {
 	if envelope.ExecutionSuccessful == nil || !*envelope.ExecutionSuccessful {
 		return nil, errors.New("staticcheck runner execution_successful is not true")
 	}
-	return data[newline+1:], nil
+	return after, nil
 }
 
 func countJSONArray(data []byte) (int, error) {
@@ -194,43 +213,61 @@ func countOSVScanner(data []byte) (int, error) {
 	}
 	findings := 0
 	for resultIndex, rawResult := range *report.Results {
-		var result map[string]json.RawMessage
-		if err := json.Unmarshal(rawResult, &result); err != nil || len(result) == 0 {
-			return 0, fmt.Errorf("invalid OSV-Scanner result %d", resultIndex)
+		count, err := countOSVResult(rawResult, resultIndex)
+		if err != nil {
+			return 0, err
 		}
-		packagesRaw, exists := result["packages"]
-		if !exists {
-			return 0, fmt.Errorf("OSV-Scanner result %d has no packages array", resultIndex)
-		}
-		var packages []map[string]json.RawMessage
-		if err := json.Unmarshal(packagesRaw, &packages); err != nil {
-			return 0, fmt.Errorf("decode OSV-Scanner result %d packages: %w", resultIndex, err)
-		}
-		if packages == nil {
-			return 0, fmt.Errorf("OSV-Scanner result %d packages must be an array", resultIndex)
-		}
-		for packageIndex, pkg := range packages {
-			if err := requireJSONObject(pkg["package"], "OSV-Scanner package identity"); err != nil {
-				return 0, fmt.Errorf("result %d package %d: %w", resultIndex, packageIndex, err)
-			}
-			vulnerabilitiesRaw, exists := pkg["vulnerabilities"]
-			if !exists {
-				return 0, fmt.Errorf("OSV-Scanner result %d package %d has no vulnerabilities array", resultIndex, packageIndex)
-			}
-			var vulnerabilities []json.RawMessage
-			if err := json.Unmarshal(vulnerabilitiesRaw, &vulnerabilities); err != nil {
-				return 0, fmt.Errorf("decode OSV-Scanner result %d package %d vulnerabilities: %w", resultIndex, packageIndex, err)
-			}
-			if vulnerabilities == nil {
-				return 0, fmt.Errorf("OSV-Scanner result %d package %d vulnerabilities must be an array", resultIndex, packageIndex)
-			}
-			if err := validateObjects(vulnerabilities, "OSV-Scanner vulnerability"); err != nil {
-				return 0, err
-			}
-			findings += len(vulnerabilities)
-		}
+		findings += count
 	}
 	return findings, nil
+}
+
+func countOSVResult(raw json.RawMessage, resultIndex int) (int, error) {
+	var result map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &result); err != nil || len(result) == 0 {
+		return 0, fmt.Errorf("invalid OSV-Scanner result %d", resultIndex)
+	}
+	packagesRaw, exists := result["packages"]
+	if !exists {
+		return 0, fmt.Errorf("OSV-Scanner result %d has no packages array", resultIndex)
+	}
+	var packages []map[string]json.RawMessage
+	if err := json.Unmarshal(packagesRaw, &packages); err != nil {
+		return 0, fmt.Errorf("decode OSV-Scanner result %d packages: %w", resultIndex, err)
+	}
+	if packages == nil {
+		return 0, fmt.Errorf("OSV-Scanner result %d packages must be an array", resultIndex)
+	}
+	findings := 0
+	for packageIndex, pkg := range packages {
+		count, err := countOSVPackage(pkg, resultIndex, packageIndex)
+		if err != nil {
+			return 0, err
+		}
+		findings += count
+	}
+	return findings, nil
+}
+
+func countOSVPackage(pkg map[string]json.RawMessage, resultIndex, packageIndex int) (int, error) {
+	if err := requireJSONObject(pkg["package"], "OSV-Scanner package identity"); err != nil {
+		return 0, fmt.Errorf("result %d package %d: %w", resultIndex, packageIndex, err)
+	}
+	vulnerabilitiesRaw, exists := pkg["vulnerabilities"]
+	if !exists {
+		return 0, fmt.Errorf("OSV-Scanner result %d package %d has no vulnerabilities array", resultIndex, packageIndex)
+	}
+	var vulnerabilities []json.RawMessage
+	if err := json.Unmarshal(vulnerabilitiesRaw, &vulnerabilities); err != nil {
+		return 0, fmt.Errorf("decode OSV-Scanner result %d package %d vulnerabilities: %w", resultIndex, packageIndex, err)
+	}
+	if vulnerabilities == nil {
+		return 0, fmt.Errorf("OSV-Scanner result %d package %d vulnerabilities must be an array", resultIndex, packageIndex)
+	}
+	if err := validateObjects(vulnerabilities, "OSV-Scanner vulnerability"); err != nil {
+		return 0, err
+	}
+	return len(vulnerabilities), nil
 }
 
 func countTrivy(data []byte) (int, error) {

@@ -14,10 +14,14 @@ import (
 	"strings"
 	"text/template"
 
+	"github.com/gomaja/github-ci/internal/securefs"
 	"gopkg.in/yaml.v3"
 )
 
-const schemaVersion = 1
+const (
+	schemaVersion             = 1
+	acquisitionContainerImage = "container-image"
+)
 
 var (
 	actionSHAPattern = regexp.MustCompile(`^[0-9a-f]{40}$`)
@@ -34,6 +38,7 @@ var templatePaths = []string{
 	"templates/callers/github-ci-deep.yml.tmpl",
 	"templates/callers/github-ci-release.yml.tmpl",
 	"templates/configs/golangci.yml.tmpl",
+	"templates/configs/golangci.yml.tmpl",
 }
 
 var generatedPaths = []string{
@@ -44,6 +49,7 @@ var generatedPaths = []string{
 	"templates/callers/generated/github-ci-deep.yml",
 	"templates/callers/generated/github-ci-release.yml",
 	"configs/golangci.yml",
+	".golangci.yml",
 }
 
 // Policy is the complete immutable action and tool inventory.
@@ -119,10 +125,16 @@ func (policy Policy) Validate() error {
 	if len(policy.Tools) == 0 {
 		return errors.New("tools must contain at least one lock")
 	}
+	if err := validateActions(policy.Actions); err != nil {
+		return err
+	}
+	return validateTools(policy.Tools)
+}
 
-	actions := make(map[string]struct{}, len(policy.Actions))
+func validateActions(actionsList []Action) error {
+	actions := make(map[string]struct{}, len(actionsList))
 	previous := ""
-	for index, action := range policy.Actions {
+	for index, action := range actionsList {
 		if !idPattern.MatchString(action.ID) {
 			return fmt.Errorf("action %d has invalid id %q", index, action.ID)
 		}
@@ -144,10 +156,13 @@ func (policy Policy) Validate() error {
 			return fmt.Errorf("action %q sha must be a 40-character lowercase hexadecimal commit SHA", action.ID)
 		}
 	}
+	return nil
+}
 
-	tools := make(map[string]struct{}, len(policy.Tools))
-	previous = ""
-	for index, tool := range policy.Tools {
+func validateTools(toolsList []Tool) error {
+	tools := make(map[string]struct{}, len(toolsList))
+	previous := ""
+	for index, tool := range toolsList {
 		if !idPattern.MatchString(tool.ID) {
 			return fmt.Errorf("tool %d has invalid id %q", index, tool.ID)
 		}
@@ -159,52 +174,76 @@ func (policy Policy) Validate() error {
 			return errors.New("tools must be sorted by id")
 		}
 		previous = tool.ID
-		if err := validateVersion("tool "+tool.ID+" version", tool.Version); err != nil {
+		if err := validateTool(tool); err != nil {
 			return err
 		}
-		parsed, err := url.Parse(tool.Source)
-		if err != nil || parsed.Scheme != "https" || parsed.Host == "" || parsed.User != nil {
-			return fmt.Errorf("tool %q source must be an absolute HTTPS URL", tool.ID)
+	}
+	return nil
+}
+
+func validateTool(tool Tool) error {
+	if err := validateVersion("tool "+tool.ID+" version", tool.Version); err != nil {
+		return err
+	}
+	parsed, err := url.Parse(tool.Source)
+	if err != nil || parsed.Scheme != "https" || parsed.Host == "" || parsed.User != nil {
+		return fmt.Errorf("tool %q source must be an absolute HTTPS URL", tool.ID)
+	}
+	if !checksumPattern.MatchString(tool.Checksum) {
+		return fmt.Errorf("tool %q checksum must be a SHA-256, SHA-512, or Go module sum", tool.ID)
+	}
+	if strings.TrimSpace(tool.Parser) == "" {
+		return fmt.Errorf("tool %q parser must not be empty", tool.ID)
+	}
+	if err := validateToolProfiles(tool); err != nil {
+		return err
+	}
+	if err := validateToolAcquisition(tool); err != nil {
+		return err
+	}
+	if strings.TrimSpace(tool.VersionCommand) == "" {
+		return fmt.Errorf("tool %q version-command must not be empty", tool.ID)
+	}
+	if strings.ContainsAny(tool.VersionCommand, "\r\n\x00") {
+		return fmt.Errorf("tool %q version-command contains a control character", tool.ID)
+	}
+	return nil
+}
+
+func validateToolProfiles(tool Tool) error {
+	if len(tool.Profiles) == 0 {
+		return fmt.Errorf("tool %q profiles must not be empty", tool.ID)
+	}
+	seenProfiles := make(map[string]struct{}, len(tool.Profiles))
+	for _, profile := range tool.Profiles {
+		if profile != "go-strict" && profile != "go-library" && profile != "repository-only" && profile != "release" && profile != "deep" {
+			return fmt.Errorf("tool %q has unsupported profile %q", tool.ID, profile)
 		}
-		if !checksumPattern.MatchString(tool.Checksum) {
-			return fmt.Errorf("tool %q checksum must be a SHA-256, SHA-512, or Go module sum", tool.ID)
+		if _, exists := seenProfiles[profile]; exists {
+			return fmt.Errorf("tool %q repeats profile %q", tool.ID, profile)
 		}
-		if strings.TrimSpace(tool.Parser) == "" {
-			return fmt.Errorf("tool %q parser must not be empty", tool.ID)
-		}
-		if len(tool.Profiles) == 0 {
-			return fmt.Errorf("tool %q profiles must not be empty", tool.ID)
-		}
-		seenProfiles := make(map[string]struct{}, len(tool.Profiles))
-		for _, profile := range tool.Profiles {
-			if profile != "go-strict" && profile != "go-library" && profile != "repository-only" && profile != "release" && profile != "deep" {
-				return fmt.Errorf("tool %q has unsupported profile %q", tool.ID, profile)
-			}
-			if _, exists := seenProfiles[profile]; exists {
-				return fmt.Errorf("tool %q repeats profile %q", tool.ID, profile)
-			}
-			seenProfiles[profile] = struct{}{}
-		}
-		if tool.Acquisition != "go-module" && tool.Acquisition != "release-asset" && tool.Acquisition != "pypi-sdist" && tool.Acquisition != "npm-package" && tool.Acquisition != "go-toolchain" && tool.Acquisition != "container-image" {
-			return fmt.Errorf("tool %q has unsupported acquisition %q", tool.ID, tool.Acquisition)
-		}
-		if tool.Acquisition == "container-image" {
-			if !imagePattern.MatchString(tool.Image) {
-				return fmt.Errorf("tool %q image must use an immutable SHA-256 digest", tool.ID)
-			}
-			_, imageDigest, _ := strings.Cut(tool.Image, "@")
-			if imageDigest != tool.Checksum {
-				return fmt.Errorf("tool %q image digest does not match checksum", tool.ID)
-			}
-		} else if tool.Image != "" {
+		seenProfiles[profile] = struct{}{}
+	}
+	return nil
+}
+
+func validateToolAcquisition(tool Tool) error {
+	valid := tool.Acquisition == "go-module" || tool.Acquisition == "release-asset" || tool.Acquisition == "pypi-sdist" || tool.Acquisition == "npm-package" || tool.Acquisition == "go-toolchain" || tool.Acquisition == acquisitionContainerImage
+	if !valid {
+		return fmt.Errorf("tool %q has unsupported acquisition %q", tool.ID, tool.Acquisition)
+	}
+	if tool.Acquisition != acquisitionContainerImage {
+		if tool.Image != "" {
 			return fmt.Errorf("tool %q image is only valid for container-image acquisition", tool.ID)
 		}
-		if strings.TrimSpace(tool.VersionCommand) == "" {
-			return fmt.Errorf("tool %q version-command must not be empty", tool.ID)
-		}
-		if strings.ContainsAny(tool.VersionCommand, "\r\n\x00") {
-			return fmt.Errorf("tool %q version-command contains a control character", tool.ID)
-		}
+		return nil
+	}
+	if !imagePattern.MatchString(tool.Image) {
+		return fmt.Errorf("tool %q image must use an immutable SHA-256 digest", tool.ID)
+	}
+	_, imageDigest, _ := strings.Cut(tool.Image, "@")
+	if imageDigest != tool.Checksum {
+		return fmt.Errorf("tool %q image digest does not match checksum", tool.ID)
 	}
 	return nil
 }
@@ -222,7 +261,7 @@ func (policy Policy) Action(id string) (string, error) {
 // ToolImage returns the immutable container image reference for id.
 func (policy Policy) ToolImage(id string) (string, error) {
 	for _, tool := range policy.Tools {
-		if tool.ID == id && tool.Acquisition == "container-image" {
+		if tool.ID == id && tool.Acquisition == acquisitionContainerImage {
 			return tool.Image, nil
 		}
 	}
@@ -267,7 +306,7 @@ func Generate(root string) error {
 	}
 	for _, artifact := range artifacts {
 		name := filepath.Join(root, filepath.FromSlash(artifact.name))
-		if err := os.MkdirAll(filepath.Dir(name), 0o755); err != nil {
+		if err := os.MkdirAll(filepath.Dir(name), 0o750); err != nil {
 			return fmt.Errorf("create generated directory: %w", err)
 		}
 		if err := writeAtomic(name, artifact.data); err != nil {
@@ -285,8 +324,7 @@ func Verify(root string) error {
 	}
 	var drift []string
 	for _, artifact := range artifacts {
-		name := filepath.Join(root, filepath.FromSlash(artifact.name))
-		data, readErr := os.ReadFile(name)
+		data, readErr := securefs.ReadFileInRoot(root, filepath.FromSlash(artifact.name))
 		if readErr != nil || !bytes.Equal(data, artifact.data) {
 			drift = append(drift, artifact.name)
 		}
@@ -312,7 +350,7 @@ func (data templateData) Action(id string) (string, error) { return data.Policy.
 func (data templateData) ToolImage(id string) (string, error) { return data.Policy.ToolImage(id) }
 
 func render(root string) ([]rendered, error) {
-	policyFile, err := os.Open(filepath.Join(root, "policies", "tools.yaml"))
+	policyFile, err := securefs.OpenInRoot(root, filepath.Join("policies", "tools.yaml"))
 	if err != nil {
 		return nil, fmt.Errorf("open tool policy: %w", err)
 	}
@@ -324,7 +362,7 @@ func render(root string) ([]rendered, error) {
 	if closeErr != nil {
 		return nil, fmt.Errorf("close tool policy: %w", closeErr)
 	}
-	lintersFile, err := os.Open(filepath.Join(root, "policies", "linters.yaml"))
+	lintersFile, err := securefs.OpenInRoot(root, filepath.Join("policies", "linters.yaml"))
 	if err != nil {
 		return nil, fmt.Errorf("open linter policy: %w", err)
 	}
@@ -340,7 +378,7 @@ func render(root string) ([]rendered, error) {
 	data := templateData{Policy: policy, Linters: slices.Clone(linters.Names)}
 	artifacts := make([]rendered, 0, len(templatePaths))
 	for index, templatePath := range templatePaths {
-		contents, readErr := os.ReadFile(filepath.Join(root, filepath.FromSlash(templatePath)))
+		contents, readErr := securefs.ReadFileInRoot(root, filepath.FromSlash(templatePath))
 		if readErr != nil {
 			return nil, fmt.Errorf("read template %s: %w", templatePath, readErr)
 		}

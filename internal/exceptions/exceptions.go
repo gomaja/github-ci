@@ -101,9 +101,9 @@ func (set Set) FindExact(tool, rule, fingerprint, scope string) int {
 
 // Issue is one deterministic semantic problem in an exception document.
 type Issue struct {
-	Index  int
-	Code   string
-	Detail string
+	Index  int    `json:"index"`
+	Code   string `json:"code"`
+	Detail string `json:"detail"`
 }
 
 type documentWire struct {
@@ -310,7 +310,17 @@ func validateEntry(index int, wire entryWire, today time.Time) (Entry, []Issue) 
 	}
 	var issues []Issue
 	add := func(code, detail string) { issues = append(issues, Issue{Index: index, Code: code, Detail: detail}) }
+	validateEntryIdentity(wire, add)
+	validateEntryGovernance(wire, add)
+	validateEntryLifecycle(wire, today, &entry, add)
+	validateVerificationTests(wire.VerificationTests, add)
+	sortIssues(issues)
+	return entry, issues
+}
 
+type issueAdder func(code, detail string)
+
+func validateEntryIdentity(wire entryWire, add issueAdder) {
 	if err := validateText("tool", wire.Tool); err != nil {
 		add("invalid-tool", err.Error())
 	} else if !applicability.IsKnownTool(wire.Tool) {
@@ -329,6 +339,9 @@ func validateEntry(index int, wire entryWire, today time.Time) (Entry, []Issue) 
 	} else if wire.Scope == "." {
 		add("overbroad-scope", "repository-root scope is not permitted")
 	}
+}
+
+func validateEntryGovernance(wire entryWire, add issueAdder) {
 	if err := validateText("rationale", wire.Rationale); err != nil || len(strings.TrimSpace(wire.Rationale)) < 20 || isPlaceholder(wire.Rationale) {
 		add("invalid-rationale", "rationale must contain a technical false-positive or equivalent-mutant explanation")
 	}
@@ -338,7 +351,9 @@ func validateEntry(index int, wire entryWire, today time.Time) (Entry, []Issue) 
 	if err := validateText("approval", wire.Approval); err != nil || isPlaceholder(wire.Approval) || (!strings.Contains(wire.Approval, "#") && !strings.HasPrefix(wire.Approval, "https://")) {
 		add("invalid-approval", "approval must be a durable issue, pull request, or HTTPS reference")
 	}
+}
 
+func validateEntryLifecycle(wire entryWire, today time.Time, entry *Entry, add issueAdder) {
 	created, err := parseDate(wire.Created)
 	if err != nil {
 		add("invalid-created", err.Error())
@@ -363,13 +378,14 @@ func validateEntry(index int, wire entryWire, today time.Time) (Entry, []Issue) 
 			add("expired", wire.Expires)
 		}
 	}
-	for _, verificationTest := range wire.VerificationTests {
+}
+
+func validateVerificationTests(tests []string, add issueAdder) {
+	for _, verificationTest := range tests {
 		if err := pathpolicy.Validate("verification test", verificationTest); err != nil {
 			add("invalid-verification-test", err.Error())
 		}
 	}
-	sortIssues(issues)
-	return entry, issues
 }
 
 func rejectDuplicateKeys(node *yaml.Node) error {
@@ -456,47 +472,53 @@ func walkJSONValue(decoder *json.Decoder, depth int) error {
 	}
 	switch delimiter {
 	case '{':
-		seen := make(map[string]struct{})
-		for decoder.More() {
-			keyToken, keyErr := decoder.Token()
-			if keyErr != nil {
-				return keyErr
-			}
-			key, ok := keyToken.(string)
-			if !ok {
-				return errors.New("JSON object key is not a string")
-			}
-			foldedKey := strings.ToLower(key)
-			if _, exists := seen[foldedKey]; exists {
-				return fmt.Errorf("duplicate JSON key %q", key)
-			}
-			seen[foldedKey] = struct{}{}
-			if err := walkJSONValue(decoder, depth+1); err != nil {
-				return err
-			}
-		}
-		closing, err := decoder.Token()
-		if err != nil {
-			return err
-		}
-		if closing != json.Delim('}') {
-			return errors.New("JSON object is not closed")
-		}
+		return walkJSONObject(decoder, depth)
 	case '[':
-		for decoder.More() {
-			if err := walkJSONValue(decoder, depth+1); err != nil {
-				return err
-			}
-		}
-		closing, err := decoder.Token()
-		if err != nil {
-			return err
-		}
-		if closing != json.Delim(']') {
-			return errors.New("JSON array is not closed")
-		}
+		return walkJSONArray(decoder, depth)
 	default:
 		return fmt.Errorf("unexpected JSON delimiter %q", delimiter)
+	}
+}
+
+func walkJSONObject(decoder *json.Decoder, depth int) error {
+	seen := make(map[string]struct{})
+	for decoder.More() {
+		keyToken, err := decoder.Token()
+		if err != nil {
+			return err
+		}
+		key, ok := keyToken.(string)
+		if !ok {
+			return errors.New("JSON object key is not a string")
+		}
+		foldedKey := strings.ToLower(key)
+		if _, exists := seen[foldedKey]; exists {
+			return fmt.Errorf("duplicate JSON key %q", key)
+		}
+		seen[foldedKey] = struct{}{}
+		if err := walkJSONValue(decoder, depth+1); err != nil {
+			return err
+		}
+	}
+	return requireClosingDelimiter(decoder, '}', "JSON object is not closed")
+}
+
+func walkJSONArray(decoder *json.Decoder, depth int) error {
+	for decoder.More() {
+		if err := walkJSONValue(decoder, depth+1); err != nil {
+			return err
+		}
+	}
+	return requireClosingDelimiter(decoder, ']', "JSON array is not closed")
+}
+
+func requireClosingDelimiter(decoder *json.Decoder, want json.Delim, message string) error {
+	closing, err := decoder.Token()
+	if err != nil {
+		return err
+	}
+	if closing != want {
+		return errors.New(message)
 	}
 	return nil
 }

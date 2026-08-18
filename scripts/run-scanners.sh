@@ -106,7 +106,7 @@ run_osv() {
 	local report status
 	report=$(report_path osv-scanner osv-scanner/dependencies)
 	set +e
-	osv-scanner scan source --recursive --format json --output-file "$report" "$SOURCE_DIR"
+	osv-scanner scan source --recursive --no-ignore --format json --output-file "$report" "$SOURCE_DIR"
 	status=$?
 	set -e
 	((status <= 1)) || return "$status"

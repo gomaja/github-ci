@@ -183,7 +183,7 @@ func FuzzValidatePlan(f *testing.F) {
 	f.Add(valid)
 	f.Add([]byte(`{"schema_version":"1","expected":[]}`))
 	f.Add([]byte(`{"schema_version":`))
-	f.Fuzz(func(t *testing.T, data []byte) {
+	f.Fuzz(func(_ *testing.T, data []byte) {
 		var plan Plan
 		if err := json.Unmarshal(data, &plan); err != nil {
 			return

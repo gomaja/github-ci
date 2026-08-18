@@ -1,0 +1,17 @@
+name: github-ci-deep
+
+on:
+  schedule:
+    - cron: "17 3 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: github-ci-deep
+  cancel-in-progress: false
+
+jobs:
+  assurance:
+    uses: ./.github/workflows/deep.yml

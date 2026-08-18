@@ -2,6 +2,7 @@
 package gate
 
 import (
+	"errors"
 	"fmt"
 	"regexp"
 	"slices"
@@ -19,23 +20,36 @@ var (
 	digestPattern = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
 )
 
+const (
+	exceptionsCommand = "exceptions/manifest"
+	exceptionsTool    = "exceptions"
+)
+
 // ExecutionState is the platform-neutral conclusion of an expected producer.
 type ExecutionState string
 
 const (
+	// ExecutionCompleted and the following values are terminal producer states.
 	ExecutionCompleted ExecutionState = "completed"
-	ExecutionFailed    ExecutionState = "failed"
+	// ExecutionFailed means the producer exited unsuccessfully.
+	ExecutionFailed ExecutionState = "failed"
+	// ExecutionCancelled means GitHub Actions cancelled the producer.
 	ExecutionCancelled ExecutionState = "cancelled"
-	ExecutionTimedOut  ExecutionState = "timed-out"
-	ExecutionSkipped   ExecutionState = "skipped"
+	// ExecutionTimedOut means the producer exceeded its deadline.
+	ExecutionTimedOut ExecutionState = "timed-out"
+	// ExecutionSkipped means GitHub Actions did not execute the producer.
+	ExecutionSkipped ExecutionState = "skipped"
 )
 
 // ObservationSource identifies where a finding or suppression was observed.
 type ObservationSource string
 
 const (
-	SourceAnalyzer   ObservationSource = "analyzer"
-	SourceInline     ObservationSource = "inline"
+	// SourceAnalyzer and the following values identify observation provenance.
+	SourceAnalyzer ObservationSource = "analyzer"
+	// SourceInline identifies an inline suppression directive.
+	SourceInline ObservationSource = "inline"
+	// SourceIgnoreFile identifies a tool-specific ignore file.
 	SourceIgnoreFile ObservationSource = "ignore-file"
 )
 
@@ -103,14 +117,36 @@ type Result struct {
 
 // Evaluate validates all layers of evidence and returns deterministic findings.
 func Evaluate(input Input) Result {
-	findings := make([]Finding, 0)
-	addGlobal := func(code, detail string) {
-		findings = append(findings, Finding{Tool: "github-ci", CommandID: "gate/input", Code: code, Detail: detail})
-	}
+	inputFindings, planValid, planDigest := validateGateInput(input)
+	findings := slices.Clone(inputFindings)
+	findings = append(findings, validateGateExceptions(input)...)
+	exceptionEntries := input.Exceptions.Entries()
+	consumedExceptions := make([]bool, len(exceptionEntries))
+	findings = append(findings, duplicateExceptionFindings(exceptionEntries)...)
 
+	expectedIdentities := expectedByIdentity(input.Plan, planValid)
+	recordsByIdentity, recordFindings := indexGateRecords(input.Records, expectedIdentities)
+	contextsByIdentity, contextFindings := indexGateContexts(input.Context, expectedIdentities)
+	findings = append(findings, recordFindings...)
+	findings = append(findings, contextFindings...)
+	if planValid {
+		findings = append(findings, evaluateExpectedEvidence(input, planDigest, recordsByIdentity, contextsByIdentity, consumedExceptions)...)
+	}
+	findings = append(findings, unusedExceptionFindings(exceptionEntries, consumedExceptions)...)
+
+	slices.SortFunc(findings, compareFinding)
+	return Result{Pass: len(findings) == 0, Findings: findings}
+}
+
+func globalFinding(code, detail string) Finding {
+	return Finding{Tool: "github-ci", CommandID: "gate/input", Code: code, Detail: detail}
+}
+
+func validateGateInput(input Input) ([]Finding, bool, string) {
+	findings := make([]Finding, 0)
 	planValid := true
 	if err := evidence.ValidatePlan(input.Plan); err != nil {
-		addGlobal("invalid-plan", err.Error())
+		findings = append(findings, globalFinding("invalid-plan", err.Error()))
 		planValid = false
 	}
 	planDigest := ""
@@ -118,144 +154,167 @@ func Evaluate(input Input) Result {
 		var err error
 		planDigest, err = input.Plan.Digest()
 		if err != nil {
-			addGlobal("invalid-plan", err.Error())
+			findings = append(findings, globalFinding("invalid-plan", err.Error()))
 			planValid = false
 		}
 	}
 	if !gitSHAPattern.MatchString(input.ObservedSubjectSHA) || input.ObservedSubjectSHA != input.Plan.SubjectSHA {
-		addGlobal("subject-mismatch", "independently observed subject does not match the plan")
+		findings = append(findings, globalFinding("subject-mismatch", "independently observed subject does not match the plan"))
 	}
 	if !digestPattern.MatchString(input.ObservedTreeSHA256) || input.ObservedTreeSHA256 != input.Plan.TreeSHA256 {
-		addGlobal("tree-mismatch", "independently observed tree digest does not match the plan")
+		findings = append(findings, globalFinding("tree-mismatch", "independently observed tree digest does not match the plan"))
 	}
 	if !digestPattern.MatchString(input.ObservedPolicySHA256) || input.ObservedPolicySHA256 != input.Plan.PolicySHA256 {
-		addGlobal("policy-mismatch", "independently observed policy digest does not match the plan")
+		findings = append(findings, globalFinding("policy-mismatch", "independently observed policy digest does not match the plan"))
 	}
-	if !digestPattern.MatchString(input.ObservedPlanSHA256) || (planValid && input.ObservedPlanSHA256 != planDigest) {
-		addGlobal("plan-mismatch", "independently observed plan digest does not match the validated plan")
+	if !digestPattern.MatchString(input.ObservedPlanSHA256) || planValid && input.ObservedPlanSHA256 != planDigest {
+		findings = append(findings, globalFinding("plan-mismatch", "independently observed plan digest does not match the validated plan"))
 	}
+	return findings, planValid, planDigest
+}
 
+func validateGateExceptions(input Input) []Finding {
+	findings := make([]Finding, 0, len(input.ExceptionIssues))
 	for _, issue := range input.ExceptionIssues {
-		findings = append(findings, Finding{
-			Tool: "exceptions", CommandID: "exceptions/manifest",
-			Code:   "exception-" + issue.Code,
-			Detail: fmt.Sprintf("entry %d: %s", issue.Index, issue.Detail),
-		})
+		findings = append(findings, exceptionIssueFinding(issue, "exception-"+issue.Code))
 	}
 	if validatedOn := input.Exceptions.ValidatedOn(); validatedOn != "" && validatedOn != input.EvaluationDate {
-		addGlobal("exception-validation-date-mismatch", fmt.Sprintf("exception set was validated on %q, gate evaluates %q", validatedOn, input.EvaluationDate))
+		findings = append(findings, globalFinding("exception-validation-date-mismatch", fmt.Sprintf("exception set was validated on %q, gate evaluates %q", validatedOn, input.EvaluationDate)))
 	}
 	for _, issue := range input.Exceptions.ValidateOn(input.EvaluationDate) {
 		code := "exception-" + issue.Code
 		if issue.Code == "invalid-validation-date" {
 			code = issue.Code
 		}
-		findings = append(findings, Finding{
-			Tool: "exceptions", CommandID: "exceptions/manifest",
-			Code: code, Detail: fmt.Sprintf("entry %d: %s", issue.Index, issue.Detail),
-		})
+		findings = append(findings, exceptionIssueFinding(issue, code))
 	}
+	return findings
+}
 
-	exceptionEntries := input.Exceptions.Entries()
-	exceptionCounts := make(map[string]int, len(exceptionEntries))
-	for _, entry := range exceptionEntries {
-		exceptionCounts[entry.Identity()]++
+func exceptionIssueFinding(issue exceptions.Issue, code string) Finding {
+	return Finding{Tool: exceptionsTool, CommandID: exceptionsCommand, Code: code, Detail: fmt.Sprintf("entry %d: %s", issue.Index, issue.Detail)}
+}
+
+func duplicateExceptionFindings(entries []exceptions.Entry) []Finding {
+	counts := make(map[string]int, len(entries))
+	for _, entry := range entries {
+		counts[entry.Identity()]++
 	}
-	for identity, count := range exceptionCounts {
+	findings := make([]Finding, 0)
+	for identity, count := range counts {
 		if count > 1 {
-			findings = append(findings, Finding{Tool: "exceptions", CommandID: "exceptions/manifest", Code: "duplicate-exception", Detail: identity})
+			findings = append(findings, Finding{Tool: exceptionsTool, CommandID: exceptionsCommand, Code: "duplicate-exception", Detail: identity})
 		}
 	}
-	consumedExceptions := make([]bool, len(exceptionEntries))
+	return findings
+}
 
-	recordsByIdentity := make(map[string][]evidence.Record, len(input.Records))
-	for index, record := range input.Records {
+func expectedByIdentity(plan evidence.Plan, valid bool) map[string]evidence.Expected {
+	expected := make(map[string]evidence.Expected, len(plan.Expected))
+	if valid {
+		for _, entry := range plan.Expected {
+			expected[entry.Identity()] = entry
+		}
+	}
+	return expected
+}
+
+func indexGateRecords(records []evidence.Record, expected map[string]evidence.Expected) (map[string][]evidence.Record, []Finding) {
+	indexed := make(map[string][]evidence.Record, len(records))
+	findings := make([]Finding, 0)
+	for index, record := range records {
 		identity := record.Identity()
-		recordsByIdentity[identity] = append(recordsByIdentity[identity], record)
+		indexed[identity] = append(indexed[identity], record)
 		if err := evidence.ValidateRecord(record); err != nil {
 			findings = append(findings, Finding{Tool: record.Tool, CommandID: record.CommandID, Code: "invalid-record", Detail: fmt.Sprintf("record %d: %s", index, err)})
 		}
+		if _, known := expected[identity]; !known {
+			findings = append(findings, Finding{Tool: record.Tool, CommandID: record.CommandID, Code: "unexpected-record", Detail: identity})
+		}
 	}
+	return indexed, findings
+}
 
-	expectedIdentities := make(map[string]evidence.Expected, len(input.Plan.Expected))
-	if planValid {
-		for _, expected := range input.Plan.Expected {
-			expectedIdentities[expected.Identity()] = expected
-		}
-	}
-	for identity, records := range recordsByIdentity {
-		if _, expected := expectedIdentities[identity]; !expected {
-			for _, record := range records {
-				findings = append(findings, Finding{Tool: record.Tool, CommandID: record.CommandID, Code: "unexpected-record", Detail: identity})
-			}
-		}
-	}
-	contextsByIdentity := make(map[string][]RecordContext, len(input.Context))
-	for _, context := range input.Context {
+func indexGateContexts(contexts []RecordContext, expected map[string]evidence.Expected) (map[string][]RecordContext, []Finding) {
+	indexed := make(map[string][]RecordContext, len(contexts))
+	findings := make([]Finding, 0)
+	for _, context := range contexts {
 		identity := context.Identity()
-		contextsByIdentity[identity] = append(contextsByIdentity[identity], context)
-		if _, expected := expectedIdentities[identity]; !expected {
+		indexed[identity] = append(indexed[identity], context)
+		if _, known := expected[identity]; !known {
 			findings = append(findings, Finding{Tool: context.Tool, CommandID: context.CommandID, Code: "unexpected-context", Detail: identity})
 		}
 	}
+	return indexed, findings
+}
 
-	if planValid {
-		for _, expected := range input.Plan.Expected {
-			identity := expected.Identity()
-			records := recordsByIdentity[identity]
-			if len(records) == 0 {
-				findings = append(findings, Finding{Tool: expected.Tool, CommandID: expected.CommandID, Code: "missing-record", Detail: identity})
-			}
-			if len(records) > 1 {
-				findings = append(findings, Finding{Tool: expected.Tool, CommandID: expected.CommandID, Code: "duplicate-record", Detail: fmt.Sprintf("%s has %d records", identity, len(records))})
-			}
+func evaluateExpectedEvidence(input Input, planDigest string, records map[string][]evidence.Record, contexts map[string][]RecordContext, consumed []bool) []Finding {
+	findings := make([]Finding, 0)
+	for _, expected := range input.Plan.Expected {
+		findings = append(findings, evaluateExpected(input, expected, planDigest, records[expected.Identity()], contexts[expected.Identity()], consumed)...)
+	}
+	return findings
+}
 
-			contexts := contextsByIdentity[identity]
-			hasContext := len(contexts) == 1
-			context := RecordContext{}
-			for _, candidate := range contexts {
-				findings = append(findings, validateContext(input, expected, planDigest, candidate)...)
-			}
-			if len(contexts) == 0 {
-				findings = append(findings, Finding{Tool: expected.Tool, CommandID: expected.CommandID, Code: "missing-context", Detail: identity})
-			} else if len(contexts) > 1 {
-				findings = append(findings, Finding{Tool: expected.Tool, CommandID: expected.CommandID, Code: "duplicate-context", Detail: fmt.Sprintf("%s has %d contexts", identity, len(contexts))})
-			} else {
-				context = contexts[0]
-			}
-			if len(records) != 1 {
-				continue
-			}
-			record := records[0]
-			findings = append(findings, validateRecordAgainstExpected(input.Plan, expected, record)...)
-			if !hasContext {
-				continue
-			}
-			if expected.Applicability == evidence.Applicable && context.Report != nil && record.ReportSHA256 != context.Report.SHA256 {
-				findings = append(findings, Finding{
-					Tool: expected.Tool, CommandID: expected.CommandID,
-					Code: "report-hash-mismatch", Detail: "record report digest does not match independently observed report",
-				})
-			}
-			if expected.Applicability == evidence.NotApplicable {
-				wantReason, known := applicability.ReasonFor(expected.Tool, expected.CommandID)
-				if !known || expected.ReasonCode != wantReason {
-					findings = append(findings, Finding{Tool: expected.Tool, CommandID: expected.CommandID, Code: "invalid-na-reason", Detail: expected.ReasonCode})
-				}
-				continue
-			}
-			findings = append(findings, evaluateObservations(expected, record, context.Observations, input.Exceptions, consumedExceptions)...)
+func evaluateExpected(input Input, expected evidence.Expected, planDigest string, records []evidence.Record, contexts []RecordContext, consumed []bool) []Finding {
+	findings := recordCardinalityFindings(expected, records)
+	findings = append(findings, contextCardinalityFindings(input, expected, planDigest, contexts)...)
+	if len(records) != 1 {
+		return findings
+	}
+	record := records[0]
+	findings = append(findings, validateRecordAgainstExpected(input.Plan, expected, record)...)
+	if len(contexts) != 1 {
+		return findings
+	}
+	context := contexts[0]
+	if expected.Applicability == evidence.Applicable && context.Report != nil && record.ReportSHA256 != context.Report.SHA256 {
+		findings = append(findings, Finding{Tool: expected.Tool, CommandID: expected.CommandID, Code: "report-hash-mismatch", Detail: "record report digest does not match independently observed report"})
+	}
+	if expected.Applicability == evidence.NotApplicable {
+		wantReason, known := applicability.ReasonFor(expected.Tool, expected.CommandID)
+		if !known || expected.ReasonCode != wantReason {
+			findings = append(findings, Finding{Tool: expected.Tool, CommandID: expected.CommandID, Code: "invalid-na-reason", Detail: expected.ReasonCode})
+		}
+		return findings
+	}
+	return append(findings, evaluateObservations(expected, record, context.Observations, input.Exceptions, consumed)...)
+}
+
+func recordCardinalityFindings(expected evidence.Expected, records []evidence.Record) []Finding {
+	identity := expected.Identity()
+	switch {
+	case len(records) == 0:
+		return []Finding{{Tool: expected.Tool, CommandID: expected.CommandID, Code: "missing-record", Detail: identity}}
+	case len(records) > 1:
+		return []Finding{{Tool: expected.Tool, CommandID: expected.CommandID, Code: "duplicate-record", Detail: fmt.Sprintf("%s has %d records", identity, len(records))}}
+	default:
+		return nil
+	}
+}
+
+func contextCardinalityFindings(input Input, expected evidence.Expected, planDigest string, contexts []RecordContext) []Finding {
+	findings := make([]Finding, 0)
+	for _, context := range contexts {
+		findings = append(findings, validateContext(input, expected, planDigest, context)...)
+	}
+	switch {
+	case len(contexts) == 0:
+		findings = append(findings, Finding{Tool: expected.Tool, CommandID: expected.CommandID, Code: "missing-context", Detail: expected.Identity()})
+	case len(contexts) > 1:
+		findings = append(findings, Finding{Tool: expected.Tool, CommandID: expected.CommandID, Code: "duplicate-context", Detail: fmt.Sprintf("%s has %d contexts", expected.Identity(), len(contexts))})
+	}
+	return findings
+}
+
+func unusedExceptionFindings(entries []exceptions.Entry, consumed []bool) []Finding {
+	findings := make([]Finding, 0)
+	for index, entry := range entries {
+		if !consumed[index] {
+			findings = append(findings, Finding{Tool: entry.Tool, CommandID: exceptionsCommand, Code: "unused-exception", Detail: entry.Identity()})
 		}
 	}
-
-	for index, entry := range exceptionEntries {
-		if !consumedExceptions[index] {
-			findings = append(findings, Finding{Tool: entry.Tool, CommandID: "exceptions/manifest", Code: "unused-exception", Detail: entry.Identity()})
-		}
-	}
-
-	slices.SortFunc(findings, compareFinding)
-	return Result{Pass: len(findings) == 0, Findings: findings}
+	return findings
 }
 
 func validateContext(input Input, expected evidence.Expected, planDigest string, context RecordContext) []Finding {
@@ -388,7 +447,7 @@ func evaluateObservations(expected evidence.Expected, record evidence.Record, ob
 
 func validateObservation(expected evidence.Expected, observation Observation) error {
 	if observation.Tool != expected.Tool || observation.CommandID != expected.CommandID {
-		return fmt.Errorf("tool/command identity does not match expected producer")
+		return errors.New("tool/command identity does not match expected producer")
 	}
 	if err := nonemptyText("rule", observation.Rule); err != nil {
 		return err
@@ -397,13 +456,13 @@ func validateObservation(expected evidence.Expected, observation Observation) er
 		return err
 	}
 	if err := pathpolicy.Validate("scope", observation.Scope); err != nil || observation.Scope == "." {
-		return fmt.Errorf("scope must be an exact non-root repository path")
+		return errors.New("scope must be an exact non-root repository path")
 	}
 	if observation.Source != SourceAnalyzer && observation.Source != SourceInline && observation.Source != SourceIgnoreFile {
 		return fmt.Errorf("unsupported source %q", observation.Source)
 	}
 	if !observation.Suppressed && observation.Source != SourceAnalyzer {
-		return fmt.Errorf("unsuppressed finding must come from analyzer output")
+		return errors.New("unsuppressed finding must come from analyzer output")
 	}
 	return nil
 }

@@ -1,3 +1,4 @@
+// Package main runs the github-ci assurance command.
 package main
 
 import (

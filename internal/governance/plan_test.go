@@ -155,80 +155,130 @@ func (github *fakeGitHub) ServeHTTP(writer http.ResponseWriter, request *http.Re
 	path := request.URL.Path
 
 	switch {
-	case path == base && request.Method == http.MethodGet:
+	case path == base:
+		github.serveRepository(writer, request)
+	case strings.HasPrefix(path, base+"/actions/permissions"):
+		github.serveActionsPermissions(writer, request)
+	case path == base+"/vulnerability-alerts":
+		github.serveVulnerabilityAlerts(writer, request)
+	case path == base+"/automated-security-fixes":
+		github.serveEnabledSetting(writer, request, &github.fixes)
+	case path == base+"/private-vulnerability-reporting":
+		github.serveEnabledSetting(writer, request, &github.reporting)
+	case path == base+"/rulesets":
+		github.serveRulesets(writer, request)
+	case strings.HasPrefix(path, base+"/rulesets/"):
+		github.serveRuleset(writer, request)
+	default:
+		http.Error(writer, fmt.Sprintf(`{"message":"unhandled %s %s"}`, request.Method, path), http.StatusNotFound)
+	}
+}
+
+func (github *fakeGitHub) serveRepository(writer http.ResponseWriter, request *http.Request) {
+	if request.Method == http.MethodGet {
 		writeFakeJSON(writer, github.repository)
-	case path == base && request.Method == http.MethodPatch:
-		var body map[string]any
-		decodeFakeJSON(writer, request, &body)
-		if _, found := body["security_and_analysis"]; found {
-			github.repository.SecurityAndAnalysis.SecretScanning.Status = "enabled"
-			github.repository.SecurityAndAnalysis.PushProtection.Status = "enabled"
-		} else {
-			github.repository.AllowSquashMerge = true
-			github.repository.AllowMergeCommit = false
-			github.repository.AllowRebaseMerge = false
-			github.repository.DeleteBranchOnMerge = true
-			github.repository.AllowUpdateBranch = true
-			github.repository.SquashMergeCommitTitle = "COMMIT_OR_PR_TITLE"
-			github.repository.SquashMergeCommitMessage = "COMMIT_MESSAGES"
-		}
-		github.mutated(writer)
-	case path == base+"/actions/permissions" && request.Method == http.MethodGet:
-		writeFakeJSON(writer, github.actions)
-	case path == base+"/actions/permissions" && request.Method == http.MethodPut:
-		decodeFakeJSON(writer, request, &github.actions)
-		github.mutated(writer)
-	case path == base+"/actions/permissions/workflow" && request.Method == http.MethodGet:
-		writeFakeJSON(writer, github.workflow)
-	case path == base+"/actions/permissions/workflow" && request.Method == http.MethodPut:
-		decodeFakeJSON(writer, request, &github.workflow)
-		github.mutated(writer)
-	case path == base+"/actions/permissions/selected-actions" && request.Method == http.MethodGet:
-		if github.actions.AllowedActions != "selected" {
+		return
+	}
+	if request.Method != http.MethodPatch {
+		http.Error(writer, `{"message":"method"}`, http.StatusMethodNotAllowed)
+		return
+	}
+	var body map[string]any
+	decodeFakeJSON(writer, request, &body)
+	if _, found := body["security_and_analysis"]; found {
+		github.repository.SecurityAndAnalysis.SecretScanning.Status = "enabled"
+		github.repository.SecurityAndAnalysis.PushProtection.Status = "enabled"
+	} else {
+		github.repository.AllowSquashMerge = true
+		github.repository.AllowMergeCommit = false
+		github.repository.AllowRebaseMerge = false
+		github.repository.DeleteBranchOnMerge = true
+		github.repository.AllowUpdateBranch = true
+		github.repository.SquashMergeCommitTitle = "COMMIT_OR_PR_TITLE"
+		github.repository.SquashMergeCommitMessage = "COMMIT_MESSAGES"
+	}
+	github.mutated(writer)
+}
+
+func (github *fakeGitHub) serveActionsPermissions(writer http.ResponseWriter, request *http.Request) {
+	const base = "/repos/gomaja/example/actions/permissions"
+	switch request.URL.Path {
+	case base:
+		github.serveMutableJSON(writer, request, &github.actions)
+	case base + "/workflow":
+		github.serveMutableJSON(writer, request, &github.workflow)
+	case base + "/selected-actions":
+		if request.Method == http.MethodGet && github.actions.AllowedActions != "selected" {
 			http.Error(writer, `{"message":"Conflict"}`, http.StatusConflict)
 			return
 		}
-		writeFakeJSON(writer, github.selected)
-	case path == base+"/actions/permissions/selected-actions" && request.Method == http.MethodPut:
-		decodeFakeJSON(writer, request, &github.selected)
+		github.serveMutableJSON(writer, request, &github.selected)
+	default:
+		http.NotFound(writer, request)
+	}
+}
+
+func (github *fakeGitHub) serveMutableJSON(writer http.ResponseWriter, request *http.Request, value any) {
+	switch request.Method {
+	case http.MethodGet:
+		writeFakeJSON(writer, value)
+	case http.MethodPut:
+		decodeFakeJSON(writer, request, value)
 		github.mutated(writer)
-	case path == base+"/vulnerability-alerts" && request.Method == http.MethodGet:
-		if !github.alerts {
-			http.Error(writer, `{"message":"Not Found"}`, http.StatusNotFound)
-			return
-		}
-		writer.WriteHeader(http.StatusNoContent)
-	case path == base+"/vulnerability-alerts" && request.Method == http.MethodPut:
+	default:
+		http.Error(writer, `{"message":"method"}`, http.StatusMethodNotAllowed)
+	}
+}
+
+func (github *fakeGitHub) serveVulnerabilityAlerts(writer http.ResponseWriter, request *http.Request) {
+	if request.Method == http.MethodPut {
 		github.alerts = true
 		github.mutated(writer)
-	case path == base+"/automated-security-fixes" && request.Method == http.MethodGet:
-		writeFakeJSON(writer, github.fixes)
-	case path == base+"/automated-security-fixes" && request.Method == http.MethodPut:
-		github.fixes = enabledState{Enabled: true}
+		return
+	}
+	if request.Method == http.MethodGet && github.alerts {
+		writer.WriteHeader(http.StatusNoContent)
+		return
+	}
+	if request.Method == http.MethodGet {
+		http.Error(writer, `{"message":"Not Found"}`, http.StatusNotFound)
+		return
+	}
+	http.Error(writer, `{"message":"method"}`, http.StatusMethodNotAllowed)
+}
+
+func (github *fakeGitHub) serveEnabledSetting(writer http.ResponseWriter, request *http.Request, setting *enabledState) {
+	if request.Method == http.MethodGet {
+		writeFakeJSON(writer, setting)
+		return
+	}
+	if request.Method == http.MethodPut {
+		*setting = enabledState{Enabled: true}
 		github.mutated(writer)
-	case path == base+"/private-vulnerability-reporting" && request.Method == http.MethodGet:
-		writeFakeJSON(writer, github.reporting)
-	case path == base+"/private-vulnerability-reporting" && request.Method == http.MethodPut:
-		github.reporting = enabledState{Enabled: true}
-		github.mutated(writer)
-	case path == base+"/rulesets" && request.Method == http.MethodGet:
+		return
+	}
+	http.Error(writer, `{"message":"method"}`, http.StatusMethodNotAllowed)
+}
+
+func (github *fakeGitHub) serveRulesets(writer http.ResponseWriter, request *http.Request) {
+	if request.Method == http.MethodGet {
 		summaries := make([]rulesetSummary, 0, len(github.rulesets))
 		for id, payload := range github.rulesets {
 			summaries = append(summaries, rulesetSummary{ID: id, Name: payload.Name, Target: payload.Target})
 		}
 		slices.SortFunc(summaries, func(left, right rulesetSummary) int { return int(left.ID - right.ID) })
 		writeFakeJSON(writer, summaries)
-	case path == base+"/rulesets" && request.Method == http.MethodPost:
+		return
+	}
+	if request.Method == http.MethodPost {
 		var payload rulesetPayload
 		decodeFakeJSON(writer, request, &payload)
 		github.rulesets[github.nextRuleset] = payload
 		github.nextRuleset++
 		github.mutated(writer)
-	case strings.HasPrefix(path, base+"/rulesets/"):
-		github.serveRuleset(writer, request)
-	default:
-		http.Error(writer, fmt.Sprintf(`{"message":"unhandled %s %s"}`, request.Method, path), http.StatusNotFound)
+		return
 	}
+	http.Error(writer, `{"message":"method"}`, http.StatusMethodNotAllowed)
 }
 
 func (github *fakeGitHub) serveRuleset(writer http.ResponseWriter, request *http.Request) {

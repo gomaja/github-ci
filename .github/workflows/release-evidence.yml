@@ -1,10 +1,14 @@
-# Code generated from templates/callers/github-ci-release.yml.tmpl; replace the zero SHA with an approved release commit.
 name: github-ci-release
 
 on:
   push:
     tags: ["v*"]
   workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing immutable semantic-version tag to validate.
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -15,4 +19,6 @@ jobs:
       contents: read
       id-token: write  # Provenance attestation requires an OIDC identity.
       attestations: write  # The called workflow records build provenance.
-    uses: gomaja/github-ci/.github/workflows/release.yml@0000000000000000000000000000000000000000
+    uses: ./.github/workflows/release.yml
+    with:
+      tag: ${{ inputs.tag }}

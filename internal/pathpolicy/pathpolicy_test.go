@@ -37,10 +37,7 @@ func TestValidate(t *testing.T) {
 }
 
 func TestSchemaPatternMatchesRuntimeAndAllSchemas(t *testing.T) {
-	matcher, err := regexp.Compile(SchemaPattern)
-	if err != nil {
-		t.Fatalf("compile SchemaPattern: %v", err)
-	}
+	matcher := regexp.MustCompile(SchemaPattern)
 	for _, value := range []string{".", "internal/config", ".github/workflows/ci.yml", "/abs", "../outside", `a\b`, "a//b", "with space"} {
 		if got, want := matcher.MatchString(value), Validate("path", value) == nil; got != want {
 			t.Errorf("SchemaPattern match for %q = %t, runtime = %t", value, got, want)
