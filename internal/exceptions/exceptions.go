@@ -3,6 +3,7 @@ package exceptions
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -64,7 +65,10 @@ func (entry Entry) FingerprintIdentity() string {
 }
 
 // Set contains only loader-validated, unique exceptions.
-type Set struct{ entries []Entry }
+type Set struct {
+	entries     []Entry
+	validatedOn Date
+}
 
 // Entries returns an independent copy of the validated exceptions.
 func (set Set) Entries() []Entry {
@@ -95,21 +99,27 @@ type documentWire struct {
 }
 
 type entryWire struct {
-	Tool              string   `yaml:"tool"`
-	Rule              string   `yaml:"rule"`
-	Fingerprint       string   `yaml:"fingerprint"`
-	Scope             string   `yaml:"scope"`
-	Rationale         string   `yaml:"rationale"`
-	Owner             string   `yaml:"owner"`
-	Approval          string   `yaml:"approval"`
-	Created           string   `yaml:"created"`
-	Expires           string   `yaml:"expires"`
-	VerificationTests []string `yaml:"verification-tests,omitempty"`
+	Tool              string   `json:"tool" yaml:"tool"`
+	Rule              string   `json:"rule" yaml:"rule"`
+	Fingerprint       string   `json:"fingerprint" yaml:"fingerprint"`
+	Scope             string   `json:"scope" yaml:"scope"`
+	Rationale         string   `json:"rationale" yaml:"rationale"`
+	Owner             string   `json:"owner" yaml:"owner"`
+	Approval          string   `json:"approval" yaml:"approval"`
+	Created           string   `json:"created" yaml:"created"`
+	Expires           string   `json:"expires" yaml:"expires"`
+	VerificationTests []string `json:"verification_tests,omitempty" yaml:"verification-tests,omitempty"`
 }
 
 type indexedEntry struct {
 	index int
 	entry Entry
+}
+
+type setJSON struct {
+	SchemaVersion int         `json:"schema_version"`
+	ValidatedOn   string      `json:"validated_on,omitempty"`
+	Entries       []entryWire `json:"entries"`
 }
 
 // LoadDetailed decodes one strict document and separates syntax from semantic issues.
@@ -163,8 +173,72 @@ func LoadDetailed(reader io.Reader, now time.Time) (Set, []Issue, error) {
 		issues = append(issues, Issue{Index: -1, Code: "invalid-schema-version", Detail: fmt.Sprintf("schema-version must be %d", schemaVersion)})
 	}
 	currentDate := civilDate(now)
-	candidates := make([]indexedEntry, 0, len(document.Exceptions))
-	for index, wire := range document.Exceptions {
+	set, entryIssues := validateWires(document.Exceptions, currentDate)
+	issues = append(issues, entryIssues...)
+	sortIssues(issues)
+	return set, issues, nil
+}
+
+// MarshalJSON preserves validated exception entries without exposing mutable state.
+func (set Set) MarshalJSON() ([]byte, error) {
+	wires := make([]entryWire, 0, len(set.entries))
+	for _, entry := range set.entries {
+		wires = append(wires, entryWire{
+			Tool: entry.Tool, Rule: entry.Rule, Fingerprint: entry.Fingerprint,
+			Scope: entry.Scope, Rationale: entry.Rationale, Owner: entry.Owner,
+			Approval: entry.Approval, Created: entry.Created.String(), Expires: entry.Expires.String(),
+			VerificationTests: slices.Clone(entry.VerificationTests),
+		})
+	}
+	if len(wires) != 0 && set.validatedOn.String() == "" {
+		return nil, errors.New("exception set has entries without a validation date")
+	}
+	return json.Marshal(setJSON{SchemaVersion: schemaVersion, ValidatedOn: set.validatedOn.String(), Entries: wires})
+}
+
+// UnmarshalJSON strictly reconstructs a semantically validated exception set.
+func (set *Set) UnmarshalJSON(data []byte) error {
+	if set == nil {
+		return errors.New("exception set destination is nil")
+	}
+	if len(data) > maxDocumentBytes {
+		return fmt.Errorf("exception JSON exceeds %d bytes", maxDocumentBytes)
+	}
+	if err := rejectDuplicateJSONKeys(data); err != nil {
+		return err
+	}
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	var wire setJSON
+	if err := decoder.Decode(&wire); err != nil {
+		return fmt.Errorf("decode exception JSON: %w", err)
+	}
+	if err := requireJSONEOF(decoder); err != nil {
+		return err
+	}
+	if wire.SchemaVersion != schemaVersion {
+		return fmt.Errorf("exception JSON schema_version must be %d", schemaVersion)
+	}
+	if len(wire.Entries) == 0 && wire.ValidatedOn == "" {
+		*set = Set{}
+		return nil
+	}
+	validatedOn, err := parseDate(wire.ValidatedOn)
+	if err != nil {
+		return fmt.Errorf("invalid exception JSON validated_on: %w", err)
+	}
+	validated, issues := validateWires(wire.Entries, validatedOn)
+	if len(issues) != 0 {
+		return fmt.Errorf("invalid exception JSON entry %d: %s: %s", issues[0].Index, issues[0].Code, issues[0].Detail)
+	}
+	*set = validated
+	return nil
+}
+
+func validateWires(wires []entryWire, currentDate time.Time) (Set, []Issue) {
+	issues := make([]Issue, 0)
+	candidates := make([]indexedEntry, 0, len(wires))
+	for index, wire := range wires {
 		entry, entryIssues := validateEntry(index, wire, currentDate)
 		issues = append(issues, entryIssues...)
 		if len(entryIssues) == 0 {
@@ -192,7 +266,7 @@ func LoadDetailed(reader io.Reader, now time.Time) (Set, []Issue, error) {
 	}
 	slices.SortFunc(entries, func(left, right Entry) int { return strings.Compare(left.Identity(), right.Identity()) })
 	sortIssues(issues)
-	return Set{entries: entries}, issues, nil
+	return Set{entries: entries, validatedOn: Date{value: currentDate}}, issues
 }
 
 // Load rejects both fatal syntax errors and semantic issues.
@@ -294,6 +368,84 @@ func rejectDuplicateKeys(node *yaml.Node) error {
 		}
 	}
 	return nil
+}
+
+func rejectDuplicateJSONKeys(data []byte) error {
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	if err := walkJSONValue(decoder, 0); err != nil {
+		return fmt.Errorf("validate exception JSON: %w", err)
+	}
+	return requireJSONEOF(decoder)
+}
+
+func walkJSONValue(decoder *json.Decoder, depth int) error {
+	if depth > 256 {
+		return errors.New("JSON nesting exceeds 256 levels")
+	}
+	token, err := decoder.Token()
+	if err != nil {
+		return err
+	}
+	delimiter, composite := token.(json.Delim)
+	if !composite {
+		return nil
+	}
+	switch delimiter {
+	case '{':
+		seen := make(map[string]struct{})
+		for decoder.More() {
+			keyToken, keyErr := decoder.Token()
+			if keyErr != nil {
+				return keyErr
+			}
+			key, ok := keyToken.(string)
+			if !ok {
+				return errors.New("JSON object key is not a string")
+			}
+			if _, exists := seen[key]; exists {
+				return fmt.Errorf("duplicate JSON key %q", key)
+			}
+			seen[key] = struct{}{}
+			if err := walkJSONValue(decoder, depth+1); err != nil {
+				return err
+			}
+		}
+		closing, err := decoder.Token()
+		if err != nil {
+			return err
+		}
+		if closing != json.Delim('}') {
+			return errors.New("JSON object is not closed")
+		}
+	case '[':
+		for decoder.More() {
+			if err := walkJSONValue(decoder, depth+1); err != nil {
+				return err
+			}
+		}
+		closing, err := decoder.Token()
+		if err != nil {
+			return err
+		}
+		if closing != json.Delim(']') {
+			return errors.New("JSON array is not closed")
+		}
+	default:
+		return fmt.Errorf("unexpected JSON delimiter %q", delimiter)
+	}
+	return nil
+}
+
+func requireJSONEOF(decoder *json.Decoder) error {
+	var trailing any
+	err := decoder.Decode(&trailing)
+	if errors.Is(err, io.EOF) {
+		return nil
+	}
+	if err == nil {
+		return errors.New("exception JSON contains trailing data")
+	}
+	return fmt.Errorf("decode trailing exception JSON: %w", err)
 }
 
 func parseDate(value string) (time.Time, error) {

@@ -137,9 +137,7 @@ func TestDetectRepositoryShapes(t *testing.T) {
 			}
 			assertExpected(t, plan, test.expected, test.reasons)
 			assertUniqueSorted(t, plan.Expected)
-			if got, want := len(plan.Expected), commandsForProfile(test.consumer.Profile); got != want {
-				t.Fatalf("plan expected entries = %d, want complete profile catalog count %d", got, want)
-			}
+			assertCompleteProfilePlan(t, plan, test.consumer.Profile)
 		})
 	}
 }
@@ -207,6 +205,23 @@ func TestDetectIsDeterministicAcrossCatalogInsertionOrder(t *testing.T) {
 		if digest != firstDigest {
 			t.Fatalf("Digest() = %q, want %q", digest, firstDigest)
 		}
+	}
+}
+
+func TestDetectRejectsCatalogPolicyDrift(t *testing.T) {
+	input := validInput(config.ProfileGoStrict)
+	for index := range input.Catalog {
+		if input.Catalog[index].Tool == "staticcheck" {
+			input.Catalog[index].ReasonCode = ReasonNoDockerfiles
+			break
+		}
+	}
+	_, err := Detect(fstest.MapFS{
+		"go.mod":  &fstest.MapFile{Data: []byte("module example.com/drift\n")},
+		"main.go": &fstest.MapFile{Data: []byte("package drift\n")},
+	}, input)
+	if err == nil || !strings.Contains(err.Error(), "catalog policy drift") {
+		t.Fatalf("Detect() error = %v", err)
 	}
 }
 
@@ -342,12 +357,20 @@ func assertUniqueSorted(t *testing.T, expected []evidence.Expected) {
 	}
 }
 
-func commandsForProfile(profile config.Profile) int {
-	count := 0
+func assertCompleteProfilePlan(t *testing.T, plan evidence.Plan, profile config.Profile) {
+	t.Helper()
+	want := make([]string, 0)
 	for _, entry := range DefaultCatalog() {
 		if slices.Contains(entry.Profiles, profile) {
-			count++
+			want = append(want, entry.Tool+"/"+entry.CommandID)
 		}
 	}
-	return count
+	slices.Sort(want)
+	got := make([]string, 0, len(plan.Expected))
+	for _, entry := range plan.Expected {
+		got = append(got, entry.Identity())
+	}
+	if !slices.Equal(got, want) {
+		t.Fatalf("plan identities = %#v, want complete profile identities %#v", got, want)
+	}
 }

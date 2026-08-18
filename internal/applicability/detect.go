@@ -57,6 +57,9 @@ func Detect(tracked fs.FS, input Input) (evidence.Plan, error) {
 	if err := input.Catalog.Validate(); err != nil {
 		return evidence.Plan{}, fmt.Errorf("catalog: %w", err)
 	}
+	if err := input.Catalog.validateDefaultPolicy(); err != nil {
+		return evidence.Plan{}, err
+	}
 	files, err := readTrackedFiles(tracked)
 	if err != nil {
 		return evidence.Plan{}, err

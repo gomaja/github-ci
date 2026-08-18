@@ -199,13 +199,15 @@ func Evaluate(input Input) Result {
 			contexts := contextsByIdentity[identity]
 			hasContext := len(contexts) == 1
 			context := RecordContext{}
+			for _, candidate := range contexts {
+				findings = append(findings, validateContext(input, expected, planDigest, candidate)...)
+			}
 			if len(contexts) == 0 {
 				findings = append(findings, Finding{Tool: expected.Tool, CommandID: expected.CommandID, Code: "missing-context", Detail: identity})
 			} else if len(contexts) > 1 {
 				findings = append(findings, Finding{Tool: expected.Tool, CommandID: expected.CommandID, Code: "duplicate-context", Detail: fmt.Sprintf("%s has %d contexts", identity, len(contexts))})
 			} else {
 				context = contexts[0]
-				findings = append(findings, validateContext(input, expected, planDigest, context)...)
 			}
 			if len(records) != 1 {
 				continue

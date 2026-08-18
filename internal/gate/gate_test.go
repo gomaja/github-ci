@@ -188,6 +188,35 @@ func TestEvaluateConsumesValidExceptionOneToOne(t *testing.T) {
 	}
 }
 
+func TestEvaluatePreservesValidatedExceptionsAcrossJSONRoundTrip(t *testing.T) {
+	input := validInput(t)
+	addOpenFinding(&input)
+	input.Exceptions = validExceptionSet(t, onlyContext(input).Observations[0])
+	encoded, err := json.Marshal(input)
+	if err != nil {
+		t.Fatalf("json.Marshal() error = %v", err)
+	}
+	var decoded Input
+	if err := json.Unmarshal(encoded, &decoded); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v", err)
+	}
+	result := Evaluate(decoded)
+	if !result.Pass || len(result.Findings) != 0 {
+		t.Fatalf("Evaluate(round trip) = %#v", result)
+	}
+}
+
+func TestEvaluateValidatesEveryDuplicateContext(t *testing.T) {
+	input := validInput(t)
+	malformed := input.Context[0]
+	malformed.TreeSHA256 = testReport
+	input.Context = append(input.Context, malformed)
+	result := Evaluate(input)
+	if !hasFinding(result, "duplicate-context") || !hasFinding(result, "context-tree-mismatch") {
+		t.Fatalf("Evaluate() = %#v", result)
+	}
+}
+
 func TestEvaluateRejectsObservationAndExceptionMismatches(t *testing.T) {
 	tests := []struct {
 		name   string

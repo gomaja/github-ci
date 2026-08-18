@@ -1,6 +1,7 @@
 package exceptions
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 	"time"
@@ -190,6 +191,48 @@ func TestSetEntriesReturnsDeepCopy(t *testing.T) {
 	}
 }
 
+func TestSetJSONRoundTripPreservesValidatedEntries(t *testing.T) {
+	set, issues, err := LoadDetailed(strings.NewReader(validDocument()), testNow)
+	if err != nil || len(issues) != 0 {
+		t.Fatalf("LoadDetailed() issues = %#v, error = %v", issues, err)
+	}
+	encoded, err := json.Marshal(set)
+	if err != nil {
+		t.Fatalf("json.Marshal() error = %v", err)
+	}
+	var decoded Set
+	if err := json.Unmarshal(encoded, &decoded); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v", err)
+	}
+	if got := decoded.Entries(); len(got) != 1 || got[0].Identity() != set.Entries()[0].Identity() {
+		t.Fatalf("round-trip entries = %#v", got)
+	}
+}
+
+func TestSetJSONRejectsUnvalidatedOrAmbiguousData(t *testing.T) {
+	set, issues, err := LoadDetailed(strings.NewReader(validDocument()), testNow)
+	if err != nil || len(issues) != 0 {
+		t.Fatalf("LoadDetailed() issues = %#v, error = %v", issues, err)
+	}
+	encoded, err := json.Marshal(set)
+	if err != nil {
+		t.Fatalf("json.Marshal() error = %v", err)
+	}
+	tests := []string{
+		strings.Replace(string(encoded), `"schema_version":1`, `"schema_version":1,"schema_version":1`, 1),
+		strings.Replace(string(encoded), `"schema_version":1`, `"schema_version":1,"unknown":true`, 1),
+		string(encoded) + `{}`,
+		strings.Replace(string(encoded), `"rationale":"Parser input is validated before this unreachable branch."`, `"rationale":"false positive"`, 1),
+		strings.Replace(string(encoded), `"validated_on":"2026-08-18"`, `"validated_on":"2026-09-01"`, 1),
+	}
+	for index, document := range tests {
+		var decoded Set
+		if err := json.Unmarshal([]byte(document), &decoded); err == nil {
+			t.Errorf("case %d: json.Unmarshal() error = nil", index)
+		}
+	}
+}
+
 func FuzzLoadDetailed(f *testing.F) {
 	f.Add([]byte(validDocument()))
 	f.Add([]byte("schema-version: 1\nexceptions: ["))
@@ -197,6 +240,25 @@ func FuzzLoadDetailed(f *testing.F) {
 	f.Add([]byte("schema-version: 1\nexceptions: []\n---\n{}\n"))
 	f.Fuzz(func(t *testing.T, data []byte) {
 		_, _, _ = LoadDetailed(strings.NewReader(string(data)), testNow)
+	})
+}
+
+func FuzzSetJSON(f *testing.F) {
+	set, issues, err := LoadDetailed(strings.NewReader(validDocument()), testNow)
+	if err != nil || len(issues) != 0 {
+		f.Fatalf("LoadDetailed() issues = %#v, error = %v", issues, err)
+	}
+	valid, err := json.Marshal(set)
+	if err != nil {
+		f.Fatalf("json.Marshal() error = %v", err)
+	}
+	f.Add(valid)
+	f.Add([]byte(`{"schema_version":1,"entries":[]}`))
+	f.Add([]byte(`{"schema_version":1,"schema_version":1,"entries":[]}`))
+	f.Add([]byte(`{"schema_version":1,"entries":[`))
+	f.Fuzz(func(t *testing.T, data []byte) {
+		var candidate Set
+		_ = json.Unmarshal(data, &candidate)
 	})
 }
 

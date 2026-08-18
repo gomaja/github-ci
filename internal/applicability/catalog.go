@@ -136,6 +136,24 @@ func (catalog Catalog) Validate() error {
 	return nil
 }
 
+func (catalog Catalog) validateDefaultPolicy() error {
+	if len(catalog) != len(defaultCatalog) {
+		return fmt.Errorf("catalog policy drift: got %d commands, want %d", len(catalog), len(defaultCatalog))
+	}
+	want := make(map[string]Entry, len(defaultCatalog))
+	for _, entry := range defaultCatalog {
+		want[entry.Tool+"/"+entry.CommandID] = entry
+	}
+	for _, entry := range catalog {
+		identity := entry.Tool + "/" + entry.CommandID
+		expected, exists := want[identity]
+		if !exists || entry.ParserVersion != expected.ParserVersion || entry.Capability != expected.Capability || entry.ReasonCode != expected.ReasonCode || !sameProfiles(entry.Profiles, expected.Profiles) {
+			return fmt.Errorf("catalog policy drift at %q", identity)
+		}
+	}
+	return nil
+}
+
 // HasTool reports whether the catalog contains a command for tool.
 func (catalog Catalog) HasTool(tool string) bool {
 	return slices.ContainsFunc(catalog, func(entry Entry) bool { return entry.Tool == tool })
@@ -187,4 +205,12 @@ func allProfiles() []config.Profile {
 
 func goProfiles() []config.Profile {
 	return []config.Profile{config.ProfileGoStrict, config.ProfileGoLibrary}
+}
+
+func sameProfiles(left, right []config.Profile) bool {
+	leftCopy := slices.Clone(left)
+	rightCopy := slices.Clone(right)
+	slices.Sort(leftCopy)
+	slices.Sort(rightCopy)
+	return slices.Equal(leftCopy, rightCopy)
 }
