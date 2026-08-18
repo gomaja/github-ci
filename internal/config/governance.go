@@ -10,6 +10,11 @@ const githubAPIVersion = "2026-03-10"
 
 var workflowSHAPattern = regexp.MustCompile(`^[0-9a-f]{40}$`)
 
+var (
+	githubOwnerPattern      = regexp.MustCompile(`^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?$`)
+	githubRepositoryPattern = regexp.MustCompile(`^[A-Za-z0-9_.-]{1,100}$`)
+)
+
 // Governance is the desired state for a set of public GitHub repositories.
 type Governance struct {
 	SchemaVersion int                `yaml:"schema-version"`
@@ -81,6 +86,9 @@ func (governance Governance) Validate() error {
 		if err := validateText("owner name", owner.Name); err != nil {
 			return err
 		}
+		if !githubOwnerPattern.MatchString(owner.Name) {
+			return fmt.Errorf("invalid GitHub owner name %q", owner.Name)
+		}
 		if owner.Type != "user" && owner.Type != "organization" {
 			return fmt.Errorf("unsupported owner type %q", owner.Type)
 		}
@@ -141,6 +149,9 @@ func (repository Repository) validate(defaultProfile Profile, owners map[string]
 	if err := validateText("repository name", repository.Name); err != nil {
 		return err
 	}
+	if !githubRepositoryPattern.MatchString(repository.Name) || repository.Name == "." || repository.Name == ".." {
+		return fmt.Errorf("invalid GitHub repository name %q", repository.Name)
+	}
 	if repository.Owner != "" {
 		if err := validateText("repository owner", repository.Owner); err != nil {
 			return err
@@ -167,12 +178,20 @@ func (repository Repository) validate(defaultProfile Profile, owners map[string]
 		return fmt.Errorf("repository %q: %w", repository.Name, err)
 	}
 
-	if repository.EnforceCaller {
-		if !workflowSHAPattern.MatchString(repository.WorkflowSHA) {
-			return fmt.Errorf("repository %q workflow-sha must be an immutable 40-character lowercase hexadecimal commit SHA", repository.Name)
-		}
+	if repository.WorkflowSHA != "" && !workflowSHAPattern.MatchString(repository.WorkflowSHA) {
+		return fmt.Errorf("repository %q workflow-sha must be an immutable 40-character lowercase hexadecimal commit SHA", repository.Name)
+	}
+	if repository.ObservedRequiredCheck != "" {
 		if err := validateText("observed-required-check", repository.ObservedRequiredCheck); err != nil {
 			return fmt.Errorf("repository %q: %w", repository.Name, err)
+		}
+	}
+	if repository.EnforceCaller {
+		if repository.WorkflowSHA == "" {
+			return fmt.Errorf("repository %q workflow-sha must be an immutable 40-character lowercase hexadecimal commit SHA", repository.Name)
+		}
+		if repository.ObservedRequiredCheck == "" {
+			return fmt.Errorf("repository %q: observed-required-check must not be empty", repository.Name)
 		}
 	}
 	return nil

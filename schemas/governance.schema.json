@@ -16,7 +16,7 @@
         "additionalProperties": false,
         "required": ["name", "type"],
         "properties": {
-          "name": { "type": "string", "minLength": 1 },
+          "name": { "type": "string", "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?$" },
           "type": { "enum": ["user", "organization"] }
         }
       }
@@ -48,8 +48,8 @@
       "additionalProperties": false,
       "required": ["name", "enforce-caller"],
       "properties": {
-        "name": { "type": "string", "minLength": 1 },
-        "owner": { "type": "string", "minLength": 1 },
+        "name": { "type": "string", "pattern": "^(?!\\.{1,2}$)[A-Za-z0-9_.-]{1,100}$" },
+        "owner": { "type": "string", "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?$" },
         "profile": { "enum": ["go-strict", "go-library", "repository-only"] },
         "modules": { "$ref": "#/$defs/paths" },
         "build-tags": {

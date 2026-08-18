@@ -54,6 +54,7 @@ repositories:
 	}{
 		{name: "unknown field", yaml: valid + "unknown: true\n", want: "field unknown not found"},
 		{name: "invalid owner type", yaml: strings.Replace(valid, "type: user", "type: team", 1), want: "unsupported owner type"},
+		{name: "invalid owner name", yaml: strings.Replace(valid, "name: gomaja", "name: ../gomaja", 1), want: "invalid GitHub owner name"},
 		{name: "non-public defaults", yaml: strings.Replace(valid, "public-only: true", "public-only: false", 1), want: "public-only"},
 		{name: "forks permitted", yaml: strings.Replace(valid, "refuse-forks: true", "refuse-forks: false", 1), want: "refuse-forks"},
 		{name: "archived permitted", yaml: strings.Replace(valid, "refuse-archived: true", "refuse-archived: false", 1), want: "refuse-archived"},
@@ -61,6 +62,7 @@ repositories:
 		{name: "unexpected owners permitted", yaml: strings.Replace(valid, "refuse-unexpected-owners: true", "refuse-unexpected-owners: false", 1), want: "refuse-unexpected-owners"},
 		{name: "duplicate repository", yaml: valid + "  - name: github-ci\n    owner: gomaja\n    enforce-caller: false\n", want: "duplicate repository"},
 		{name: "unknown repository owner", yaml: strings.Replace(valid, "owner: gomaja", "owner: elsewhere", 1), want: "unexpected owner"},
+		{name: "invalid repository name", yaml: strings.Replace(valid, "name: github-ci", "name: ../github-ci", 1), want: "invalid GitHub repository name"},
 		{name: "api version", yaml: strings.Replace(valid, "2026-03-10", "2025-01-01", 1), want: "api-version"},
 		{name: "enforced caller without sha", yaml: strings.Replace(valid, "enforce-caller: false", "enforce-caller: true", 1), want: "workflow-sha"},
 		{name: "enforced caller without required check", yaml: strings.Replace(valid, "enforce-caller: false", "enforce-caller: true\n    workflow-sha: 0123456789abcdef0123456789abcdef01234567", 1), want: "observed-required-check"},

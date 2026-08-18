@@ -1,0 +1,37 @@
+schema-version: 1
+api-version: "2026-03-10"
+owners:
+  - name: gomaja
+    type: user
+defaults:
+  profile: go-strict
+  default-branch: main
+  required-check: github-ci / gate
+  public-only: true
+  refuse-forks: true
+  refuse-archived: true
+  refuse-private: true
+  refuse-unexpected-owners: true
+repositories:
+  - name: github-ci
+    enforce-caller: false
+  - name: go-asn1
+    enforce-caller: false
+  - name: go-asn1-gsmmap
+    enforce-caller: false
+  - name: go-asn1-tcap
+    enforce-caller: false
+  - name: go-diameter
+    enforce-caller: false
+  - name: go-m3ua
+    enforce-caller: false
+  - name: go-sccp
+    enforce-caller: false
+  - name: go-sctp
+    enforce-caller: false
+  - name: go-smpp
+    enforce-caller: false
+  - name: go-sms
+    enforce-caller: false
+  - name: sctp-portkill
+    enforce-caller: false
