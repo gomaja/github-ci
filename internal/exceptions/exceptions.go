@@ -418,6 +418,12 @@ func validateSetJSONShape(data []byte) error {
 	if len(trimmed) == 0 || trimmed[0] != '[' {
 		return errors.New("exception JSON entries must be an array")
 	}
+	if validatedJSON, present := root["validated_on"]; present {
+		var validatedOn string
+		if len(bytes.TrimSpace(validatedJSON)) == 0 || bytes.TrimSpace(validatedJSON)[0] != '"' || json.Unmarshal(validatedJSON, &validatedOn) != nil || validatedOn == "" {
+			return errors.New("exception JSON validated_on must be a non-empty date string when present")
+		}
+	}
 	var entries []map[string]json.RawMessage
 	if err := json.Unmarshal(entriesJSON, &entries); err != nil {
 		return fmt.Errorf("decode exception JSON entries: %w", err)

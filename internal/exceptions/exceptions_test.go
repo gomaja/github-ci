@@ -225,6 +225,7 @@ func TestSetJSONRejectsUnvalidatedOrAmbiguousData(t *testing.T) {
 		strings.Replace(string(encoded), `"schema_version":1`, `"schema_version":1,"unknown":true`, 1),
 		`{"schema_version":1,"validated_on":"2026-08-18"}`,
 		`{"schema_version":1,"validated_on":"2026-08-18","entries":null}`,
+		`{"schema_version":1,"validated_on":null,"entries":[]}`,
 		string(encoded) + `{}`,
 		strings.Replace(string(encoded), `"rationale":"Parser input is validated before this unreachable branch."`, `"rationale":"false positive"`, 1),
 		strings.Replace(string(encoded), `"validated_on":"2026-08-18"`, `"validated_on":"2026-09-01"`, 1),
