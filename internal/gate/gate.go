@@ -58,6 +58,8 @@ type Observation struct {
 
 // RecordContext independently binds one producer to execution and artifact facts.
 type RecordContext struct {
+	Tool            string          `json:"tool"`
+	CommandID       string          `json:"command_id"`
 	SubjectSHA      string          `json:"subject_sha"`
 	PlanSHA256      string          `json:"plan_sha256"`
 	TreeSHA256      string          `json:"tree_sha256"`
@@ -68,17 +70,20 @@ type RecordContext struct {
 	Observations    []Observation   `json:"observations,omitempty"`
 }
 
+// Identity returns the producer identity carried by this context.
+func (context RecordContext) Identity() string { return context.Tool + "/" + context.CommandID }
+
 // Input contains every independently collected fact required by the pure gate.
 type Input struct {
-	Plan                 evidence.Plan            `json:"plan"`
-	Records              []evidence.Record        `json:"records"`
-	Context              map[string]RecordContext `json:"context"`
-	Exceptions           exceptions.Set           `json:"exceptions"`
-	ExceptionIssues      []exceptions.Issue       `json:"exception_issues"`
-	ObservedSubjectSHA   string                   `json:"observed_subject_sha"`
-	ObservedTreeSHA256   string                   `json:"observed_tree_sha256"`
-	ObservedPolicySHA256 string                   `json:"observed_policy_sha256"`
-	ObservedPlanSHA256   string                   `json:"observed_plan_sha256"`
+	Plan                 evidence.Plan      `json:"plan"`
+	Records              []evidence.Record  `json:"records"`
+	Context              []RecordContext    `json:"context"`
+	Exceptions           exceptions.Set     `json:"exceptions"`
+	ExceptionIssues      []exceptions.Issue `json:"exception_issues"`
+	ObservedSubjectSHA   string             `json:"observed_subject_sha"`
+	ObservedTreeSHA256   string             `json:"observed_tree_sha256"`
+	ObservedPolicySHA256 string             `json:"observed_policy_sha256"`
+	ObservedPlanSHA256   string             `json:"observed_plan_sha256"`
 }
 
 // Finding is one blocking aggregate-gate result.
@@ -137,8 +142,9 @@ func Evaluate(input Input) Result {
 		})
 	}
 
-	exceptionCounts := make(map[string]int, len(input.Exceptions.Entries))
-	for _, entry := range input.Exceptions.Entries {
+	exceptionEntries := input.Exceptions.Entries()
+	exceptionCounts := make(map[string]int, len(exceptionEntries))
+	for _, entry := range exceptionEntries {
 		exceptionCounts[entry.Identity()]++
 	}
 	for identity, count := range exceptionCounts {
@@ -146,7 +152,7 @@ func Evaluate(input Input) Result {
 			findings = append(findings, Finding{Tool: "exceptions", CommandID: "exceptions/manifest", Code: "duplicate-exception", Detail: identity})
 		}
 	}
-	consumedExceptions := make([]bool, len(input.Exceptions.Entries))
+	consumedExceptions := make([]bool, len(exceptionEntries))
 
 	recordsByIdentity := make(map[string][]evidence.Record, len(input.Records))
 	for index, record := range input.Records {
@@ -170,9 +176,12 @@ func Evaluate(input Input) Result {
 			}
 		}
 	}
-	for identity := range input.Context {
+	contextsByIdentity := make(map[string][]RecordContext, len(input.Context))
+	for _, context := range input.Context {
+		identity := context.Identity()
+		contextsByIdentity[identity] = append(contextsByIdentity[identity], context)
 		if _, expected := expectedIdentities[identity]; !expected {
-			findings = append(findings, Finding{Tool: "github-ci", CommandID: identity, Code: "unexpected-context", Detail: identity})
+			findings = append(findings, Finding{Tool: context.Tool, CommandID: context.CommandID, Code: "unexpected-context", Detail: identity})
 		}
 	}
 
@@ -187,10 +196,15 @@ func Evaluate(input Input) Result {
 				findings = append(findings, Finding{Tool: expected.Tool, CommandID: expected.CommandID, Code: "duplicate-record", Detail: fmt.Sprintf("%s has %d records", identity, len(records))})
 			}
 
-			context, hasContext := input.Context[identity]
-			if !hasContext {
+			contexts := contextsByIdentity[identity]
+			hasContext := len(contexts) == 1
+			context := RecordContext{}
+			if len(contexts) == 0 {
 				findings = append(findings, Finding{Tool: expected.Tool, CommandID: expected.CommandID, Code: "missing-context", Detail: identity})
+			} else if len(contexts) > 1 {
+				findings = append(findings, Finding{Tool: expected.Tool, CommandID: expected.CommandID, Code: "duplicate-context", Detail: fmt.Sprintf("%s has %d contexts", identity, len(contexts))})
 			} else {
+				context = contexts[0]
 				findings = append(findings, validateContext(input, expected, planDigest, context)...)
 			}
 			if len(records) != 1 {
@@ -208,7 +222,8 @@ func Evaluate(input Input) Result {
 				})
 			}
 			if expected.Applicability == evidence.NotApplicable {
-				if !applicability.IsReasonCode(expected.ReasonCode) {
+				wantReason, known := applicability.ReasonFor(expected.Tool, expected.CommandID)
+				if !known || expected.ReasonCode != wantReason {
 					findings = append(findings, Finding{Tool: expected.Tool, CommandID: expected.CommandID, Code: "invalid-na-reason", Detail: expected.ReasonCode})
 				}
 				continue
@@ -217,7 +232,7 @@ func Evaluate(input Input) Result {
 		}
 	}
 
-	for index, entry := range input.Exceptions.Entries {
+	for index, entry := range exceptionEntries {
 		if !consumedExceptions[index] {
 			findings = append(findings, Finding{Tool: entry.Tool, CommandID: "exceptions/manifest", Code: "unused-exception", Detail: entry.Identity()})
 		}

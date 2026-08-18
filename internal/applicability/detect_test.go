@@ -137,6 +137,9 @@ func TestDetectRepositoryShapes(t *testing.T) {
 			}
 			assertExpected(t, plan, test.expected, test.reasons)
 			assertUniqueSorted(t, plan.Expected)
+			if got, want := len(plan.Expected), commandsForProfile(test.consumer.Profile); got != want {
+				t.Fatalf("plan expected entries = %d, want complete profile catalog count %d", got, want)
+			}
 		})
 	}
 }
@@ -157,6 +160,19 @@ func TestDetectRecognizesShellAndDockerfileVariants(t *testing.T) {
 		"shellcheck/shellcheck/scripts": evidence.Applicable,
 		"hadolint/hadolint/dockerfiles": evidence.Applicable,
 	}, nil)
+}
+
+func TestDetectRecognizesDirectExecutableShellShebangs(t *testing.T) {
+	for _, shebang := range []string{"#!/bin/ksh\n", "#!/bin/zsh\n"} {
+		t.Run(strings.TrimSpace(shebang), func(t *testing.T) {
+			tracked := fstest.MapFS{"script": &fstest.MapFile{Data: []byte(shebang + "true\n"), Mode: 0o755}}
+			plan := mustDetect(t, tracked, validInput(config.ProfileRepositoryOnly))
+			assertExpected(t, plan, map[string]evidence.Applicability{
+				"shellcheck/shellcheck/scripts": evidence.Applicable,
+				"shfmt/shfmt/scripts":           evidence.Applicable,
+			}, nil)
+		})
+	}
 }
 
 func TestDetectIsDeterministicAcrossCatalogInsertionOrder(t *testing.T) {
@@ -241,6 +257,11 @@ func TestDetectRejectsInvalidOrContradictoryInput(t *testing.T) {
 			value.Consumer.Modules = []config.Module{"."}
 			return value
 		}(), want: "omits tracked module"},
+		{name: "exceptions manifest not tracked", tracked: fstest.MapFS{"README.md": &fstest.MapFile{}}, input: func() Input {
+			value := validInput(config.ProfileRepositoryOnly)
+			value.Consumer.Exceptions = ".github/github-ci-exceptions.yml"
+			return value
+		}(), want: "exceptions manifest"},
 	}
 
 	for _, test := range tests {
@@ -319,4 +340,14 @@ func assertUniqueSorted(t *testing.T, expected []evidence.Expected) {
 		seen[identity] = struct{}{}
 		previous = identity
 	}
+}
+
+func commandsForProfile(profile config.Profile) int {
+	count := 0
+	for _, entry := range DefaultCatalog() {
+		if slices.Contains(entry.Profiles, profile) {
+			count++
+		}
+	}
+	return count
 }

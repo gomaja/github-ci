@@ -61,6 +61,11 @@ func Detect(tracked fs.FS, input Input) (evidence.Plan, error) {
 	if err != nil {
 		return evidence.Plan{}, err
 	}
+	if input.Consumer.Exceptions != "" && !slices.ContainsFunc(files, func(file trackedFile) bool {
+		return file.path == input.Consumer.Exceptions
+	}) {
+		return evidence.Plan{}, fmt.Errorf("configured exceptions manifest %q is not tracked", input.Consumer.Exceptions)
+	}
 	shape := inspect(files, input.Consumer.Generated)
 	if err := validateModules(input.Consumer, shape.modules); err != nil {
 		return evidence.Plan{}, err
@@ -265,6 +270,8 @@ func isShell(file trackedFile, extension string) bool {
 	line, _, _ := bytes.Cut(file.data, []byte("\n"))
 	return bytes.HasPrefix(line, []byte("#!/bin/sh")) ||
 		bytes.HasPrefix(line, []byte("#!/bin/bash")) ||
+		bytes.HasPrefix(line, []byte("#!/bin/zsh")) ||
+		bytes.HasPrefix(line, []byte("#!/bin/ksh")) ||
 		bytes.HasPrefix(line, []byte("#!/usr/bin/env sh")) ||
 		bytes.HasPrefix(line, []byte("#!/usr/bin/env bash")) ||
 		bytes.HasPrefix(line, []byte("#!/usr/bin/env zsh")) ||

@@ -58,12 +58,26 @@ func (entry Entry) Identity() string {
 	return entry.Tool + "/" + entry.Rule + "/" + entry.Fingerprint + "/" + entry.Scope
 }
 
-// Set contains only semantically valid, unique exceptions.
-type Set struct{ Entries []Entry }
+// FingerprintIdentity identifies a finding independently of its claimed scope.
+func (entry Entry) FingerprintIdentity() string {
+	return entry.Tool + "/" + entry.Rule + "/" + entry.Fingerprint
+}
+
+// Set contains only loader-validated, unique exceptions.
+type Set struct{ entries []Entry }
+
+// Entries returns an independent copy of the validated exceptions.
+func (set Set) Entries() []Entry {
+	entries := slices.Clone(set.entries)
+	for index := range entries {
+		entries[index].VerificationTests = slices.Clone(entries[index].VerificationTests)
+	}
+	return entries
+}
 
 // FindExact returns the matching entry index, or -1 when no entry matches.
 func (set Set) FindExact(tool, rule, fingerprint, scope string) int {
-	return slices.IndexFunc(set.Entries, func(entry Entry) bool {
+	return slices.IndexFunc(set.entries, func(entry Entry) bool {
 		return entry.Tool == tool && entry.Rule == rule && entry.Fingerprint == fingerprint && entry.Scope == scope
 	})
 }
@@ -159,8 +173,10 @@ func LoadDetailed(reader io.Reader, now time.Time) (Set, []Issue, error) {
 	}
 
 	counts := make(map[string]int, len(candidates))
+	fingerprintCounts := make(map[string]int, len(candidates))
 	for _, candidate := range candidates {
 		counts[candidate.entry.Identity()]++
+		fingerprintCounts[candidate.entry.FingerprintIdentity()]++
 	}
 	entries := make([]Entry, 0, len(candidates))
 	for _, candidate := range candidates {
@@ -168,11 +184,15 @@ func LoadDetailed(reader io.Reader, now time.Time) (Set, []Issue, error) {
 			issues = append(issues, Issue{Index: candidate.index, Code: "duplicate-exception", Detail: candidate.entry.Identity()})
 			continue
 		}
+		if fingerprintCounts[candidate.entry.FingerprintIdentity()] > 1 {
+			issues = append(issues, Issue{Index: candidate.index, Code: "duplicate-fingerprint", Detail: candidate.entry.FingerprintIdentity()})
+			continue
+		}
 		entries = append(entries, candidate.entry)
 	}
 	slices.SortFunc(entries, func(left, right Entry) int { return strings.Compare(left.Identity(), right.Identity()) })
 	sortIssues(issues)
-	return Set{Entries: entries}, issues, nil
+	return Set{entries: entries}, issues, nil
 }
 
 // Load rejects both fatal syntax errors and semantic issues.

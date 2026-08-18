@@ -16,10 +16,10 @@ func TestLoadDetailedAcceptsReviewedExceptionThroughExpiryDate(t *testing.T) {
 	if len(issues) != 0 {
 		t.Fatalf("LoadDetailed() issues = %#v", issues)
 	}
-	if len(set.Entries) != 1 {
-		t.Fatalf("LoadDetailed() entries = %d, want 1", len(set.Entries))
+	if len(set.Entries()) != 1 {
+		t.Fatalf("LoadDetailed() entries = %d, want 1", len(set.Entries()))
 	}
-	entry := set.Entries[0]
+	entry := set.Entries()[0]
 	if entry.Identity() != "staticcheck/SA1000/sha256:0123456789abcdef/internal/parser.go" {
 		t.Fatalf("Identity() = %q", entry.Identity())
 	}
@@ -60,8 +60,8 @@ func TestLoadDetailedReportsSemanticIssuesDeterministically(t *testing.T) {
 			if err != nil {
 				t.Fatalf("LoadDetailed() fatal error = %v", err)
 			}
-			if len(set.Entries) != 0 {
-				t.Fatalf("LoadDetailed() retained invalid entries = %#v", set.Entries)
+			if len(set.Entries()) != 0 {
+				t.Fatalf("LoadDetailed() retained invalid entries = %#v", set.Entries())
 			}
 			if !hasIssue(issues, test.code) {
 				t.Fatalf("LoadDetailed() issues = %#v, want code %q", issues, test.code)
@@ -75,7 +75,7 @@ func TestLoadDetailedAcceptsEquivalentMutantRationale(t *testing.T) {
 		"Parser input is validated before this unreachable branch.",
 		"Equivalent mutant because both branches return the same validated sentinel value.", 1)
 	set, issues, err := LoadDetailed(strings.NewReader(document), testNow)
-	if err != nil || len(issues) != 0 || len(set.Entries) != 1 {
+	if err != nil || len(issues) != 0 || len(set.Entries()) != 1 {
 		t.Fatalf("LoadDetailed() set = %#v, issues = %#v, error = %v", set, issues, err)
 	}
 }
@@ -87,14 +87,27 @@ func TestLoadDetailedRejectsDuplicateIdentities(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadDetailed() error = %v", err)
 	}
-	if len(set.Entries) != 0 {
-		t.Fatalf("LoadDetailed() retained duplicate entries = %#v", set.Entries)
+	if len(set.Entries()) != 0 {
+		t.Fatalf("LoadDetailed() retained duplicate entries = %#v", set.Entries())
 	}
 	if !hasIssue(issues, "duplicate-exception") {
 		t.Fatalf("LoadDetailed() issues = %#v", issues)
 	}
 	if len(issues) != 2 || issues[0].Index != 0 || issues[1].Index != 1 {
 		t.Fatalf("LoadDetailed() duplicate issues = %#v, want both entry indexes", issues)
+	}
+}
+
+func TestLoadDetailedRejectsDuplicateFingerprintAcrossScopes(t *testing.T) {
+	entry := strings.TrimSuffix(strings.SplitN(validDocument(), "exceptions:\n", 2)[1], "\n")
+	otherScope := strings.Replace(entry, "scope: internal/parser.go", "scope: internal/other.go", 1)
+	document := "schema-version: 1\nexceptions:\n" + entry + "\n" + otherScope + "\n"
+	set, issues, err := LoadDetailed(strings.NewReader(document), testNow)
+	if err != nil {
+		t.Fatalf("LoadDetailed() error = %v", err)
+	}
+	if len(set.Entries()) != 0 || !hasIssue(issues, "duplicate-fingerprint") {
+		t.Fatalf("LoadDetailed() set = %#v, issues = %#v", set, issues)
 	}
 }
 
@@ -131,7 +144,7 @@ func TestLoadDetailedReportsSchemaIssue(t *testing.T) {
 
 func TestLoadDetailedAcceptsEmptySet(t *testing.T) {
 	set, issues, err := LoadDetailed(strings.NewReader("schema-version: 1\nexceptions: []\n"), testNow)
-	if err != nil || len(issues) != 0 || len(set.Entries) != 0 {
+	if err != nil || len(issues) != 0 || len(set.Entries()) != 0 {
 		t.Fatalf("LoadDetailed() set = %#v, issues = %#v, error = %v", set, issues, err)
 	}
 }
@@ -147,7 +160,7 @@ func TestSetFindExactUsesEveryIdentityField(t *testing.T) {
 	if err != nil || len(issues) != 0 {
 		t.Fatalf("LoadDetailed() issues = %#v, error = %v", issues, err)
 	}
-	entry := set.Entries[0]
+	entry := set.Entries()[0]
 	if index := set.FindExact(entry.Tool, entry.Rule, entry.Fingerprint, entry.Scope); index != 0 {
 		t.Fatalf("FindExact() = %d, want 0", index)
 	}
@@ -160,6 +173,20 @@ func TestSetFindExactUsesEveryIdentityField(t *testing.T) {
 		if index := set.FindExact(mismatch[0], mismatch[1], mismatch[2], mismatch[3]); index != -1 {
 			t.Fatalf("FindExact(%q) = %d, want -1", mismatch, index)
 		}
+	}
+}
+
+func TestSetEntriesReturnsDeepCopy(t *testing.T) {
+	set, issues, err := LoadDetailed(strings.NewReader(validDocument()), testNow)
+	if err != nil || len(issues) != 0 {
+		t.Fatalf("LoadDetailed() issues = %#v, error = %v", issues, err)
+	}
+	entries := set.Entries()
+	entries[0].Tool = "changed"
+	entries[0].VerificationTests[0] = "changed.go"
+	again := set.Entries()[0]
+	if again.Tool != "staticcheck" || again.VerificationTests[0] != "internal/parser_test.go" {
+		t.Fatalf("Entries() exposed internal state: %#v", again)
 	}
 }
 

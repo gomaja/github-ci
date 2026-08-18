@@ -2,9 +2,11 @@ package gate
 
 import (
 	"encoding/json"
+	"fmt"
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/gomaja/github-ci/internal/evidence"
 	"github.com/gomaja/github-ci/internal/exceptions"
@@ -88,7 +90,13 @@ func TestEvaluateFailsClosedTruthTable(t *testing.T) {
 			record.CommandID = "semgrep/source"
 			input.Records = append(input.Records, record)
 		}, code: "unexpected-record"},
-		{name: "unexpected context", mutate: func(input *Input) { input.Context["semgrep/semgrep/source"] = onlyContext(*input) }, code: "unexpected-context"},
+		{name: "unexpected context", mutate: func(input *Input) {
+			context := onlyContext(*input)
+			context.Tool = "semgrep"
+			context.CommandID = "semgrep/source"
+			input.Context = append(input.Context, context)
+		}, code: "unexpected-context"},
+		{name: "duplicate context", mutate: func(input *Input) { input.Context = append(input.Context, input.Context[0]) }, code: "duplicate-context"},
 		{name: "exception issue", mutate: func(input *Input) {
 			input.ExceptionIssues = []exceptions.Issue{{Index: 0, Code: "expired", Detail: "2026-08-01"}}
 		}, code: "exception-expired"},
@@ -135,22 +143,7 @@ func TestEvaluatePreservesExecutionFailureWhenRecordIsMissing(t *testing.T) {
 }
 
 func TestEvaluateAcceptsOnlyDetectorBackedNotApplicable(t *testing.T) {
-	input := validInput(t)
-	input.Plan.Expected[0].Applicability = evidence.NotApplicable
-	input.Plan.Expected[0].ReasonCode = "no-go-module"
-	digest, err := input.Plan.Digest()
-	if err != nil {
-		t.Fatalf("Digest() error = %v", err)
-	}
-	input.ObservedPlanSHA256 = digest
-	input.Records[0].Applicability = evidence.NotApplicable
-	input.Records[0].Outcome = evidence.OutcomeNotApplicable
-	input.Records[0].ReportSHA256 = ""
-	context := onlyContext(input)
-	context.PlanSHA256 = digest
-	context.Execution = ExecutionSkipped
-	context.Report = nil
-	setOnlyContext(&input, context)
+	input := validNotApplicableInput(t)
 	result := Evaluate(input)
 	if !result.Pass {
 		t.Fatalf("Evaluate() = %#v", result)
@@ -167,15 +160,28 @@ func TestEvaluateAcceptsOnlyDetectorBackedNotApplicable(t *testing.T) {
 	}
 }
 
+func TestEvaluateRejectsReasonFromDifferentCommand(t *testing.T) {
+	input := validNotApplicableInput(t)
+	input.Plan.Expected[0].ReasonCode = "no-dockerfiles"
+	digest, err := input.Plan.Digest()
+	if err != nil {
+		t.Fatalf("Digest() error = %v", err)
+	}
+	input.ObservedPlanSHA256 = digest
+	context := onlyContext(input)
+	context.PlanSHA256 = digest
+	setOnlyContext(&input, context)
+	result := Evaluate(input)
+	if result.Pass || !hasFinding(result, "invalid-na-reason") {
+		t.Fatalf("Evaluate() = %#v", result)
+	}
+}
+
 func TestEvaluateConsumesValidExceptionOneToOne(t *testing.T) {
 	input := validInput(t)
 	addOpenFinding(&input)
 	observation := onlyContext(input).Observations[0]
-	input.Exceptions = exceptions.Set{Entries: []exceptions.Entry{{
-		Tool: observation.Tool, Rule: observation.Rule, Fingerprint: observation.Fingerprint,
-		Scope: observation.Scope, Rationale: "Validated false positive from parser invariant.",
-		Owner: "gomaja", Approval: "gomaja/github-ci#12",
-	}}}
+	input.Exceptions = validExceptionSet(t, observation)
 	result := Evaluate(input)
 	if !result.Pass || len(result.Findings) != 0 {
 		t.Fatalf("Evaluate() = %#v", result)
@@ -218,12 +224,10 @@ func TestEvaluateRejectsObservationAndExceptionMismatches(t *testing.T) {
 			setOnlyContext(input, context)
 		}, code: "invalid-observation"},
 		{name: "unused exception", mutate: func(input *Input) {
-			input.Exceptions = exceptions.Set{Entries: []exceptions.Entry{{Tool: "staticcheck", Rule: "SA1000", Fingerprint: "sha256:unused", Scope: "internal/parser.go"}}}
+			observation := validObservation(false)
+			observation.Fingerprint = "sha256:unused-fingerprint"
+			input.Exceptions = validExceptionSet(t, observation)
 		}, code: "unused-exception"},
-		{name: "duplicate exception", mutate: func(input *Input) {
-			entry := exceptions.Entry{Tool: "staticcheck", Rule: "SA1000", Fingerprint: "sha256:duplicate", Scope: "internal/parser.go"}
-			input.Exceptions = exceptions.Set{Entries: []exceptions.Entry{entry, entry}}
-		}, code: "duplicate-exception"},
 		{name: "exception reused", mutate: func(input *Input) {
 			input.Records[0].Outcome = evidence.OutcomeFail
 			input.Records[0].FindingCount = 2
@@ -231,7 +235,7 @@ func TestEvaluateRejectsObservationAndExceptionMismatches(t *testing.T) {
 			observation := validObservation(false)
 			context.Observations = []Observation{observation, observation}
 			setOnlyContext(input, context)
-			input.Exceptions = exceptions.Set{Entries: []exceptions.Entry{{Tool: observation.Tool, Rule: observation.Rule, Fingerprint: observation.Fingerprint, Scope: observation.Scope}}}
+			input.Exceptions = validExceptionSet(t, observation)
 		}, code: "exception-reused"},
 	}
 
@@ -298,10 +302,10 @@ func validInput(t testing.TB) Input {
 		PolicyVersion: testPolicy, SubjectSHA: testSubject, Applicability: evidence.Applicable,
 		CommandID: "staticcheck/default", ReportSHA256: testReport, Outcome: evidence.OutcomePass,
 	}
-	identity := plan.Expected[0].Identity()
 	return Input{
 		Plan: plan, Records: []evidence.Record{record},
-		Context: map[string]RecordContext{identity: {
+		Context: []RecordContext{{
+			Tool: "staticcheck", CommandID: "staticcheck/default",
 			SubjectSHA: testSubject, PlanSHA256: planDigest, TreeSHA256: testTree,
 			DetectorVersion: plan.DetectorVersion, PolicySHA256: testPolicy,
 			Execution: ExecutionCompleted,
@@ -310,6 +314,27 @@ func validInput(t testing.TB) Input {
 		ObservedSubjectSHA: testSubject, ObservedTreeSHA256: testTree,
 		ObservedPolicySHA256: testPolicy, ObservedPlanSHA256: planDigest,
 	}
+}
+
+func validNotApplicableInput(t testing.TB) Input {
+	t.Helper()
+	input := validInput(t)
+	input.Plan.Expected[0].Applicability = evidence.NotApplicable
+	input.Plan.Expected[0].ReasonCode = "no-go-module"
+	digest, err := input.Plan.Digest()
+	if err != nil {
+		t.Fatalf("Digest() error = %v", err)
+	}
+	input.ObservedPlanSHA256 = digest
+	input.Records[0].Applicability = evidence.NotApplicable
+	input.Records[0].Outcome = evidence.OutcomeNotApplicable
+	input.Records[0].ReportSHA256 = ""
+	context := onlyContext(input)
+	context.PlanSHA256 = digest
+	context.Execution = ExecutionSkipped
+	context.Report = nil
+	setOnlyContext(&input, context)
+	return input
 }
 
 func addOpenFinding(input *Input) {
@@ -341,17 +366,37 @@ func setExecution(state ExecutionState) func(*Input) {
 }
 
 func onlyContext(input Input) RecordContext {
-	for _, context := range input.Context {
-		return context
+	if len(input.Context) != 0 {
+		return input.Context[0]
 	}
 	return RecordContext{}
 }
 
 func setOnlyContext(input *Input, context RecordContext) {
-	identity := input.Plan.Expected[0].Identity()
-	input.Context = map[string]RecordContext{identity: context}
+	input.Context = []RecordContext{context}
 }
 
 func hasFinding(result Result, code string) bool {
 	return slices.ContainsFunc(result.Findings, func(finding Finding) bool { return finding.Code == code })
+}
+
+func validExceptionSet(t testing.TB, observation Observation) exceptions.Set {
+	t.Helper()
+	document := fmt.Sprintf(`schema-version: 1
+exceptions:
+  - tool: %s
+    rule: %s
+    fingerprint: %s
+    scope: %s
+    rationale: Native report evidence proves this exact result is a false positive.
+    owner: gomaja
+    approval: gomaja/github-ci#12
+    created: 2026-08-01
+    expires: 2026-08-31
+`, observation.Tool, observation.Rule, observation.Fingerprint, observation.Scope)
+	set, issues, err := exceptions.LoadDetailed(strings.NewReader(document), time.Date(2026, 8, 18, 0, 0, 0, 0, time.UTC))
+	if err != nil || len(issues) != 0 {
+		t.Fatalf("LoadDetailed() issues = %#v, error = %v", issues, err)
+	}
+	return set
 }

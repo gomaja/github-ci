@@ -144,6 +144,16 @@ func (catalog Catalog) HasTool(tool string) bool {
 // IsKnownTool reports whether tool is present in the default policy catalog.
 func IsKnownTool(tool string) bool { return defaultCatalog.HasTool(tool) }
 
+// ReasonFor returns the detector-owned N/A reason for one exact command.
+func ReasonFor(tool, commandID string) (string, bool) {
+	for _, entry := range defaultCatalog {
+		if entry.Tool == tool && entry.CommandID == commandID && entry.Capability != CapabilityAlways {
+			return entry.ReasonCode, true
+		}
+	}
+	return "", false
+}
+
 // IsReasonCode reports whether code is a detector-owned not-applicable reason.
 func IsReasonCode(code string) bool {
 	switch code {

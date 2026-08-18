@@ -1,6 +1,7 @@
 package applicability
 
 import (
+	"slices"
 	"testing"
 
 	"github.com/gomaja/github-ci/internal/config"
@@ -22,6 +23,43 @@ func TestDefaultCatalogIsValidAndComplete(t *testing.T) {
 		if !catalog.HasTool(tool) {
 			t.Errorf("DefaultCatalog() missing tool %q", tool)
 		}
+	}
+
+	wantIdentities := []string{
+		"actionlint/actionlint/workflows",
+		"checkov/checkov/infrastructure",
+		"codeql/codeql/actions",
+		"codeql/codeql/go",
+		"dependency-review/dependency-review/changes",
+		"gitleaks/gitleaks/content",
+		"go/go/build",
+		"go/go/module-integrity",
+		"go/go/race",
+		"go/go/test",
+		"go/go/vet",
+		"gofmt/gofmt/tracked-go",
+		"goimports/goimports/tracked-go",
+		"golangci-lint/golangci-lint/default",
+		"gopls/gopls/tracked-go",
+		"govulncheck/govulncheck/modules",
+		"hadolint/hadolint/dockerfiles",
+		"markdownlint/markdownlint/documents",
+		"osv-scanner/osv-scanner/dependencies",
+		"semgrep/semgrep/source",
+		"shellcheck/shellcheck/scripts",
+		"shfmt/shfmt/scripts",
+		"staticcheck/staticcheck/default",
+		"trivy/trivy/filesystem",
+		"yamllint/yamllint/documents",
+		"zizmor/zizmor/workflows",
+	}
+	gotIdentities := make([]string, 0, len(catalog))
+	for _, entry := range catalog {
+		gotIdentities = append(gotIdentities, entry.Tool+"/"+entry.CommandID)
+	}
+	slices.Sort(gotIdentities)
+	if !slices.Equal(gotIdentities, wantIdentities) {
+		t.Fatalf("DefaultCatalog() identities = %#v, want %#v", gotIdentities, wantIdentities)
 	}
 }
 
@@ -71,5 +109,14 @@ func TestKnownReasonCodesAndToolsComeFromCatalog(t *testing.T) {
 	}
 	if IsKnownTool("unknown-scanner") {
 		t.Fatal("IsKnownTool(unknown-scanner) = true")
+	}
+}
+
+func TestReasonForBindsReasonToCommand(t *testing.T) {
+	if got, ok := ReasonFor("staticcheck", "staticcheck/default"); !ok || got != ReasonNoGoModule {
+		t.Fatalf("ReasonFor(staticcheck) = %q, %t", got, ok)
+	}
+	if got, ok := ReasonFor("staticcheck", "hadolint/dockerfiles"); ok || got != "" {
+		t.Fatalf("ReasonFor(mismatched command) = %q, %t", got, ok)
 	}
 }
