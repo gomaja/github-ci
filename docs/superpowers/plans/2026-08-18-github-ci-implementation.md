@@ -243,6 +243,10 @@ git commit -m "feat: add fail-closed evidence parsing"
 
 **Files:**
 
+- Modify: `internal/evidence/model.go`
+- Modify: `internal/evidence/model_test.go`
+- Create: `internal/applicability/catalog.go`
+- Create: `internal/applicability/catalog_test.go`
 - Create: `internal/applicability/detect.go`
 - Create: `internal/applicability/detect_test.go`
 - Create: `internal/exceptions/exceptions.go`
@@ -256,10 +260,23 @@ git commit -m "feat: add fail-closed evidence parsing"
 
 - Consumes `config.Consumer`, `evidence.Plan`, and `evidence.Record`.
 - Produces
-  `applicability.Detect(fs.FS, config.Consumer, string) (evidence.Plan, error)`.
-- Produces `exceptions.Load(io.Reader, time.Time) (Set, error)`.
-- Produces
-  `gate.Evaluate(evidence.Plan, []evidence.Record, exceptions.Set) gate.Result`.
+  `applicability.Detect(fs.FS, applicability.Input) (evidence.Plan, error)`.
+- `applicability.Input` carries the validated consumer, subject SHA, policy
+  digest, and one typed catalog of tool, parser, profile, and reason-code
+  identities. Task 4 acquisition locks extend this catalog and are drift-tested
+  against it instead of creating a second applicability inventory.
+- Extends `evidence.Plan` with policy identity and deterministic validation and
+  digest functions. Expected entries carry the parser contract required by the
+  gate.
+- Produces `exceptions.LoadDetailed(io.Reader, time.Time) (LoadResult, error)`;
+  syntax failures are fatal while sorted semantic issues remain available to
+  the aggregate gate. A strict `Load` convenience wrapper may reject any issue.
+- Produces `gate.Evaluate(gate.Input) gate.Result`.
+- `gate.Input` carries the plan, normalized records, independently observed
+  subject/tree identities, context keyed by every expected identity, valid
+  exceptions, and exception issues. Context binds each producer to the plan,
+  tree, detector, execution conclusion, observed report hash/parser, and typed
+  finding or suppression observations.
 
 - [ ] **Step 1: Write repository-shape detection tests**
 
@@ -285,7 +302,9 @@ Expected: FAIL because `Detect` does not exist.
 
 Walk tracked paths supplied by `git ls-files -z`; never infer from untracked
 files. Sort all paths and expected records. Each `N/A` entry records detector
-version, tree hash, and one exact reason code.
+version, tree hash, policy digest, parser identity, and one exact reason code.
+Compute a deterministic plan digest and validate all plan invariants before any
+job consumes it.
 
 - [ ] **Step 4: Write exception lifecycle tests**
 
@@ -297,14 +316,17 @@ matching entry.
 - [ ] **Step 5: Implement strict exception matching**
 
 Match tool, rule, fingerprint, and exact repository-relative scope. Gate output
-lists every unused, expired, or unmatched exception as a finding.
+lists every unused, expired, invalid, duplicate, or unmatched exception as a
+finding. Aggregate counts without stable observations cannot consume an
+exception.
 
 - [ ] **Step 6: Write aggregate gate truth-table tests**
 
 Cover all pass, one finding, non-zero exit, missing record, duplicate record,
 malformed record, cancellation, timeout, unexpected skip, valid `N/A`, invalid
 `N/A`, report hash mismatch, policy mismatch, subject mismatch, and unused
-exception.
+exception. Supply independent observed report and tree hashes in the typed gate
+input; never compare one untrusted claim with itself.
 
 - [ ] **Step 7: Implement and mutation-test the gate**
 
@@ -315,13 +337,21 @@ type Result struct {
 }
 ```
 
-Sort findings by tool, command, and code. Delete the missing-record branch and
-confirm its dedicated test fails, then restore it.
+Define GitHub-neutral execution states for completed, failed, cancelled,
+timed-out, and skipped producers. Only detector-backed `N/A` is an expected
+skip. Sort findings by tool, command, code, and stable detail. Delete the
+missing-record branch and confirm its dedicated test fails, then restore it.
+
+Typed observations carry tool, command, rule, fingerprint, exact scope,
+suppression state, and source (`analyzer`, `inline`, or `ignore-file`). Match
+them one-to-one to exceptions. Missing identities, nonzero count mismatches,
+unmatched suppressions, and unused exceptions are findings.
 
 - [ ] **Step 8: Run full Go validation and commit**
 
 ```bash
-git add internal/applicability internal/exceptions internal/gate testdata
+git add internal/evidence internal/applicability internal/exceptions
+git add internal/gate testdata
 git commit -m "feat: add applicability and aggregate gate"
 ```
 
@@ -347,6 +377,8 @@ git commit -m "feat: add applicability and aggregate gate"
 **Interfaces:**
 
 - Consumes all Task 1 through Task 3 packages.
+- Builds the tracked-only file system, computes independent current tree and
+  report digests, and assembles the complete typed `gate.Input`.
 - Produces CLI subcommands `preflight`, `parse`, `record`, `gate`, `generate`,
   and `verify-generated`.
 - Produces deterministic files under `.github/workflows/` and
@@ -425,6 +457,9 @@ git commit -m "feat: add ci policy CLI and generators"
 **Interfaces:**
 
 - Consumes `github-ci preflight`, `record`, and `gate` from Task 4.
+- Maps every `needs` job conclusion into the GitHub-neutral execution states,
+  downloads native artifacts under `if: always()`, and never manufactures
+  completed evidence for a cancelled, timed-out, or skipped producer.
 - Produces reusable workflow inputs `profile`, `config-path`, `go-version`, and
   `previous-go-version`.
 - Produces final job id and name `gate` and supports the literal
@@ -492,6 +527,9 @@ git commit -m "feat: add reusable Go correctness workflow"
 **Interfaces:**
 
 - Consumes report parsers and immutable tool locks.
+- Extends native adapters to emit stable typed finding and suppression
+  observations for one-to-one exception matching. Aggregate counts without
+  those identities remain blocking.
 - Produces evidence ids `codeql`, `dependency-review`, `gitleaks`, `osv`,
   `trivy`, `syft`, `grype`, `semgrep`, `actionlint`, `zizmor`, `scorecard`,
   `checkov`, `hadolint`, `shellcheck`, `shfmt`, `yamllint`, `markdownlint`,
