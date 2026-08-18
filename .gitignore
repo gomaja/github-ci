@@ -1,4 +1,6 @@
 /.cache/
+/.superpowers/
+/.worktrees/
 /bin/
 /coverage/
 /dist/
