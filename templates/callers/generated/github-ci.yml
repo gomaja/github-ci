@@ -1,0 +1,18 @@
+# Code generated from templates/callers/github-ci.yml.tmpl; replace the zero SHA with an approved release commit.
+name: github-ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  merge_group:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  assurance:
+    uses: gomaja/github-ci/.github/workflows/go.yml@0000000000000000000000000000000000000000
+    with:
+      profile: go-strict

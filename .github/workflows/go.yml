@@ -1,0 +1,65 @@
+# Code generated from templates/workflows/go.yml.tmpl; DO NOT EDIT.
+name: reusable-go
+
+on:
+  workflow_call:
+    inputs:
+      profile:
+        description: Fixed assurance profile.
+        required: false
+        default: go-strict
+        type: string
+      config-path:
+        description: Repository-relative consumer configuration.
+        required: false
+        default: .github/github-ci.yaml
+        type: string
+      go-version:
+        description: Current supported Go version.
+        required: false
+        default: "1.26.6"
+        type: string
+      previous-go-version:
+        description: Previous supported Go version.
+        required: false
+        default: "1.25.13"
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  policy:
+    name: policy
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c
+        with:
+          egress-policy: audit
+      - name: Check out consumer
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
+        with:
+          go-version: ${{ inputs.go-version }}
+          cache: false
+      - name: Validate toolchain
+        shell: bash
+        run: go version
+
+  gate:
+    name: gate
+    if: ${{ always() }}
+    needs: [policy]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Require policy job
+        env:
+          RESULT: ${{ needs.policy.result }}
+        shell: bash
+        run: test "$RESULT" = success

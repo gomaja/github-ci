@@ -1,0 +1,14 @@
+# Code generated from templates/callers/github-ci-deep.yml.tmpl; replace the zero SHA with an approved release commit.
+name: github-ci-deep
+
+on:
+  schedule:
+    - cron: "17 3 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  assurance:
+    uses: gomaja/github-ci/.github/workflows/deep.yml@0000000000000000000000000000000000000000

@@ -13,7 +13,7 @@ const MaxInputBytes = 64 << 20
 
 // Result is a successfully parsed native report summary.
 type Result struct {
-	Findings int
+	Findings int `json:"findings"`
 }
 
 // Count parses one bounded native report and counts all findings.
@@ -37,17 +37,53 @@ func Count(tool string, reader io.Reader) (Result, error) {
 }
 
 var parsers = map[string]func([]byte) (int, error){
-	"sarif":         countSARIF,
-	"golangci-lint": countGolangCILint,
-	"govulncheck":   countGovulncheck,
-	"staticcheck":   countStaticcheck,
-	"shellcheck":    countJSONArray,
-	"gitleaks":      countJSONArray,
-	"osv-scanner":   countOSVScanner,
-	"trivy":         countTrivy,
-	"grype":         countGrype,
-	"semgrep":       countSemgrep,
-	"checkov":       countCheckov,
+	"command-status": countCommandStatus,
+	"path-list":      countPathList,
+	"junit":          countJUnit,
+	"markdownlint":   countJSONArray,
+	"yamllint":       countYamllint,
+	"sarif":          countSARIF,
+	"golangci-lint":  countGolangCILint,
+	"govulncheck":    countGovulncheck,
+	"staticcheck":    countStaticcheck,
+	"shellcheck":     countJSONArray,
+	"gitleaks":       countJSONArray,
+	"osv-scanner":    countOSVScanner,
+	"trivy":          countTrivy,
+	"grype":          countGrype,
+	"semgrep":        countSemgrep,
+	"checkov":        countCheckov,
+}
+
+var parserTools = map[string]string{
+	"sarif/v1":              "sarif",
+	"command-status/v1":     "command-status",
+	"path-list/v1":          "path-list",
+	"gotestsum-junit/v1":    "junit",
+	"markdownlint-json/v1":  "markdownlint",
+	"yamllint-parsable/v1":  "yamllint",
+	"golangci-lint-json/v1": "golangci-lint",
+	"govulncheck-json/v1":   "govulncheck",
+	"staticcheck-jsonl/v1":  "staticcheck",
+	"shellcheck-json1/v1":   "shellcheck",
+	"gitleaks-json/v1":      "gitleaks",
+	"osv-json/v1":           "osv-scanner",
+	"trivy-json/v1":         "trivy",
+	"grype-json/v1":         "grype",
+	"semgrep-json/v1":       "semgrep",
+	"checkov-json/v1":       "checkov",
+}
+
+// IsSupported reports whether tool has a native report parser.
+func IsSupported(tool string) bool {
+	_, exists := parsers[tool]
+	return exists
+}
+
+// ParserTool returns the native parser bound to a catalog parser identity.
+func ParserTool(parserVersion string) (string, bool) {
+	tool, exists := parserTools[parserVersion]
+	return tool, exists
 }
 
 func readBounded(reader io.Reader) ([]byte, error) {

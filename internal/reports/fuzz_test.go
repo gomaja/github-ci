@@ -27,6 +27,20 @@ func FuzzCountGrype(f *testing.F)   { fuzzReport(f, "grype", "grype.json", "gryp
 func FuzzCountSemgrep(f *testing.F) { fuzzReport(f, "semgrep", "semgrep.json", "semgrep.json") }
 func FuzzCountCheckov(f *testing.F) { fuzzReport(f, "checkov", "checkov.json", "checkov.json") }
 
+func FuzzCountPolicyRunner(f *testing.F) {
+	f.Add("command-status", []byte(`{"schema_version":"1","execution_successful":true}`))
+	f.Add("path-list", []byte(`{"schema_version":"1","paths":[]}`))
+	f.Add("junit", []byte(`<testsuites tests="0" failures="0" errors="0"></testsuites>`))
+	f.Add("markdownlint", []byte(`[]`))
+	f.Add("yamllint", []byte("{\"schema_version\":\"1\",\"execution_successful\":true}\n"))
+	f.Fuzz(func(t *testing.T, tool string, data []byte) {
+		result, err := Count(tool, bytes.NewReader(data))
+		if err == nil && result.Findings < 0 {
+			t.Fatalf("Count() findings = %d", result.Findings)
+		}
+	})
+}
+
 func fuzzReport(f *testing.F, tool, clean, findings string) {
 	f.Helper()
 	f.Add(reportFixture(f, "clean", clean))

@@ -1,0 +1,242 @@
+schema-version: 1
+go-versions:
+  current: 1.26.6
+  previous: 1.25.13
+actions:
+  - id: attest-build-provenance
+    repository: actions/attest-build-provenance
+    release: v4.2.2
+    sha: 4d101475d8b20a2381f78447822ac1eab6504dd8
+  - id: checkout
+    repository: actions/checkout
+    release: v7.0.1
+    sha: 3d3c42e5aac5ba805825da76410c181273ba90b1
+  - id: codeql
+    repository: github/codeql-action
+    release: v4.37.7
+    sha: ff2f1c621b7f889edc0d3c761ac2e6a3f8cdb0dd
+  - id: dependency-review
+    repository: actions/dependency-review-action
+    release: v5.0.0
+    sha: a1d282b36b6f3519aa1f3fc636f609c47dddb294
+  - id: download-artifact
+    repository: actions/download-artifact
+    release: v8.0.1
+    sha: 3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+  - id: harden-runner
+    repository: step-security/harden-runner
+    release: v2.21.0
+    sha: 05e31511f85b41b11d1cf0ef85d0992719546e2c
+  - id: scorecard
+    repository: ossf/scorecard-action
+    release: v2.4.4
+    sha: 2d1146689b8cda280b9bc96326124645441f03bc
+  - id: setup-go
+    repository: actions/setup-go
+    release: v7.0.0
+    sha: b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
+  - id: upload-artifact
+    repository: actions/upload-artifact
+    release: v7.0.1
+    sha: 043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+tools:
+  - id: actionlint
+    version: 1.7.12
+    source: https://github.com/rhysd/actionlint/releases/download/v1.7.12/actionlint_1.7.12_linux_amd64.tar.gz
+    checksum: sha256:8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8
+    parser: sarif/v1
+    profiles: [go-strict, go-library, repository-only]
+    acquisition: release-asset
+    version-command: actionlint -version
+  - id: checkov
+    version: 3.3.11
+    source: https://files.pythonhosted.org/packages/source/c/checkov/checkov-3.3.11.tar.gz
+    checksum: sha256:1c1578a97f581791aab18c5fc9a3e17aa8e9c79f2adac8096858ce5e5df63558
+    parser: checkov-json/v1
+    profiles: [go-strict, go-library, repository-only]
+    acquisition: pypi-sdist
+    version-command: checkov --version
+  - id: gitleaks
+    version: 8.30.1
+    source: https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_x64.tar.gz
+    checksum: sha256:551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
+    parser: gitleaks-json/v1
+    profiles: [go-strict, go-library, repository-only]
+    acquisition: release-asset
+    version-command: gitleaks version
+  - id: go-current
+    version: 1.26.6
+    source: https://go.dev/dl/go1.26.6.linux-amd64.tar.gz
+    checksum: sha256:708effb774be8237570d0add163225abbdfaf4fca28b2611df167beba4feef89
+    parser: command-status/v1
+    profiles: [go-strict, go-library, release]
+    acquisition: go-toolchain
+    version-command: go version
+  - id: go-licenses
+    version: 2.0.1
+    source: https://proxy.golang.org/github.com/google/go-licenses/v2/@v/v2.0.1.zip
+    checksum: h1:ti+9bi5o7DKbeeg5eBb/uZTgsaPNoJaLCh93cRcXsW8=
+    parser: license-inventory/v1
+    profiles: [go-strict, go-library, deep, release]
+    acquisition: go-module
+    version-command: go version -m "$(command -v go-licenses)"
+  - id: go-previous
+    version: 1.25.13
+    source: https://go.dev/dl/go1.25.13.linux-amd64.tar.gz
+    checksum: sha256:39042a078ea9ceebe3ecda4a7188f0f5b96e14a071d27923ba7f40b456e85ae3
+    parser: command-status/v1
+    profiles: [go-strict, go-library]
+    acquisition: go-toolchain
+    version-command: go version
+  - id: gocover-cobertura
+    version: 1.5.0
+    source: https://proxy.golang.org/github.com/boumenot/gocover-cobertura/@v/v1.5.0.zip
+    checksum: h1:S2eXZ5snlTl+IGLXiM0litlpy9gf8AU8NagMaxX3nZM=
+    parser: cobertura/v1
+    profiles: [go-strict, go-library]
+    acquisition: go-module
+    version-command: go version -m "$(command -v gocover-cobertura)"
+  - id: goimports
+    version: 0.49.0
+    source: https://proxy.golang.org/golang.org/x/tools/@v/v0.49.0.zip
+    checksum: h1:3NI7VXzL9+1WZD52Dx2ttoPwD5DWrFGpl9mFZDlmisI=
+    parser: path-list/v1
+    profiles: [go-strict, go-library]
+    acquisition: go-module
+    version-command: go version -m "$(command -v goimports)"
+  - id: golangci-lint
+    version: 2.12.2
+    source: https://proxy.golang.org/github.com/golangci/golangci-lint/v2/@v/v2.12.2.zip
+    checksum: h1:7+d1uY0bq1MU2UV3R5pW5Q7QWdcoq4naMRXM+gsJKrs=
+    parser: golangci-lint-json/v1
+    profiles: [go-strict, go-library]
+    acquisition: go-module
+    version-command: golangci-lint version
+  - id: gopls
+    version: 0.23.0
+    source: https://proxy.golang.org/golang.org/x/tools/gopls/@v/v0.23.0.zip
+    checksum: h1:Dn6mf9WXu9iLnTftDDMb9wV0c6Se7PjzEMqP0LEe08Y=
+    parser: command-status/v1
+    profiles: [go-strict, go-library]
+    acquisition: go-module
+    version-command: gopls version
+  - id: gotestsum
+    version: 1.13.0
+    source: https://proxy.golang.org/gotest.tools/gotestsum/@v/v1.13.0.zip
+    checksum: h1:+Lh454O9mu9AMG1APV4o0y7oDYKyik/3kBOiCqiEpRo=
+    parser: gotestsum-junit/v1
+    profiles: [go-strict, go-library]
+    acquisition: go-module
+    version-command: gotestsum --version
+  - id: govulncheck
+    version: 1.7.0
+    source: https://proxy.golang.org/golang.org/x/vuln/@v/v1.7.0.zip
+    checksum: h1:4MQBuhmXbz2uepNJrf3v+aaZLGDqw1JluwYboegA1qg=
+    parser: govulncheck-json/v1
+    profiles: [go-strict, go-library]
+    acquisition: go-module
+    version-command: govulncheck -version
+  - id: gremlins
+    version: 0.6.0
+    source: https://proxy.golang.org/github.com/go-gremlins/gremlins/@v/v0.6.0.zip
+    checksum: h1:3G2ROO0I3q4bb5bxElQIUITTuEbl1iOfVYFqunGwrJI=
+    parser: mutation-json/v1
+    profiles: [deep]
+    acquisition: go-module
+    version-command: go version -m "$(command -v gremlins)"
+  - id: grype
+    version: 0.117.0
+    source: https://github.com/anchore/grype/releases/download/v0.117.0/grype_0.117.0_linux_amd64.tar.gz
+    checksum: sha256:38525dab1e06f162ebaa02f94d82d1f807076b011a44180cf2777edf1a7b9c26
+    parser: grype-json/v1
+    profiles: [deep, release]
+    acquisition: release-asset
+    version-command: grype version
+  - id: hadolint
+    version: 2.15.1
+    source: https://github.com/hadolint/hadolint/releases/download/v2.15.1/hadolint-linux-x86_64
+    checksum: sha256:c7187db94eeeeca956519a6af171adc31453941a1e777961f6e680f697c8c507
+    parser: sarif/v1
+    profiles: [go-strict, go-library, repository-only]
+    acquisition: release-asset
+    version-command: hadolint --version
+  - id: markdownlint
+    version: 0.23.2
+    source: https://registry.npmjs.org/markdownlint-cli2/-/markdownlint-cli2-0.23.2.tgz
+    checksum: sha512:eUhcnkSpzURo/o4htSqc7LPDszgOOTknhU4eY/sPHvMCLxnTCYscv1gw1/js/idmaZPisv9ECVEIORcllqjTUw==
+    parser: markdownlint-json/v1
+    profiles: [go-strict, go-library, repository-only]
+    acquisition: npm-package
+    version-command: markdownlint-cli2 --version
+  - id: osv-scanner
+    version: 2.5.1
+    source: https://github.com/google/osv-scanner/releases/download/v2.5.1/osv-scanner_linux_amd64
+    checksum: sha256:f9f25499a2c8cc367b3af45df2ea7eeca7fbccceab9c35079968f4b3652194be
+    parser: osv-json/v1
+    profiles: [go-strict, go-library]
+    acquisition: release-asset
+    version-command: osv-scanner --version
+  - id: semgrep
+    version: 1.173.0
+    source: https://files.pythonhosted.org/packages/source/s/semgrep/semgrep-1.173.0.tar.gz
+    checksum: sha256:d81c6166ce595e223ea908e5fe36044a5cbb1b5a2821e28dc1e34f3964fa7ed1
+    parser: semgrep-json/v1
+    profiles: [go-strict, go-library, repository-only]
+    acquisition: pypi-sdist
+    version-command: semgrep --version
+  - id: shellcheck
+    version: 0.11.0
+    source: https://github.com/koalaman/shellcheck/releases/download/v0.11.0/shellcheck-v0.11.0.linux.x86_64.tar.xz
+    checksum: sha256:8c3be12b05d5c177a04c29e3c78ce89ac86f1595681cab149b65b97c4e227198
+    parser: shellcheck-json1/v1
+    profiles: [go-strict, go-library, repository-only]
+    acquisition: release-asset
+    version-command: shellcheck --version
+  - id: shfmt
+    version: 3.13.1
+    source: https://github.com/mvdan/sh/releases/download/v3.13.1/shfmt_v3.13.1_linux_amd64
+    checksum: sha256:fb096c5d1ac6beabbdbaa2874d025badb03ee07929f0c9ff67563ce8c75398b1
+    parser: path-list/v1
+    profiles: [go-strict, go-library, repository-only]
+    acquisition: release-asset
+    version-command: shfmt --version
+  - id: staticcheck
+    version: "2026.1"
+    source: https://proxy.golang.org/honnef.co/go/tools/@v/v0.7.0.zip
+    checksum: h1:w6WUp1VbkqPEgLz4rkBzH/CSU6HkoqNLp6GstyTx3lU=
+    parser: staticcheck-jsonl/v1
+    profiles: [go-strict, go-library]
+    acquisition: go-module
+    version-command: staticcheck -version
+  - id: syft
+    version: 1.51.0
+    source: https://github.com/anchore/syft/releases/download/v1.51.0/syft_1.51.0_linux_amd64.tar.gz
+    checksum: sha256:2a2e837a2c8d59ec9af5472ee22d3b04ee463c4e44476ecf993fd1e5ab6ebc7f
+    parser: spdx-json/v1
+    profiles: [deep, release]
+    acquisition: release-asset
+    version-command: syft version
+  - id: trivy
+    version: 0.74.0
+    source: https://github.com/aquasecurity/trivy/releases/download/v0.74.0/trivy_0.74.0_Linux-64bit.tar.gz
+    checksum: sha256:2ae6fe3ee734b7fdf11335663e18c75ea12dccc76062f09f164a3b0f8be4371a
+    parser: trivy-json/v1
+    profiles: [go-strict, go-library, repository-only, deep, release]
+    acquisition: release-asset
+    version-command: trivy version
+  - id: yamllint
+    version: 1.38.0
+    source: https://files.pythonhosted.org/packages/source/y/yamllint/yamllint-1.38.0.tar.gz
+    checksum: sha256:09e5f29531daab93366bb061e76019d5e91691ef0a40328f04c927387d1d364d
+    parser: yamllint-parsable/v1
+    profiles: [go-strict, go-library, repository-only]
+    acquisition: pypi-sdist
+    version-command: yamllint --version
+  - id: zizmor
+    version: 1.29.0
+    source: https://files.pythonhosted.org/packages/source/z/zizmor/zizmor-1.29.0.tar.gz
+    checksum: sha256:60e34e83c67064e0036989c7c525d13413e897aa4c4f683f1efb2048cdb28a47
+    parser: sarif/v1
+    profiles: [go-strict, go-library, repository-only]
+    acquisition: pypi-sdist
+    version-command: zizmor --version

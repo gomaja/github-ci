@@ -1,0 +1,16 @@
+# Code generated from templates/callers/github-ci-release.yml.tmpl; replace the zero SHA with an approved release commit.
+name: github-ci-release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+  attestations: write
+
+jobs:
+  assurance:
+    uses: gomaja/github-ci/.github/workflows/release.yml@0000000000000000000000000000000000000000

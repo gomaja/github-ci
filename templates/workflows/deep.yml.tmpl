@@ -1,0 +1,48 @@
+# Code generated from templates/workflows/deep.yml.tmpl; DO NOT EDIT.
+name: reusable-deep
+
+on:
+  workflow_call:
+    inputs:
+      go-version:
+        required: false
+        default: "[[.Policy.GoVersions.Current]]"
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  deep:
+    name: deep assurance
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Harden runner
+        uses: [[.Action "harden-runner"]]
+        with:
+          egress-policy: audit
+      - name: Check out consumer
+        uses: [[.Action "checkout"]]
+        with:
+          persist-credentials: false
+      - name: Set up Go
+        uses: [[.Action "setup-go"]]
+        with:
+          go-version: ${{ inputs.go-version }}
+          cache: false
+      - name: Validate toolchain
+        shell: bash
+        run: go version
+
+  gate:
+    name: gate
+    if: ${{ always() }}
+    needs: [deep]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require deep assurance
+        env:
+          RESULT: ${{ needs.deep.result }}
+        shell: bash
+        run: test "$RESULT" = success

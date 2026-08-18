@@ -1,0 +1,48 @@
+# Code generated from templates/workflows/release.yml.tmpl; DO NOT EDIT.
+name: reusable-release
+
+on:
+  workflow_call:
+    inputs:
+      go-version:
+        required: false
+        default: "1.26.6"
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  release-policy:
+    name: release policy
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c
+        with:
+          egress-policy: audit
+      - name: Check out consumer
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
+        with:
+          go-version: ${{ inputs.go-version }}
+          cache: false
+      - name: Validate clean release source
+        shell: bash
+        run: test -z "$(git status --porcelain=v1)"
+
+  gate:
+    name: gate
+    if: ${{ always() }}
+    needs: [release-policy]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require release policy
+        env:
+          RESULT: ${{ needs.release-policy.result }}
+        shell: bash
+        run: test "$RESULT" = success
