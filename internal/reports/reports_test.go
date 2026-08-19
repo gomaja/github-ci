@@ -61,6 +61,51 @@ func TestCountCheckovAcceptsEmptyResourceSummary(t *testing.T) {
 	}
 }
 
+func TestCountCheckovRejectsMalformedAndEmptyArrays(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		data string
+		want string
+	}{
+		{name: "malformed", data: `[`, want: "decode JSON"},
+		{name: "empty", data: `[]`, want: "checkov report array is empty"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			_, err := countCheckov([]byte(test.data))
+			if err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("countCheckov() error = %v, want %q", err, test.want)
+			}
+		})
+	}
+}
+
+func TestDecodeStrictJSONRejectsTrailingValueExactly(t *testing.T) {
+	var destination map[string]any
+	if err := decodeStrictJSON([]byte(`{} {}`), &destination); err == nil || err.Error() != "report contains a trailing JSON value" {
+		t.Fatalf("decodeStrictJSON() error = %v", err)
+	}
+}
+
+func TestSARIFDescriptorIDMatchesOnlyExactOrSingleSuffix(t *testing.T) {
+	tests := []struct {
+		reference  string
+		descriptor string
+		want       bool
+	}{
+		{reference: "RULE", descriptor: "RULE", want: true},
+		{reference: "RULE/1", descriptor: "RULE", want: true},
+		{reference: "OTHER/1", descriptor: "RULE"},
+		{reference: "RULE/", descriptor: "RULE"},
+		{reference: "RULE/1/2", descriptor: "RULE"},
+		{reference: "RULER/1", descriptor: "RULE"},
+	}
+	for _, test := range tests {
+		if got := sarifDescriptorIDMatches(test.reference, test.descriptor); got != test.want {
+			t.Errorf("sarifDescriptorIDMatches(%q, %q) = %t, want %t", test.reference, test.descriptor, got, test.want)
+		}
+	}
+}
+
 func TestEveryParserAcceptsCleanFixture(t *testing.T) {
 	fixtures := map[string]string{
 		"sarif":           "sarif.json",

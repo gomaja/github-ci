@@ -64,7 +64,7 @@ func Build(input Input) ([]byte, []byte, error) {
 	if err != nil {
 		return nil, nil, err
 	}
-	files := make([]FileDigest, 0, len(metadata)+len(assets))
+	files := make([]FileDigest, 0)
 	for _, name := range metadata {
 		digest, digestErr := digestFile(input.Root, name, "metadata")
 		if digestErr != nil {
@@ -133,7 +133,10 @@ func Verify(root, manifestPath, sumsPath string) error {
 		if err := pathpolicy.Validate("release file", expected.Path); err != nil {
 			return err
 		}
-		if _, exists := seen[expected.Path]; exists || previous != "" && strings.Compare(previous, expected.Path) >= 0 {
+		if _, exists := seen[expected.Path]; exists {
+			return errors.New("release manifest files must be unique and sorted")
+		}
+		if strings.Compare(previous, expected.Path) == 1 {
 			return errors.New("release manifest files must be unique and sorted")
 		}
 		seen[expected.Path] = struct{}{}

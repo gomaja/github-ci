@@ -218,7 +218,7 @@ func readManifest(name string) (config.Governance, error) {
 	if err != nil {
 		return config.Governance{}, fmt.Errorf("read governance manifest: %w", err)
 	}
-	if len(data) > maxPlanBytes {
+	if exceedsPlanSize(len(data)) {
 		return config.Governance{}, errors.New("governance manifest exceeds size limit")
 	}
 	return config.DecodeGovernance(bytes.NewReader(data))
@@ -229,10 +229,14 @@ func readPlan(name string) (Plan, error) {
 	if err != nil {
 		return Plan{}, fmt.Errorf("read governance plan: %w", err)
 	}
-	if len(data) > maxPlanBytes {
+	if exceedsPlanSize(len(data)) {
 		return Plan{}, errors.New("governance plan exceeds size limit")
 	}
 	return decodePlan(data)
+}
+
+func exceedsPlanSize(size int) bool {
+	return size > maxPlanBytes
 }
 
 func decodePlan(data []byte) (Plan, error) {

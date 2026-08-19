@@ -3,6 +3,7 @@ package exceptions
 
 import (
 	"bytes"
+	"cmp"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -390,7 +391,7 @@ func validateVerificationTests(tests []string, add issueAdder) {
 
 func rejectDuplicateKeys(node *yaml.Node) error {
 	if node.Kind == yaml.MappingNode {
-		seen := make(map[string]struct{}, len(node.Content)/2)
+		seen := make(map[string]struct{})
 		for index := 0; index < len(node.Content); index += 2 {
 			key := node.Content[index].Value
 			if _, exists := seen[key]; exists {
@@ -575,7 +576,7 @@ func isPlaceholder(value string) bool {
 func sortIssues(issues []Issue) {
 	slices.SortFunc(issues, func(left, right Issue) int {
 		if left.Index != right.Index {
-			return left.Index - right.Index
+			return cmp.Compare(left.Index, right.Index)
 		}
 		if comparison := strings.Compare(left.Code, right.Code); comparison != 0 {
 			return comparison

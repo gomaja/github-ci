@@ -162,16 +162,32 @@ jobs:
         env:
           CLI: ${{ runner.temp }}/github-ci-bin/github-ci
           CONFIG_PATH: ${{ inputs.config-path }}
+          MUTATION_DIR: ${{ runner.temp }}/github-ci-mutation
           SOURCE_DIR: ${{ github.workspace }}/source
         shell: bash
         run: |
           set -euo pipefail
           export PATH="$RUNNER_TEMP/github-ci-bin:$PATH"
+          mkdir -p "$MUTATION_DIR"
+          index=0
           while IFS= read -r module; do
             directory="$SOURCE_DIR"
             [[ "$module" == "." ]] || directory="$SOURCE_DIR/$module"
-            (cd "$directory" && gremlins unleash --silent --workers 2 --threshold-efficacy 100 --threshold-mcover 100 .)
+            module_path=$(cd "$directory" && go list -m -f '{{.Path}}')
+            report="$MUTATION_DIR/module-${index}.json"
+            # Gremlins v0.6.0 derives mutant timeouts from the cached baseline test duration.
+            (cd "$directory" && gremlins unleash --silent --workers 2 --timeout-coefficient 20 --output "$report" .)
+            "$CLI" validate-gremlins --report "$report" --module "$module_path"
+            index=$((index + 1))
           done < <("$CLI" modules --repository "$SOURCE_DIR" --config "$CONFIG_PATH" | jq -r '.modules[]')
+      - name: Upload mutation evidence
+        if: ${{ always() }}
+        uses: [%.Action "upload-artifact"%]
+        with:
+          name: github-ci-mutation
+          path: ${{ runner.temp }}/github-ci-mutation
+          if-no-files-found: error
+          retention-days: 7
 
   history-refresh:
     name: history and dependency refresh

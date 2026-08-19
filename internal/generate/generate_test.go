@@ -55,6 +55,14 @@ tools:
 	}
 }
 
+func TestDecodeStrictRejectsMultipleDocumentsExactly(t *testing.T) {
+	var destination map[string]any
+	err := decodeStrict(strings.NewReader("value: one\n---\nvalue: two\n"), &destination)
+	if err == nil || err.Error() != "YAML contains multiple documents" {
+		t.Fatalf("decodeStrict() error = %v", err)
+	}
+}
+
 func TestLoadPolicyAcceptsActionEntrypointSubpaths(t *testing.T) {
 	body := `schema-version: 1
 go-versions:
@@ -129,6 +137,111 @@ tools:
 		if _, err := LoadPolicy(strings.NewReader(mutation)); err == nil {
 			t.Fatal("LoadPolicy() accepted an invalid container lock")
 		}
+	}
+}
+
+func TestValidateRejectsDescendingLocks(t *testing.T) {
+	validAction := func(id string) Action {
+		return Action{
+			ID:         id,
+			Repository: "actions/checkout",
+			Release:    "v7.0.1",
+			SHA:        "3d3c42e5aac5ba805825da76410c181273ba90b1",
+		}
+	}
+	if err := validateActions([]Action{validAction("beta"), validAction("alpha")}); err == nil || err.Error() != "actions must be sorted by id" {
+		t.Fatalf("validateActions(descending) error = %v", err)
+	}
+
+	validTool := func(id string) Tool {
+		return Tool{
+			ID:             id,
+			Version:        "1.0.0",
+			Source:         "https://example.com/tool",
+			Checksum:       "sha256:" + strings.Repeat("a", 64),
+			Parser:         "json/v1",
+			Profiles:       []string{"go-strict"},
+			Acquisition:    "go-module",
+			VersionCommand: "tool --version",
+		}
+	}
+	if err := validateTools([]Tool{validTool("beta"), validTool("alpha")}); err == nil || err.Error() != "tools must be sorted by id" {
+		t.Fatalf("validateTools(descending) error = %v", err)
+	}
+
+	var linters strings.Builder
+	linters.WriteString("schema-version: 1\nlinters:\n")
+	for index := range 74 {
+		name := fmt.Sprintf("linter%02d", index)
+		switch index {
+		case 0:
+			name = "linter01"
+		case 1:
+			name = "linter00"
+		}
+		fmt.Fprintf(&linters, "  - %s\n", name)
+	}
+	if _, err := LoadLinters(strings.NewReader(linters.String())); err == nil || err.Error() != "linters must be sorted by name" {
+		t.Fatalf("LoadLinters(descending) error = %v", err)
+	}
+}
+
+func TestValidateToolAcquisitionAcceptsOnlySupportedKinds(t *testing.T) {
+	for _, acquisition := range []string{
+		"go-module",
+		"release-asset",
+		"pypi-sdist",
+		"npm-package",
+		"go-toolchain",
+	} {
+		t.Run(acquisition, func(t *testing.T) {
+			if err := validateToolAcquisition(Tool{ID: "tool", Acquisition: acquisition}); err != nil {
+				t.Fatalf("validateToolAcquisition(%q) error = %v", acquisition, err)
+			}
+		})
+	}
+
+	checksum := "sha256:" + strings.Repeat("a", 64)
+	container := Tool{
+		ID:          "container",
+		Acquisition: acquisitionContainerImage,
+		Checksum:    checksum,
+		Image:       "example.com/tool@" + checksum,
+	}
+	if err := validateToolAcquisition(container); err != nil {
+		t.Fatalf("validateToolAcquisition(container-image) error = %v", err)
+	}
+	if err := validateToolAcquisition(Tool{ID: "tool", Acquisition: "source-build"}); err == nil || err.Error() != `tool "tool" has unsupported acquisition "source-build"` {
+		t.Fatalf("validateToolAcquisition(unsupported) error = %v", err)
+	}
+}
+
+func TestPolicyLookupsRequireExactKindAndID(t *testing.T) {
+	policy := Policy{
+		Actions: []Action{
+			{ID: "checkout", Repository: "actions/checkout", SHA: strings.Repeat("a", 40)},
+			{ID: "setup-go", Repository: "actions/setup-go", SHA: strings.Repeat("b", 40)},
+		},
+		Tools: []Tool{
+			{ID: "staticcheck", Acquisition: "go-module"},
+			{ID: "semgrep", Acquisition: acquisitionContainerImage, Image: "example.com/semgrep@sha256:" + strings.Repeat("c", 64)},
+		},
+	}
+
+	action, err := policy.Action("checkout")
+	if err != nil || action != "actions/checkout@"+strings.Repeat("a", 40) {
+		t.Fatalf("Action(checkout) = %q, %v", action, err)
+	}
+	if _, err := policy.Action("missing"); err == nil || err.Error() != `action lock "missing" not found` {
+		t.Fatalf("Action(missing) error = %v", err)
+	}
+
+	image, err := policy.ToolImage("semgrep")
+	if err != nil || image != policy.Tools[1].Image {
+		t.Fatalf("ToolImage(semgrep) = %q, %v", image, err)
+	}
+	if _, err := policy.ToolImage("staticcheck"); err == nil || err.Error() != `container tool lock "staticcheck" not found` {
+		t.Fatalf("ToolImage(staticcheck) error = %v", err)
 	}
 }
 

@@ -50,15 +50,15 @@ func WriteAggregate(tool string, named []NamedReport, writer io.Writer) error {
 	reports := slices.Clone(named)
 	slices.SortFunc(reports, func(left, right NamedReport) int { return strings.Compare(left.Module, right.Module) })
 	document := aggregateDocument{SchemaVersion: aggregateSchemaVersion, ParserTool: tool, Reports: make([]aggregateWire, 0, len(reports))}
-	previous := ""
+	seen := make(map[string]struct{}, len(reports))
 	for index, report := range reports {
 		if err := pathpolicy.Validate("aggregate module", report.Module); err != nil {
 			return fmt.Errorf("report %d: %w", index, err)
 		}
-		if index > 0 && report.Module == previous {
+		if _, exists := seen[report.Module]; exists {
 			return fmt.Errorf("duplicate aggregate module %q", report.Module)
 		}
-		previous = report.Module
+		seen[report.Module] = struct{}{}
 		if len(bytes.TrimSpace(report.Data)) == 0 {
 			return fmt.Errorf("aggregate module %q has an empty report", report.Module)
 		}
@@ -77,7 +77,7 @@ func WriteAggregate(tool string, named []NamedReport, writer io.Writer) error {
 	if err != nil {
 		return fmt.Errorf("marshal aggregate: %w", err)
 	}
-	if len(data)+1 > MaxInputBytes {
+	if !aggregateFitsWithNewline(len(data)) {
 		return fmt.Errorf("aggregate exceeds %d byte limit", MaxInputBytes)
 	}
 	data = append(data, '\n')
@@ -85,6 +85,10 @@ func WriteAggregate(tool string, named []NamedReport, writer io.Writer) error {
 		return fmt.Errorf("write aggregate: %w", err)
 	}
 	return nil
+}
+
+func aggregateFitsWithNewline(encodedBytes int) bool {
+	return encodedBytes < MaxInputBytes
 }
 
 func isAggregate(data []byte) bool {
@@ -119,7 +123,7 @@ func countAggregate(tool string, data []byte) (int, error) {
 		if err := pathpolicy.Validate("aggregate module", report.Module); err != nil {
 			return 0, fmt.Errorf("report %d: %w", index, err)
 		}
-		if index > 0 && strings.Compare(previous, report.Module) >= 0 {
+		if previous != "" && !moduleFollows(previous, report.Module) {
 			return 0, errors.New("aggregate reports must be sorted with unique modules")
 		}
 		previous = report.Module
@@ -140,12 +144,13 @@ func countAggregate(tool string, data []byte) (int, error) {
 		if err != nil {
 			return 0, fmt.Errorf("report %d: %w", index, err)
 		}
-		if count > int(^uint(0)>>1)-findings {
-			return 0, errors.New("aggregate finding count overflow")
-		}
 		findings += count
 	}
 	return findings, nil
+}
+
+func moduleFollows(previous, current string) bool {
+	return strings.Compare(previous, current) < 0
 }
 
 func reportDigest(data []byte) string {

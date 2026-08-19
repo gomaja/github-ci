@@ -2,6 +2,7 @@ package governance
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -306,16 +307,7 @@ func appendRulesetOperations(ctx context.Context, client Client, operations []Op
 	if err != nil {
 		return nil, nil, fmt.Errorf("read %s rulesets: %w", fullName, err)
 	}
-	slices.SortFunc(summaries, func(left, right rulesetSummary) int {
-		switch {
-		case left.ID < right.ID:
-			return -1
-		case left.ID > right.ID:
-			return 1
-		default:
-			return 0
-		}
-	})
+	slices.SortFunc(summaries, compareRulesetSummary)
 	actual := make(map[int64]rulesetPayload, len(summaries))
 	for _, summary := range summaries {
 		var payload rulesetPayload
@@ -364,6 +356,16 @@ func appendRulesetOperations(ctx context.Context, client Client, operations []Op
 		}
 	}
 	return operations, observed, nil
+}
+
+func compareRulesetSummary(left, right rulesetSummary) int {
+	if left.ID < right.ID {
+		return -1
+	}
+	if left.ID > right.ID {
+		return 1
+	}
+	return 0
 }
 
 func listRulesets(ctx context.Context, client Client, base string) ([]rulesetSummary, error) {
@@ -480,7 +482,7 @@ func compareOperations(left, right Operation) int {
 	leftPriority := operationPriority(left.Kind)
 	rightPriority := operationPriority(right.Kind)
 	if leftPriority != rightPriority {
-		return leftPriority - rightPriority
+		return cmp.Compare(leftPriority, rightPriority)
 	}
 	return strings.Compare(left.Kind+"\x00"+left.Path, right.Kind+"\x00"+right.Path)
 }

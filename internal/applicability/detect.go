@@ -113,6 +113,10 @@ func Detect(tracked fs.FS, input Input) (evidence.Plan, error) {
 }
 
 func readTrackedFiles(tracked fs.FS) ([]trackedFile, error) {
+	return readTrackedFilesWithLimits(tracked, maxTrackedFile, maxTrackedTree)
+}
+
+func readTrackedFilesWithLimits(tracked fs.FS, maxFile, maxTree int64) ([]trackedFile, error) {
 	var files []trackedFile
 	var total int64
 	err := fs.WalkDir(tracked, ".", func(name string, entry fs.DirEntry, walkErr error) error {
@@ -132,14 +136,14 @@ func readTrackedFiles(tracked fs.FS) ([]trackedFile, error) {
 		if !info.Mode().IsRegular() {
 			return fmt.Errorf("tracked path %q has unsupported file mode %s", name, info.Mode())
 		}
-		if info.Size() > maxTrackedFile {
-			return fmt.Errorf("tracked path %q exceeds %d bytes", name, maxTrackedFile)
+		if info.Size() > maxFile {
+			return fmt.Errorf("tracked path %q exceeds %d bytes", name, maxFile)
 		}
 		file, err := tracked.Open(name)
 		if err != nil {
 			return fmt.Errorf("open tracked path %q: %w", name, err)
 		}
-		data, readErr := io.ReadAll(io.LimitReader(file, maxTrackedFile+1))
+		data, readErr := io.ReadAll(io.LimitReader(file, maxFile+1))
 		closeErr := file.Close()
 		if readErr != nil {
 			return fmt.Errorf("read tracked path %q: %w", name, readErr)
@@ -147,12 +151,12 @@ func readTrackedFiles(tracked fs.FS) ([]trackedFile, error) {
 		if closeErr != nil {
 			return fmt.Errorf("close tracked path %q: %w", name, closeErr)
 		}
-		if len(data) > maxTrackedFile {
-			return fmt.Errorf("tracked path %q exceeds %d bytes", name, maxTrackedFile)
+		if int64(len(data)) > maxFile {
+			return fmt.Errorf("tracked path %q exceeds %d bytes", name, maxFile)
 		}
 		total += int64(len(data))
-		if total > maxTrackedTree {
-			return fmt.Errorf("tracked tree exceeds %d bytes", maxTrackedTree)
+		if total > maxTree {
+			return fmt.Errorf("tracked tree exceeds %d bytes", maxTree)
 		}
 		files = append(files, trackedFile{path: name, mode: info.Mode(), data: data})
 		return nil
@@ -170,11 +174,7 @@ func inspect(files []trackedFile, generated []string) repositoryShape {
 		base := path.Base(file.path)
 		extension := strings.ToLower(path.Ext(base))
 		if base == "go.mod" {
-			root := path.Dir(file.path)
-			if root == "." {
-				root = "."
-			}
-			shape.modules = append(shape.modules, root)
+			shape.modules = append(shape.modules, path.Dir(file.path))
 		}
 		if extension == ".go" && !isGenerated(file.path, generated) {
 			shape.ordinaryGo = true

@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 )
 
 func TestClientHeadersRetryAndDecode(t *testing.T) {
@@ -43,6 +44,79 @@ func TestClientHeadersRetryAndDecode(t *testing.T) {
 	}
 	if status != http.StatusOK || !response.OK || requests.Load() != 2 {
 		t.Fatalf("status = %d, response = %+v, requests = %d", status, response, requests.Load())
+	}
+}
+
+func TestClientRejectsRedirectStatus(t *testing.T) {
+	t.Parallel()
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		writer.WriteHeader(http.StatusMultipleChoices)
+	}))
+	t.Cleanup(server.Close)
+	client := Client{BaseURL: server.URL, APIVersion: "2026-03-10", HTTP: server.Client()}
+	status, err := client.do(context.Background(), http.MethodGet, "/repos/gomaja/example", nil, nil)
+	if err == nil || status != http.StatusMultipleChoices {
+		t.Fatalf("do() = (%d, %v), want HTTP 300 error", status, err)
+	}
+}
+
+func TestClientEndpointPolicyAndDefaultTimeout(t *testing.T) {
+	tests := []struct {
+		name    string
+		baseURL string
+		wantErr bool
+	}{
+		{name: "HTTPS", baseURL: "https://example.com"},
+		{name: "IPv4 loopback HTTP", baseURL: "http://127.0.0.1:8080"},
+		{name: "localhost HTTP", baseURL: "http://localhost:8080"},
+		{name: "remote HTTP", baseURL: "http://example.com", wantErr: true},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			_, httpClient, err := (Client{BaseURL: test.baseURL}).endpoint("/repos/gomaja/example")
+			if (err != nil) != test.wantErr {
+				t.Fatalf("endpoint() error = %v, wantErr %t", err, test.wantErr)
+			}
+			if !test.wantErr && httpClient.Timeout != 30*time.Second {
+				t.Fatalf("HTTP timeout = %s, want 30s", httpClient.Timeout)
+			}
+		})
+	}
+}
+
+func TestClientRequestContentTypeTracksBody(t *testing.T) {
+	endpoint, _, err := (Client{BaseURL: "https://example.com"}).endpoint("/repos/gomaja/example")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		name string
+		body []byte
+		want string
+	}{
+		{name: "empty", body: nil, want: ""},
+		{name: "JSON", body: []byte(`{}`), want: "application/json"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			request, requestErr := (Client{}).request(context.Background(), http.MethodPut, endpoint, test.body)
+			if requestErr != nil {
+				t.Fatal(requestErr)
+			}
+			if got := request.Header.Get("Content-Type"); got != test.want {
+				t.Fatalf("Content-Type = %q, want %q", got, test.want)
+			}
+		})
+	}
+}
+
+func TestReadResponseAcceptsExactSizeLimit(t *testing.T) {
+	response := &http.Response{Body: io.NopCloser(strings.NewReader(strings.Repeat(" ", maxResponseBytes)))}
+	data, err := readResponse(response)
+	if err != nil {
+		t.Fatalf("readResponse() error = %v", err)
+	}
+	if len(data) != maxResponseBytes {
+		t.Fatalf("readResponse() bytes = %d, want %d", len(data), maxResponseBytes)
 	}
 }
 
@@ -111,6 +185,24 @@ func TestClientRejectsOversizedResponse(t *testing.T) {
 	_, err := client.do(context.Background(), http.MethodGet, "/repos/gomaja/example", nil, &output)
 	if err == nil || !strings.Contains(err.Error(), "size limit") {
 		t.Fatalf("do() error = %v, want size-limit error", err)
+	}
+}
+
+func TestRetryDelayHonorsBoundedRetryAfter(t *testing.T) {
+	response := &http.Response{Header: make(http.Header)}
+	response.Header.Set("Retry-After", "2")
+	if delay := retryDelay(response, 0); delay != 2*time.Second {
+		t.Fatalf("retryDelay(Retry-After) = %s, want 2s", delay)
+	}
+	response.Header.Set("Retry-After", "10")
+	if delay := retryDelay(response, 0); delay != 10*time.Second {
+		t.Fatalf("retryDelay(max Retry-After) = %s, want 10s", delay)
+	}
+	for _, value := range []string{"", "0", "11", "invalid"} {
+		response.Header.Set("Retry-After", value)
+		if delay := retryDelay(response, 1); delay != 400*time.Millisecond {
+			t.Errorf("retryDelay(%q) = %s, want 400ms", value, delay)
+		}
 	}
 }
 

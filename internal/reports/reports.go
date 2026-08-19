@@ -125,11 +125,15 @@ func readBounded(reader io.Reader) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("read report: %w", err)
 	}
-	if len(data) > MaxInputBytes {
+	if !reportFitsLimit(len(data)) {
 		return nil, fmt.Errorf("report exceeds %d byte limit", MaxInputBytes)
 	}
 	if len(bytes.TrimSpace(data)) == 0 {
 		return nil, errors.New("empty report")
 	}
 	return data, nil
+}
+
+func reportFitsLimit(size int) bool {
+	return size <= MaxInputBytes
 }

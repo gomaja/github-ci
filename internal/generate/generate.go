@@ -142,7 +142,7 @@ func validateActions(actionsList []Action) error {
 			return fmt.Errorf("duplicate action id %q", action.ID)
 		}
 		actions[action.ID] = struct{}{}
-		if index > 0 && strings.Compare(previous, action.ID) >= 0 {
+		if strings.Compare(previous, action.ID) == 1 {
 			return errors.New("actions must be sorted by id")
 		}
 		previous = action.ID
@@ -170,7 +170,7 @@ func validateTools(toolsList []Tool) error {
 			return fmt.Errorf("duplicate tool id %q", tool.ID)
 		}
 		tools[tool.ID] = struct{}{}
-		if index > 0 && strings.Compare(previous, tool.ID) >= 0 {
+		if strings.Compare(previous, tool.ID) == 1 {
 			return errors.New("tools must be sorted by id")
 		}
 		previous = tool.ID
@@ -282,7 +282,7 @@ func LoadLinters(reader io.Reader) (Linters, error) {
 	}
 	seen := make(map[string]struct{}, len(linters.Names))
 	previous := ""
-	for index, name := range linters.Names {
+	for _, name := range linters.Names {
 		if !idPattern.MatchString(name) {
 			return Linters{}, fmt.Errorf("invalid linter %q", name)
 		}
@@ -290,7 +290,7 @@ func LoadLinters(reader io.Reader) (Linters, error) {
 			return Linters{}, fmt.Errorf("duplicate linter %q", name)
 		}
 		seen[name] = struct{}{}
-		if index > 0 && strings.Compare(previous, name) >= 0 {
+		if strings.Compare(previous, name) == 1 {
 			return Linters{}, errors.New("linters must be sorted by name")
 		}
 		previous = name

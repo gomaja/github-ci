@@ -369,6 +369,17 @@ func TestDeepWorkflowContract(t *testing.T) {
 	if strings.Contains(text, "go list -m -u -json all") {
 		t.Error("deep workflow requires updates for transitive modules outside the root go.mod")
 	}
+	for _, required := range []string{
+		`--output "$report"`,
+		`--timeout-coefficient 20`,
+		`module_path=$(cd "$directory" && go list -m -f '{{.Path}}')`,
+		`"$CLI" validate-gremlins --report "$report" --module "$module_path"`,
+		`name: github-ci-mutation`,
+	} {
+		if !strings.Contains(text, required) {
+			t.Errorf("deep workflow does not independently enforce mutation result %q", required)
+		}
+	}
 	assertImmutableUses(t, text)
 }
 

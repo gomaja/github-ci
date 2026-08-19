@@ -25,7 +25,7 @@ func RenderCallers(manifest config.Governance, output, workflowSHA, onlyReposito
 	if output == "" {
 		return errors.New("caller output directory must not be empty")
 	}
-	rendered := 0
+	rendered := false
 	for _, repository := range manifest.Repositories {
 		if onlyRepository != "" && repository.Name != onlyRepository {
 			continue
@@ -34,10 +34,7 @@ func RenderCallers(manifest config.Governance, output, workflowSHA, onlyReposito
 		if owner == "" {
 			owner = manifest.Owners[0].Name
 		}
-		profile := repository.Profile
-		if profile == "" {
-			profile = manifest.Defaults.Profile
-		}
+		profile := repositoryProfile(repository.Profile, manifest.Defaults.Profile)
 		consumer := config.Consumer{
 			SchemaVersion: 1,
 			Profile:       profile,
@@ -63,12 +60,19 @@ func RenderCallers(manifest config.Governance, output, workflowSHA, onlyReposito
 				return err
 			}
 		}
-		rendered++
+		rendered = true
 	}
-	if rendered == 0 {
+	if !rendered {
 		return fmt.Errorf("repository %q is not present in the governance manifest", onlyRepository)
 	}
 	return nil
+}
+
+func repositoryProfile(configured, fallback config.Profile) config.Profile {
+	if configured != "" {
+		return configured
+	}
+	return fallback
 }
 
 func standardCaller(sha string, profile config.Profile) string {

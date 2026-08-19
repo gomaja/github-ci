@@ -60,6 +60,39 @@ func TestDecodeConsumerRejectsInvalidInput(t *testing.T) {
 	}
 }
 
+func TestConsumerValidationDoesNotStopAtValidCollectionEntries(t *testing.T) {
+	tests := []struct {
+		name     string
+		consumer Consumer
+		want     string
+	}{
+		{
+			name: "valid build tag before invalid service",
+			consumer: Consumer{
+				SchemaVersion: 1, Profile: ProfileGoStrict,
+				BuildTags: []string{"linux"}, Services: []Service{"mysql"},
+			},
+			want: "unsupported service",
+		},
+		{
+			name: "valid generated path before invalid exceptions path",
+			consumer: Consumer{
+				SchemaVersion: 1, Profile: ProfileGoStrict,
+				Generated: []string{"generated"}, Exceptions: "../outside",
+			},
+			want: "traversal",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			err := test.consumer.Validate()
+			if err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("Validate() error = %v, want %q", err, test.want)
+			}
+		})
+	}
+}
+
 func TestConsumerSchemaIsValidJSON(t *testing.T) {
 	data, err := os.ReadFile("../../schemas/consumer.schema.json")
 	if err != nil {

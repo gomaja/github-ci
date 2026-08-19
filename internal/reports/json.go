@@ -67,18 +67,18 @@ func countGovulncheck(data []byte) (int, error) {
 }
 
 func validateGovulncheckMessage(entry govulncheckMessage, index int) (bool, error) {
-	fields := []json.RawMessage{entry.Config, entry.Progress, entry.SBOM, entry.OSV, entry.Finding}
 	present := 0
-	for fieldIndex, field := range fields {
+	for _, field := range []json.RawMessage{entry.Config, entry.Progress, entry.SBOM, entry.OSV} {
 		if field == nil {
 			continue
 		}
 		present++
-		if fieldIndex != len(fields)-1 {
-			if err := requireJSONObjectAllowEmpty(field, "govulncheck protocol field"); err != nil {
-				return false, fmt.Errorf("message %d: %w", index, err)
-			}
+		if err := requireJSONObjectAllowEmpty(field, "govulncheck protocol field"); err != nil {
+			return false, fmt.Errorf("message %d: %w", index, err)
 		}
+	}
+	if entry.Finding != nil {
+		present++
 	}
 	if present != 1 {
 		return false, fmt.Errorf("govulncheck message %d must contain exactly one protocol field", index)

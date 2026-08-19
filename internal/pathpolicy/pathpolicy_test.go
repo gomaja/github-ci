@@ -36,6 +36,28 @@ func TestValidate(t *testing.T) {
 	}
 }
 
+func TestWindowsAbsolutePathRequiresEveryComponent(t *testing.T) {
+	tests := []struct {
+		value string
+		want  bool
+	}{
+		{value: "C:/", want: true},
+		{value: `z:\`, want: true},
+		{value: "C:", want: false},
+		{value: "1:/", want: false},
+		{value: "C-/", want: false},
+		{value: "C:a", want: false},
+		{value: "C::", want: false},
+	}
+	for _, test := range tests {
+		t.Run(test.value, func(t *testing.T) {
+			if got := windowsAbsolutePath(test.value); got != test.want {
+				t.Fatalf("windowsAbsolutePath(%q) = %t, want %t", test.value, got, test.want)
+			}
+		})
+	}
+}
+
 func TestSchemaPatternMatchesRuntimeAndAllSchemas(t *testing.T) {
 	matcher := regexp.MustCompile(SchemaPattern)
 	for _, value := range []string{".", "internal/config", ".github/workflows/ci.yml", "/abs", "../outside", `a\b`, "a//b", "with space"} {

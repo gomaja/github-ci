@@ -1,6 +1,8 @@
 package applicability
 
 import (
+	"bytes"
+	"io"
 	"io/fs"
 	"math/rand/v2"
 	"os"
@@ -8,6 +10,7 @@ import (
 	"strings"
 	"testing"
 	"testing/fstest"
+	"time"
 
 	"github.com/gomaja/github-ci/internal/config"
 	"github.com/gomaja/github-ci/internal/evidence"
@@ -174,6 +177,73 @@ func TestDetectRecognizesDirectExecutableShellShebangs(t *testing.T) {
 	}
 }
 
+func TestReadTrackedFilesEnforcesExactByteLimits(t *testing.T) {
+	tests := []struct {
+		name    string
+		tracked fs.FS
+		maxFile int64
+		maxTree int64
+		wantErr string
+	}{
+		{name: "exact file and tree", tracked: fstest.MapFS{"file": &fstest.MapFile{Data: []byte("1234")}}, maxFile: 4, maxTree: 4},
+		{name: "reported file too large", tracked: singleFileFS{data: []byte("1"), reportedSize: 5}, maxFile: 4, maxTree: 8, wantErr: "exceeds 4 bytes"},
+		{name: "payload larger than reported size", tracked: singleFileFS{data: []byte("12345"), reportedSize: 4}, maxFile: 4, maxTree: 8, wantErr: "exceeds 4 bytes"},
+		{name: "exact aggregate", tracked: fstest.MapFS{"a": &fstest.MapFile{Data: []byte("1234")}, "b": &fstest.MapFile{Data: []byte("5678")}}, maxFile: 4, maxTree: 8},
+		{name: "aggregate overflow", tracked: fstest.MapFS{"a": &fstest.MapFile{Data: []byte("1234")}, "b": &fstest.MapFile{Data: []byte("5678")}, "c": &fstest.MapFile{Data: []byte("9")}}, maxFile: 4, maxTree: 8, wantErr: "tracked tree exceeds 8 bytes"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			_, err := readTrackedFilesWithLimits(test.tracked, test.maxFile, test.maxTree)
+			if test.wantErr == "" && err != nil {
+				t.Fatalf("readTrackedFilesWithLimits() error = %v", err)
+			}
+			if test.wantErr != "" && (err == nil || !strings.Contains(err.Error(), test.wantErr)) {
+				t.Fatalf("readTrackedFilesWithLimits() error = %v, want %q", err, test.wantErr)
+			}
+		})
+	}
+}
+
+func TestInspectClassifiesExactFileShapes(t *testing.T) {
+	tests := []struct {
+		name string
+		file trackedFile
+		want repositoryShape
+	}{
+		{name: "workflow yml", file: trackedFile{path: ".github/workflows/ci.yml"}, want: repositoryShape{workflow: true, yaml: true}},
+		{name: "workflow yaml", file: trackedFile{path: ".github/workflows/ci.yaml"}, want: repositoryShape{workflow: true, yaml: true}},
+		{name: "yaml outside workflow", file: trackedFile{path: "ci.yml"}, want: repositoryShape{yaml: true}},
+		{name: "extensionless workflow", file: trackedFile{path: ".github/workflows/ci"}, want: repositoryShape{}},
+		{name: "markdown long extension", file: trackedFile{path: "README.markdown"}, want: repositoryShape{markdown: true}},
+		{name: "markdown short extension", file: trackedFile{path: "README.md"}, want: repositoryShape{markdown: true}},
+		{name: "JSON", file: trackedFile{path: "data.json"}, want: repositoryShape{json: true}},
+		{name: "unrelated", file: trackedFile{path: "data.txt"}, want: repositoryShape{}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := inspect([]trackedFile{test.file}, nil); !repositoryShapesEqual(got, test.want) {
+				t.Fatalf("inspect() = %#v, want %#v", got, test.want)
+			}
+		})
+	}
+}
+
+func TestIsGeneratedUsesDirectoryBoundaries(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		want bool
+	}{
+		{name: "generated", want: true},
+		{name: "generated/file.go", want: true},
+		{name: "generated-other/file.go", want: false},
+		{name: "other/file.go", want: false},
+	} {
+		if got := isGenerated(test.name, []string{"generated"}); got != test.want {
+			t.Errorf("isGenerated(%q) = %t, want %t", test.name, got, test.want)
+		}
+	}
+}
+
 func TestDetectIsDeterministicAcrossCatalogInsertionOrder(t *testing.T) {
 	tracked := fstest.MapFS{
 		"go.mod":  &fstest.MapFile{Data: []byte("module example.com/deterministic\n\ngo 1.25\n")},
@@ -297,6 +367,86 @@ func TestDetectUsesOnlyTheSuppliedTrackedFilesystem(t *testing.T) {
 		"hadolint/hadolint/dockerfiles": evidence.NotApplicable,
 	}, map[string]string{"hadolint/hadolint/dockerfiles": ReasonNoDockerfiles})
 }
+
+func repositoryShapesEqual(left, right repositoryShape) bool {
+	return slices.Equal(left.modules, right.modules) &&
+		left.ordinaryGo == right.ordinaryGo &&
+		left.shell == right.shell &&
+		left.docker == right.docker &&
+		left.workflow == right.workflow &&
+		left.terraform == right.terraform &&
+		left.markdown == right.markdown &&
+		left.yaml == right.yaml &&
+		left.json == right.json
+}
+
+type singleFileFS struct {
+	data         []byte
+	reportedSize int64
+}
+
+func (filesystem singleFileFS) Open(name string) (fs.File, error) {
+	switch name {
+	case ".":
+		return &singleDirectory{entry: singleDirEntry{info: singleFileInfo{name: "file", size: filesystem.reportedSize}}}, nil
+	case "file":
+		return &singleRegularFile{Reader: bytes.NewReader(filesystem.data), info: singleFileInfo{name: "file", size: filesystem.reportedSize}}, nil
+	default:
+		return nil, fs.ErrNotExist
+	}
+}
+
+type singleDirectory struct {
+	entry singleDirEntry
+	read  bool
+}
+
+func (*singleDirectory) Read([]byte) (int, error) { return 0, io.EOF }
+func (*singleDirectory) Close() error             { return nil }
+func (*singleDirectory) Stat() (fs.FileInfo, error) {
+	return singleFileInfo{name: ".", mode: fs.ModeDir | 0o755}, nil
+}
+
+func (directory *singleDirectory) ReadDir(count int) ([]fs.DirEntry, error) {
+	if directory.read {
+		if count > 0 {
+			return nil, io.EOF
+		}
+		return nil, nil
+	}
+	directory.read = true
+	return []fs.DirEntry{directory.entry}, nil
+}
+
+type singleRegularFile struct {
+	*bytes.Reader
+	info singleFileInfo
+}
+
+func (*singleRegularFile) Close() error { return nil }
+func (file *singleRegularFile) Stat() (fs.FileInfo, error) {
+	return file.info, nil
+}
+
+type singleDirEntry struct{ info singleFileInfo }
+
+func (entry singleDirEntry) Name() string               { return entry.info.Name() }
+func (singleDirEntry) IsDir() bool                      { return false }
+func (singleDirEntry) Type() fs.FileMode                { return 0 }
+func (entry singleDirEntry) Info() (fs.FileInfo, error) { return entry.info, nil }
+
+type singleFileInfo struct {
+	name string
+	size int64
+	mode fs.FileMode
+}
+
+func (info singleFileInfo) Name() string      { return info.name }
+func (info singleFileInfo) Size() int64       { return info.size }
+func (info singleFileInfo) Mode() fs.FileMode { return info.mode }
+func (singleFileInfo) ModTime() time.Time     { return time.Time{} }
+func (info singleFileInfo) IsDir() bool       { return info.mode.IsDir() }
+func (singleFileInfo) Sys() any               { return nil }
 
 func consumer(profile config.Profile) config.Consumer {
 	return config.Consumer{SchemaVersion: 1, Profile: profile}

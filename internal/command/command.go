@@ -3,6 +3,7 @@ package command
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"crypto/sha256"
 	"encoding/json"
@@ -56,7 +57,7 @@ func Run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 		return exitError
 	}
 	if len(args) == 0 {
-		writeError(dependencies.stderr, errors.New("usage: github-ci <preflight|modules|files|applicable|aggregate|parse|record|gate|generate|verify-generated|release-evidence|verify-release-evidence>"))
+		writeError(dependencies.stderr, errors.New("usage: github-ci <preflight|modules|files|applicable|aggregate|parse|record|gate|generate|verify-generated|validate-gremlins|release-evidence|verify-release-evidence>"))
 		return exitError
 	}
 	return dispatch(ctx, args, dependencies)
@@ -107,6 +108,8 @@ func dispatch(ctx context.Context, args []string, dependencies runtimeDependenci
 		return runGenerate(ctx, args[1:], dependencies.stderr, false)
 	case "verify-generated":
 		return runGenerate(ctx, args[1:], dependencies.stderr, true)
+	case "validate-gremlins":
+		return runValidateGremlins(args[1:], dependencies.stderr)
 	case "release-evidence":
 		return runReleaseEvidence(args[1:], dependencies.stderr)
 	case "verify-release-evidence":
@@ -115,6 +118,39 @@ func dispatch(ctx context.Context, args []string, dependencies runtimeDependenci
 		writeError(dependencies.stderr, fmt.Errorf("unknown command %q", args[0]))
 		return exitError
 	}
+}
+
+func runValidateGremlins(args []string, stderr io.Writer) int {
+	flags := newFlagSet("validate-gremlins", stderr)
+	reportPath := flags.String("report", "", "Gremlins JSON report path")
+	module := flags.String("module", "", "expected Go module path")
+	if err := flags.Parse(args); err != nil {
+		return exitError
+	}
+	if err := noArguments(flags); err != nil {
+		writeError(stderr, err)
+		return exitError
+	}
+	if err := requireFlags(flagValue{"--report", *reportPath}, flagValue{"--module", *module}); err != nil {
+		writeError(stderr, err)
+		return exitError
+	}
+	file, err := securefs.Open(*reportPath)
+	if err != nil {
+		writeError(stderr, fmt.Errorf("open Gremlins report: %w", err))
+		return exitError
+	}
+	validationErr := reports.ValidateGremlins(file, *module)
+	closeErr := file.Close()
+	if validationErr != nil {
+		writeError(stderr, validationErr)
+		return exitError
+	}
+	if closeErr != nil {
+		writeError(stderr, fmt.Errorf("close Gremlins report: %w", closeErr))
+		return exitError
+	}
+	return exitSuccess
 }
 
 func runReleaseEvidence(args []string, stderr io.Writer) int {
@@ -127,6 +163,10 @@ func runReleaseEvidence(args []string, stderr io.Writer) int {
 	var assets repeatedFlag
 	flags.Var(&assets, "asset", "repository-relative release asset (repeatable)")
 	if err := flags.Parse(args); err != nil {
+		return exitError
+	}
+	if err := noArguments(flags); err != nil {
+		writeError(stderr, err)
 		return exitError
 	}
 	if err := requireFlags(flagValue{"--subject-sha", *subject}, flagValue{"--source-date", *sourceDate}, flagValue{flagManifest, *manifest}, flagValue{"--checksums", *checksums}); err != nil {
@@ -153,6 +193,10 @@ func runVerifyReleaseEvidence(args []string, stderr io.Writer) int {
 	manifest := flags.String("manifest", "", "release manifest path")
 	checksums := flags.String("checksums", "", "SHA256SUMS path")
 	if err := flags.Parse(args); err != nil {
+		return exitError
+	}
+	if err := noArguments(flags); err != nil {
+		writeError(stderr, err)
 		return exitError
 	}
 	if err := requireFlags(flagValue{flagManifest, *manifest}, flagValue{"--checksums", *checksums}); err != nil {
@@ -674,9 +718,7 @@ func runGate(ctx context.Context, args []string, stdout, stderr io.Writer, now f
 	input.Context = contexts
 	result := gate.Evaluate(input)
 	result.Findings = append(result.Findings, assemblyFindings...)
-	slices.SortFunc(result.Findings, func(left, right gate.Finding) int {
-		return strings.Compare(left.Tool+"\x00"+left.CommandID+"\x00"+left.Code+"\x00"+left.Detail, right.Tool+"\x00"+right.CommandID+"\x00"+right.Code+"\x00"+right.Detail)
-	})
+	slices.SortFunc(result.Findings, compareGateFindings)
 	result.Pass = len(result.Findings) == 0
 	if *output != "" {
 		if err := writeJSONAtomic(*output, result); err != nil {
@@ -691,6 +733,15 @@ func runGate(ctx context.Context, args []string, stdout, stderr io.Writer, now f
 		return exitFinding
 	}
 	return exitSuccess
+}
+
+func compareGateFindings(left, right gate.Finding) int {
+	return cmp.Or(
+		strings.Compare(left.Tool, right.Tool),
+		strings.Compare(left.CommandID, right.CommandID),
+		strings.Compare(left.Code, right.Code),
+		strings.Compare(left.Detail, right.Detail),
+	)
 }
 
 func loadGateExceptions(ctx context.Context, repository, configPath, configuredPath string, now time.Time) (exceptions.Set, []exceptions.Issue, error) {
@@ -715,6 +766,10 @@ func loadGateExceptions(ctx context.Context, repository, configPath, configuredP
 	if err != nil {
 		return exceptions.Set{}, nil, fmt.Errorf("open exceptions: %w", err)
 	}
+	return loadGateExceptionFile(file, now)
+}
+
+func loadGateExceptionFile(file io.ReadCloser, now time.Time) (exceptions.Set, []exceptions.Issue, error) {
 	set, issues, loadErr := exceptions.LoadDetailed(file, now)
 	closeErr := file.Close()
 	if loadErr != nil {
@@ -921,11 +976,7 @@ func consumerModules(tracked fs.FS, consumer config.Consumer) ([]string, error) 
 			return walkErr
 		}
 		if !entry.IsDir() && filepath.Base(name) == "go.mod" {
-			module := filepath.ToSlash(filepath.Dir(name))
-			if module == "." {
-				module = "."
-			}
-			detected = append(detected, module)
+			detected = append(detected, filepath.ToSlash(filepath.Dir(name)))
 		}
 		return nil
 	})
@@ -1005,11 +1056,15 @@ func readGateManifest(name string) (gateManifest, error) {
 }
 
 func readStrictJSONFile(name string, destination any) error {
+	return readStrictJSONFileWithLimit(name, destination, maxJSON)
+}
+
+func readStrictJSONFileWithLimit(name string, destination any, limit int64) error {
 	file, err := securefs.Open(name)
 	if err != nil {
 		return err
 	}
-	data, readErr := io.ReadAll(io.LimitReader(file, maxJSON+1))
+	data, readErr := io.ReadAll(io.LimitReader(file, limit+1))
 	closeErr := file.Close()
 	if readErr != nil {
 		return readErr
@@ -1017,8 +1072,8 @@ func readStrictJSONFile(name string, destination any) error {
 	if closeErr != nil {
 		return closeErr
 	}
-	if len(data) > maxJSON {
-		return fmt.Errorf("JSON exceeds %d byte limit", maxJSON)
+	if int64(len(data)) > limit {
+		return fmt.Errorf("JSON exceeds %d byte limit", limit)
 	}
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.DisallowUnknownFields()

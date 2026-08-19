@@ -1,8 +1,10 @@
 package securefs
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -71,7 +73,55 @@ func TestOpenRegularInRootRejectsSymlinks(t *testing.T) {
 }
 
 func TestOpenRejectsEmptyName(t *testing.T) {
-	if _, err := Open(""); err == nil {
-		t.Fatal("Open() accepted an empty path")
+	if _, err := Open(""); err == nil || err.Error() != "file path must not be empty" {
+		t.Fatalf("Open() error = %v", err)
+	}
+}
+
+func TestOpenInRootHandlesRootAndChildErrors(t *testing.T) {
+	missingRoot := filepath.Join(t.TempDir(), "missing")
+	if _, err := OpenInRoot(missingRoot, "value.txt"); err == nil || !strings.Contains(err.Error(), "open filesystem root") {
+		t.Fatalf("OpenInRoot(missing root) error = %v", err)
+	}
+	root := t.TempDir()
+	if _, err := OpenInRoot(root, "missing.txt"); err == nil {
+		t.Fatal("OpenInRoot() opened a missing child")
+	}
+	path := filepath.Join(root, "value.txt")
+	if err := os.WriteFile(path, []byte("value"), 0o600); err != nil {
+		t.Fatalf("write value: %v", err)
+	}
+	file, err := OpenInRoot(root, "value.txt")
+	if err != nil {
+		t.Fatalf("OpenInRoot() error = %v", err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatalf("close value: %v", err)
+	}
+}
+
+func TestValidateRegularIdentity(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "value.txt")
+	if err := os.WriteFile(path, []byte("value"), 0o600); err != nil {
+		t.Fatalf("write value: %v", err)
+	}
+	regular, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("stat value: %v", err)
+	}
+	directory, err := os.Stat(root)
+	if err != nil {
+		t.Fatalf("stat root: %v", err)
+	}
+	sentinel := errors.New("stat failed")
+	if err := validateRegularIdentity(regular, nil, sentinel); !errors.Is(err, sentinel) {
+		t.Fatalf("validateRegularIdentity(stat error) = %v", err)
+	}
+	if err := validateRegularIdentity(regular, directory, nil); err == nil || err.Error() != "file identity changed while opening" {
+		t.Fatalf("validateRegularIdentity(directory) = %v", err)
+	}
+	if err := validateRegularIdentity(regular, regular, nil); err != nil {
+		t.Fatalf("validateRegularIdentity(same file) = %v", err)
 	}
 }
