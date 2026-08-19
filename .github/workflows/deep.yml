@@ -109,7 +109,7 @@ jobs:
             while IFS= read -r package; do
               targets=$(cd "$directory" && go test "$package" -list '^Fuzz')
               while IFS= read -r target; do
-                [[ "$target" =~ ^Fuzz[[:alnum:]_]+$ ]] || continue
+                [[ "$target" =~ ^Fuzz[[:alnum:]_]*$ ]] || continue
                 (cd "$directory" && go test "$package" -run '^$' -fuzz "^${target}$" -fuzztime "$FUZZ_TIME")
               done <<< "$targets"
             done <<< "$packages"

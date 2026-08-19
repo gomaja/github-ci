@@ -350,7 +350,7 @@ func TestDeepWorkflowContract(t *testing.T) {
 	for _, required := range []string{
 		"portability:", "fuzz-benchmark:", "mutation:", "history-refresh:", "services:",
 		"gremlins unleash", "gitleaks git", "go mod edit -json", `go list -m -u -json "${dependencies[@]}"`,
-		"go list ./...", "go test \"$package\"", "-bench .", "-fuzz",
+		"go list ./...", "go test \"$package\"", `^Fuzz[[:alnum:]_]*$`, "-bench .", "-fuzz",
 		"postgres:18.1@sha256:", "redis:8.6.1@sha256:",
 	} {
 		if !strings.Contains(text, required) {
@@ -362,6 +362,9 @@ func TestDeepWorkflowContract(t *testing.T) {
 	}
 	if strings.Contains(text, "go test ./... -run '^$' -fuzz") {
 		t.Error("deep workflow attempts to fuzz multiple packages in one go test invocation")
+	}
+	if strings.Contains(text, `^Fuzz[[:alnum:]_]+$`) {
+		t.Error("deep workflow skips the valid bare Fuzz target name")
 	}
 	if strings.Contains(text, "go list -m -u -json all") {
 		t.Error("deep workflow requires updates for transitive modules outside the root go.mod")
