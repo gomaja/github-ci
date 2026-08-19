@@ -293,7 +293,7 @@ func runCommand(t *testing.T, directory string, environment []string, name strin
 	t.Helper()
 	command := exec.CommandContext(t.Context(), name, arguments...)
 	command.Dir = directory
-	baseEnvironment := make([]string, 0, len(os.Environ())+1+len(environment))
+	baseEnvironment := make([]string, 0, len(os.Environ())+3+len(environment))
 	for _, value := range os.Environ() {
 		if !strings.HasPrefix(value, "RUNNER_TEMP=") && !strings.HasPrefix(value, "GOFLAGS=") && !strings.HasPrefix(value, "GOMAXPROCS=") {
 			baseEnvironment = append(baseEnvironment, value)

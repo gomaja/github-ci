@@ -9,7 +9,7 @@ import (
 
 var unsafeShellCommands = []*regexp.Regexp{
 	regexp.MustCompile(`(?m)(^|[[:space:];|&()])eval(?:[[:space:]'"$\\]|$)`),
-	regexp.MustCompile(`(?m)(^|[[:space:];|&()])bash[[:space:]]+-c(?:[[:space:]]|$)`),
+	regexp.MustCompile(`(?m)(^|[[:space:];|&()])(?:[[:alnum:]_.-]*/)*bash[[:space:]]+-c(?:[[:space:]'"]|$)`),
 }
 
 func TestGoPlanShellUsesQuotedArraysWithoutEvaluation(t *testing.T) {
@@ -50,6 +50,9 @@ func TestUnsafeShellCommandPatternsCoverEquivalentSpellings(t *testing.T) {
 		`eval" command"`,
 		"bash -c command",
 		"bash\t-c command",
+		"/bin/bash -c command",
+		`bash -c"command"`,
+		`./tools/bash -c'command'`,
 	} {
 		matched := false
 		for _, pattern := range unsafeShellCommands {
@@ -59,7 +62,7 @@ func TestUnsafeShellCommandPatternsCoverEquivalentSpellings(t *testing.T) {
 			t.Errorf("unsafe shell form was not detected: %q", text)
 		}
 	}
-	for _, text := range []string{"evaluate command", "bash command"} {
+	for _, text := range []string{"evaluate command", "bash command", "/bin/bashed -c command", "bash -context"} {
 		for _, pattern := range unsafeShellCommands {
 			if pattern.MatchString(text) {
 				t.Errorf("safe shell form %q matched %q", text, pattern)
