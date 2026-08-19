@@ -22,13 +22,76 @@ func TestRepositoryRequiredFiles(t *testing.T) {
 		".github/CODEOWNERS", ".github/dependabot.yml", ".github/github-ci.yaml",
 		".github/workflows/ci.yml", ".github/workflows/deep-schedule.yml",
 		".github/workflows/go.yml", ".github/workflows/deep.yml", ".github/workflows/release.yml",
+		".github/workflows/release-candidate.yml",
 		".golangci.yml", ".markdownlint-cli2.yaml",
 		"docs/adoption.md", "docs/exceptions.md", "docs/governance.md", "docs/policy.md",
-		"docs/releases.md", "docs/security-model.md", "docs/troubleshooting.md",
+		"docs/migration-v1.1.md", "docs/releases.md", "docs/security-model.md", "docs/troubleshooting.md",
 	}
 	for _, name := range files {
 		if info, err := os.Stat(filepath.Join(root, filepath.FromSlash(name))); err != nil || info.IsDir() {
 			t.Errorf("required file %s is missing", name)
+		}
+	}
+}
+
+func TestSchema2CanarySeedIsComplete(t *testing.T) {
+	t.Parallel()
+	root := filepath.Join(repositoryRoot(t), "testdata", "repositories", "go-canary")
+	file, err := os.Open(filepath.Join(root, ".github", "github-ci.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	consumer, decodeErr := config.DecodeConsumer(file)
+	closeErr := file.Close()
+	if decodeErr != nil || closeErr != nil {
+		t.Fatalf("decode canary config: %v; close: %v", decodeErr, closeErr)
+	}
+	if consumer.SchemaVersion != 2 || consumer.Profile != config.ProfileGoLibrary || consumer.Go == nil || len(consumer.Go.Modules) != 2 {
+		t.Fatalf("canary config = %#v", consumer)
+	}
+	tags := consumer.Go.Defaults.BuildTags
+	if tags == nil || len(*tags) != 2 || (*tags)[0] != "canary_a" || (*tags)[1] != "canary_b" {
+		t.Fatalf("canary build tags = %#v", tags)
+	}
+	if len(consumer.GeneratedPaths) != 1 || consumer.GeneratedPaths[0] != "generated" {
+		t.Fatalf("canary generated paths = %#v", consumer.GeneratedPaths)
+	}
+	assertCanaryFiles(t, root)
+	assertCanaryTaggedFiles(t, root)
+	assertCanaryFreshnessScript(t, root)
+}
+
+func assertCanaryFiles(t *testing.T, root string) {
+	t.Helper()
+	for _, name := range []string{
+		"go.mod", "root.go", "root_tagged.go", "generated/model.go", "internal/generate/main.go",
+		"tools/go.mod", "tools/tool.go", "tools/tool_tagged.go", "scripts/check-generated.sh",
+	} {
+		if info, statErr := os.Stat(filepath.Join(root, filepath.FromSlash(name))); statErr != nil || info.IsDir() {
+			t.Errorf("canary file %s is missing", name)
+		}
+	}
+}
+
+func assertCanaryTaggedFiles(t *testing.T, root string) {
+	t.Helper()
+	for _, name := range []string{"root_tagged.go", "tools/tool_tagged.go"} {
+		data, readErr := os.ReadFile(filepath.Join(root, filepath.FromSlash(name)))
+		if readErr != nil || !strings.Contains(string(data), "//go:build canary_a && canary_b") {
+			t.Errorf("%s does not require both canary tags", name)
+		}
+	}
+}
+
+func assertCanaryFreshnessScript(t *testing.T, root string) {
+	t.Helper()
+	script, err := os.ReadFile(filepath.Join(root, "scripts", "check-generated.sh"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, required := range []string{"go generate ./...", "git diff --exit-code -- generated", "git ls-files --others --exclude-standard -- generated"} {
+		if !strings.Contains(string(script), required) {
+			t.Errorf("canary freshness script is missing %q", required)
 		}
 	}
 }

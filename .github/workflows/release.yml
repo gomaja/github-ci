@@ -4,6 +4,10 @@ name: reusable-release
 on:
   workflow_call:
     inputs:
+      acceptance-required:
+        required: false
+        default: false
+        type: boolean
       go-version:
         required: false
         default: "1.26.6"
@@ -24,6 +28,7 @@ jobs:
   release-evidence:
     name: release evidence
     permissions:
+      actions: read  # Self-release acceptance is downloaded from this workflow run.
       id-token: write  # Provenance attestation requires an OIDC identity.
       attestations: write  # The action records provenance without publishing a release.
       contents: read
@@ -66,6 +71,12 @@ jobs:
         with:
           go-version: ${{ inputs.go-version }}
           install-tools: "false"
+      - name: Download verified release acceptance
+        if: ${{ inputs.acceptance-required }}
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: github-ci-release-acceptance
+          path: ${{ runner.temp }}/github-ci-release-acceptance
       - name: Install SBOM generators
         env:
           BIN_DIR: ${{ runner.temp }}/github-ci-bin
@@ -74,17 +85,19 @@ jobs:
         run: bash "$CENTRAL_DIR/scripts/install-scanners.sh" supply-chain
       - name: Validate tag and build deterministic evidence
         env:
+          ACCEPTANCE_RECORD: ${{ runner.temp }}/github-ci-release-acceptance/acceptance.json
+          ACCEPTANCE_REQUIRED: ${{ inputs.acceptance-required }}
           CENTRAL_DIR: ${{ github.workspace }}/github-ci
           CLI: ${{ runner.temp }}/github-ci-bin/github-ci
           EVENT_SHA: ${{ github.sha }}
           GOVERNANCE_CLI: ${{ runner.temp }}/github-ci-bin/github-ci-govern
           INCLUDE_CALLERS: ${{ inputs.include-callers }}
           REF_NAME: ${{ github.ref_name }}
-          REF_TYPE: ${{ github.ref_type }}
           REPOSITORY: ${{ github.repository }}
           REQUESTED_TAG: ${{ inputs.tag }}
           SOURCE_DIR: ${{ github.workspace }}/source
           WORKFLOW_REPOSITORY: ${{ job.workflow_repository }}
+          WORKFLOW_SHA: ${{ job.workflow_sha }}
         shell: bash
         run: |
           set -euo pipefail
@@ -95,11 +108,18 @@ jobs:
           tagged_sha=$(git -C "$SOURCE_DIR" rev-parse "refs/tags/$tag^{commit}")
           source_sha=$(git -C "$SOURCE_DIR" rev-parse HEAD)
           [[ "$source_sha" == "$tagged_sha" ]]
-          if [[ "$REF_TYPE" == "tag" ]]; then
-            [[ "$tagged_sha" == "$EVENT_SHA" ]]
-          fi
+          [[ "$tagged_sha" == "$EVENT_SHA" ]]
           mkdir -p "$SOURCE_DIR/dist"
           git -C "$SOURCE_DIR" archive --format=tar.gz --prefix="${GITHUB_REPOSITORY##*/}-$tag/" -o "$SOURCE_DIR/dist/source-$tag.tar.gz" "$tag"
+          acceptance_args=()
+          if [[ "$ACCEPTANCE_REQUIRED" == "true" ]]; then
+            [[ "$REPOSITORY" == "$WORKFLOW_REPOSITORY" ]]
+            [[ "$WORKFLOW_SHA" == "$tagged_sha" ]]
+            [[ -f "$ACCEPTANCE_RECORD" ]]
+            "$CLI" verify-acceptance-record --record "$ACCEPTANCE_RECORD" --expected-sha "$tagged_sha"
+            cp "$ACCEPTANCE_RECORD" "$SOURCE_DIR/dist/release-acceptance.json"
+            acceptance_args=(--asset dist/release-acceptance.json)
+          fi
           caller_args=()
           if [[ "$INCLUDE_CALLERS" == "true" ]]; then
             [[ "$REPOSITORY" == "$WORKFLOW_REPOSITORY" ]]
@@ -128,6 +148,7 @@ jobs:
             --asset "dist/source-$tag.tar.gz" \
             --asset dist/sbom.spdx.json \
             --asset dist/sbom.cdx.json \
+            "${acceptance_args[@]}" \
             "${caller_args[@]}" \
             --manifest "$SOURCE_DIR/dist/release-manifest.json" --checksums "$SOURCE_DIR/dist/SHA256SUMS"
           "$CLI" verify-release-evidence --root "$SOURCE_DIR" --manifest "$SOURCE_DIR/dist/release-manifest.json" --checksums "$SOURCE_DIR/dist/SHA256SUMS"

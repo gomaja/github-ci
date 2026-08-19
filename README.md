@@ -12,7 +12,9 @@ CodeQL, dependency review, secret and vulnerability scanning, SAST,
 infrastructure and workflow analysis, SBOM and license checks, API compatibility,
 repository hygiene, and an evidence-completeness gate. Scheduled deep assurance
 adds multi-platform testing, fuzzing, mutation testing, full-history secret
-scanning, dependency freshness, benchmarks, and service integration tests.
+scanning, dependency freshness, and benchmarks. Repository-specific generation,
+services, private dependencies, protocols, and system topology stay in
+consumer-owned preparation workflows.
 
 See [policy](docs/policy.md) for the complete scanner inventory and
 [security model](docs/security-model.md) for trust and permission boundaries.
@@ -32,14 +34,17 @@ go run github.com/gomaja/github-ci/cmd/github-ci-govern@<commit-sha> \
   --output ./rendered
 ```
 
-`v1.0.0` defines the first stable compatibility line. For a published release,
-resolve its immutable tag to a full commit SHA and pin that SHA in every
-reusable workflow call. Release evidence automation validates existing tags but
-never creates a tag or GitHub release.
+Do not adopt `v1.0.0`: its linked external canary failed and exercised only the
+`repository-only` profile. `v1.1.0` is an intentional one-time compatibility
+reset to schema 2 because no consumer successfully adopted v1.0.0. Adopt only
+the exact `v1.1.0` commit SHA after its release-acceptance gate succeeds.
+Release evidence automation validates existing tags but never creates, moves,
+deletes, or publishes a tag or GitHub Release.
 
 ## Documentation
 
 - [Adoption](docs/adoption.md)
+- [Migration from v1.0.0](docs/migration-v1.1.md)
 - [Policy and scanner inventory](docs/policy.md)
 - [Governance](docs/governance.md)
 - [Security model](docs/security-model.md)

@@ -17,9 +17,11 @@ import (
 	"testing/fstest"
 	"time"
 
+	"github.com/gomaja/github-ci/internal/acceptance"
 	"github.com/gomaja/github-ci/internal/config"
 	"github.com/gomaja/github-ci/internal/evidence"
 	"github.com/gomaja/github-ci/internal/gate"
+	"github.com/gomaja/github-ci/internal/goexecution"
 	"github.com/gomaja/github-ci/internal/reports"
 )
 
@@ -175,6 +177,54 @@ func TestReleaseEvidenceCommandsEndToEnd(t *testing.T) {
 	}
 }
 
+func TestVerifyAcceptanceRecordCommand(t *testing.T) {
+	record := acceptance.Record{
+		SchemaVersion:    acceptance.SchemaVersion,
+		CandidateSHA:     strings.Repeat("a", 40),
+		CanaryRepository: "acme/go-canary",
+		Runs: []acceptance.RunRecord{
+			{Kind: acceptance.RunStandard, ID: 101, Repository: "acme/go-canary", HeadRepository: "acme/go-canary", Event: "workflow_dispatch", HeadSHA: strings.Repeat("b", 40), WorkflowPath: ".github/workflows/github-ci.yml", WorkflowSHA: strings.Repeat("a", 40), GateJob: "gate / gate"},
+			{Kind: acceptance.RunDeep, ID: 102, Repository: "acme/go-canary", HeadRepository: "acme/go-canary", Event: "workflow_dispatch", HeadSHA: strings.Repeat("b", 40), WorkflowPath: ".github/workflows/github-ci-deep.yml", WorkflowSHA: strings.Repeat("a", 40), GateJob: "assurance / gate"},
+			{Kind: acceptance.RunFork, ID: 103, Repository: "acme/go-canary", HeadRepository: "forker/go-canary", Event: "pull_request", HeadSHA: strings.Repeat("c", 40), WorkflowPath: ".github/workflows/github-ci.yml", WorkflowSHA: strings.Repeat("a", 40), GateJob: "gate / gate", PullRequest: 7},
+		},
+		ConfigSHA256: strings.Repeat("d", 64),
+	}
+	data, err := acceptance.MarshalRecord(record)
+	if err != nil {
+		t.Fatalf("MarshalRecord() error = %v", err)
+	}
+	recordPath := filepath.Join(t.TempDir(), "acceptance.json")
+	if err := os.WriteFile(recordPath, data, 0o600); err != nil {
+		t.Fatalf("write acceptance record: %v", err)
+	}
+	code, _, stderr := runForTest(t, []string{"verify-acceptance-record", "--record", recordPath, "--expected-sha", record.CandidateSHA})
+	if code != exitSuccess || stderr != "" {
+		t.Fatalf("verify-acceptance-record code = %d, stderr = %q", code, stderr)
+	}
+	code, _, stderr = runForTest(t, []string{"verify-acceptance-record", "--record", recordPath, "--expected-sha", strings.Repeat("e", 40)})
+	if code != exitError || !strings.Contains(stderr, "does not match") {
+		t.Fatalf("mismatched verify code = %d, stderr = %q", code, stderr)
+	}
+}
+
+func TestAcceptanceCommandsRejectIncompleteInput(t *testing.T) {
+	tests := []struct {
+		args []string
+		want string
+	}{
+		{args: []string{"verify-acceptance"}, want: "--candidate-sha is required"},
+		{args: []string{"verify-acceptance", "--candidate-sha", "invalid", "--repository", "acme/go-canary", "--standard-run-id", "1", "--deep-run-id", "2", "--fork-run-id", "3", "--output", "out.json"}, want: "40-character"},
+		{args: []string{"verify-acceptance-record"}, want: "--record is required"},
+		{args: []string{"verify-acceptance-record", "--record", "missing", "--expected-sha", strings.Repeat("a", 40), "extra"}, want: "unexpected positional"},
+	}
+	for _, test := range tests {
+		code, _, stderr := runForTest(t, test.args)
+		if code != exitError || !strings.Contains(stderr, test.want) {
+			t.Fatalf("Run(%v) code = %d, stderr = %q, want %q", test.args, code, stderr, test.want)
+		}
+	}
+}
+
 func TestRunValidateGremlinsBindsCompleteReportToModule(t *testing.T) {
 	report := filepath.Join("..", "..", "testdata", "reports", "clean", "gremlins.json")
 	code, _, stderr := runForTest(t, []string{"validate-gremlins", "--report", report, "--module", "example.com/module"})
@@ -297,7 +347,7 @@ func TestRunGenerateRejectsInvalidState(t *testing.T) {
 
 func TestRunFilesClassifiesTrackedRepository(t *testing.T) {
 	repository := newRepository(t)
-	mustWrite(t, filepath.Join(repository, ".github", "github-ci.yaml"), "schema-version: 1\nprofile: repository-only\ngenerated:\n  - generated\n")
+	mustWrite(t, filepath.Join(repository, ".github", "github-ci.yaml"), "schema-version: 2\nprofile: repository-only\ngenerated-paths:\n  - generated\n")
 	files := map[string]string{
 		"main.go":                   "package fixture\n",
 		"generated/main.go":         "package generated\n",
@@ -582,6 +632,44 @@ func TestPreflightRejectsCheckoutAndProfileMismatches(t *testing.T) {
 	}
 }
 
+func TestRepositoryConsumerConfigCoversEveryTrackedModule(t *testing.T) {
+	repository := filepath.Clean(filepath.Join("..", ".."))
+	policy := filepath.Join(repository, "policies", "tools.yaml")
+	code, _, stderr := runForTest(t, []string{
+		"preflight", "--repository", repository, "--config", ".github/github-ci.yaml",
+		"--policy", policy, "--output", filepath.Join(t.TempDir(), "plan.json"),
+	})
+	if code != exitSuccess {
+		t.Fatalf("repository preflight code = %d, stderr = %q", code, stderr)
+	}
+	code, stdout, stderr := runForTest(t, []string{
+		"go-plan", "--repository", repository, "--config", ".github/github-ci.yaml",
+	})
+	if code != exitSuccess {
+		t.Fatalf("repository go-plan code = %d, stderr = %q", code, stderr)
+	}
+	var plan goexecution.Plan
+	if err := json.Unmarshal([]byte(stdout), &plan); err != nil {
+		t.Fatalf("decode repository go-plan: %v", err)
+	}
+	missing := map[string]bool{
+		"testdata/repositories/go-canary":       true,
+		"testdata/repositories/go-canary/tools": true,
+	}
+	for _, module := range plan.Modules {
+		if !missing[module.Path] {
+			continue
+		}
+		delete(missing, module.Path)
+		if len(module.BuildTags) != 2 || module.BuildTags[0] != "canary_a" || module.BuildTags[1] != "canary_b" {
+			t.Errorf("canary module %q build tags = %#v", module.Path, module.BuildTags)
+		}
+	}
+	if len(missing) != 0 {
+		t.Fatalf("repository Go plan is missing canary modules %#v", missing)
+	}
+}
+
 func TestConsumerModulesPropagatesWalkErrors(t *testing.T) {
 	_, err := consumerModules(readDirErrorFS{}, config.Consumer{Profile: config.ProfileRepositoryOnly})
 	if err == nil || !strings.Contains(err.Error(), "fixture read directory") {
@@ -639,7 +727,7 @@ func TestModulesApplicabilityAndAggregateCommands(t *testing.T) {
 		t.Fatalf("preflight code = %d, stderr = %q", code, stderr)
 	}
 	code, stdout, stderr := runForTest(t, []string{"modules", "--repository", repository, "--config", ".github/github-ci.yaml"})
-	if code != 0 || stdout != `{"modules":[]}`+"\n" {
+	if code != 0 || stdout != `{"profile":"repository-only","modules":[]}`+"\n" {
 		t.Fatalf("modules code = %d, stdout = %q, stderr = %q", code, stdout, stderr)
 	}
 	code, _, stderr = runForTest(t, []string{"applicable", "--plan", planPath, "--tool", "shellcheck", "--command-id", "shellcheck/scripts"})
@@ -759,7 +847,7 @@ func newRepository(t *testing.T) string {
 	if err := os.MkdirAll(filepath.Join(root, ".github"), 0o755); err != nil {
 		t.Fatalf("create .github: %v", err)
 	}
-	mustWrite(t, filepath.Join(root, ".github", "github-ci.yaml"), "schema-version: 1\nprofile: repository-only\n")
+	mustWrite(t, filepath.Join(root, ".github", "github-ci.yaml"), "schema-version: 2\nprofile: repository-only\n")
 	for _, args := range [][]string{
 		{"init", "-b", "main"},
 		{"config", "user.name", "gomaja"},

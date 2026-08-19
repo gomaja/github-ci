@@ -179,19 +179,151 @@ func TestBuildPlanRefusesUnexpectedRepositoryScope(t *testing.T) {
 }
 
 func TestBranchRulesetRequiresObservedStatusWithoutCallerEnforcement(t *testing.T) {
-	repository := config.Repository{ObservedRequiredCheck: "gate / gate"}
+	repository := config.Repository{ObservedRequiredChecks: []string{"gate / gate", "generated / verify"}}
 	ruleset := branchRuleset(repository)
 	for _, rule := range ruleset.Rules {
 		if rule.Type != "required_status_checks" {
 			continue
 		}
 		checks, ok := rule.Parameters["required_status_checks"].([]map[string]string)
-		if !ok || len(checks) != 1 || checks[0]["context"] != "gate / gate" {
+		if !ok || len(checks) != 2 || checks[0]["context"] != "gate / gate" || checks[1]["context"] != "generated / verify" {
 			t.Fatalf("required status checks = %#v", rule.Parameters["required_status_checks"])
 		}
 		return
 	}
 	t.Fatal("branch ruleset has no required status check")
+}
+
+func TestBuildPlanAddsEveryObservedRequiredCheckInOneExactMutation(t *testing.T) {
+	github, client, manifest := convergedFakeGitHub(t)
+	manifest.Defaults.RequiredChecks = []string{"github-ci / gate", "generated / verify"}
+	manifest.Repositories[0].EnforceCaller = true
+	manifest.Repositories[0].WorkflowSHA = strings.Repeat("a", 40)
+	manifest.Repositories[0].ObservedRequiredChecks = []string{"generated / verify", "github-ci / gate"}
+
+	plan, err := BuildPlan(context.Background(), client, manifest)
+	if err != nil {
+		t.Fatalf("BuildPlan() error = %v", err)
+	}
+	if len(plan.Operations) != 1 || plan.Operations[0].Kind != "update-ruleset" {
+		t.Fatalf("Operations = %#v, want one update-ruleset", plan.Operations)
+	}
+	if got := requiredCheckContexts(t, plan.Operations[0].Body); !slices.Equal(got, []string{"generated / verify", "github-ci / gate"}) {
+		t.Fatalf("required checks = %#v", got)
+	}
+
+	if err := Apply(context.Background(), client, manifest, plan, plan.ID); err != nil {
+		t.Fatalf("Apply() error = %v", err)
+	}
+	clean, err := BuildPlan(context.Background(), client, manifest)
+	if err != nil {
+		t.Fatalf("clean BuildPlan() error = %v", err)
+	}
+	if len(clean.Operations) != 0 {
+		t.Fatalf("clean Operations = %#v", clean.Operations)
+	}
+	if github.mutations == 0 {
+		t.Fatal("fake GitHub observed no mutation")
+	}
+}
+
+func TestBuildPlanRejectsUnobservedBaselineRequiredCheck(t *testing.T) {
+	github := newFakeGitHub()
+	server := httptest.NewServer(github)
+	t.Cleanup(server.Close)
+	client := Client{BaseURL: server.URL, APIVersion: "2026-03-10", HTTP: server.Client()}
+	manifest := testGovernance()
+	manifest.Defaults.RequiredChecks = []string{"github-ci / gate", "generated / verify"}
+	manifest.Repositories[0].EnforceCaller = true
+	manifest.Repositories[0].WorkflowSHA = strings.Repeat("a", 40)
+	manifest.Repositories[0].ObservedRequiredChecks = []string{"github-ci / gate"}
+
+	_, err := BuildPlan(context.Background(), client, manifest)
+	if err == nil || !strings.Contains(err.Error(), `required check "generated / verify" has not been observed`) {
+		t.Fatalf("BuildPlan() error = %v, want unobserved-check rejection", err)
+	}
+}
+
+func TestBuildPlanIgnoresLiveRequiredCheckOrdering(t *testing.T) {
+	github, client, manifest := convergedFakeGitHub(t)
+	manifest.Defaults.RequiredChecks = []string{"generated / verify", "github-ci / gate"}
+	manifest.Repositories[0].ObservedRequiredChecks = []string{"generated / verify", "github-ci / gate"}
+	desired := branchRuleset(manifest.Repositories[0])
+	for index := range desired.Rules {
+		if desired.Rules[index].Type != "required_status_checks" {
+			continue
+		}
+		desired.Rules[index].Parameters["required_status_checks"] = []map[string]string{
+			{"context": "github-ci / gate"},
+			{"context": "generated / verify"},
+		}
+	}
+	github.mu.Lock()
+	github.rulesets[1] = desired
+	github.mu.Unlock()
+
+	plan, err := BuildPlan(context.Background(), client, manifest)
+	if err != nil {
+		t.Fatalf("BuildPlan() error = %v", err)
+	}
+	if len(plan.Operations) != 0 {
+		t.Fatalf("Operations = %#v, want ordering-only drift ignored", plan.Operations)
+	}
+}
+
+func TestApplyRevalidatesRequiredChecksBeforeMutation(t *testing.T) {
+	github, client, manifest := convergedFakeGitHub(t)
+	manifest.Defaults.RequiredChecks = []string{"generated / verify", "github-ci / gate"}
+	manifest.Repositories[0].ObservedRequiredChecks = []string{"generated / verify", "github-ci / gate"}
+	plan, err := BuildPlan(context.Background(), client, manifest)
+	if err != nil {
+		t.Fatalf("BuildPlan() error = %v", err)
+	}
+	if len(plan.Operations) != 1 {
+		t.Fatalf("Operations = %#v, want one approved mutation", plan.Operations)
+	}
+
+	github.mu.Lock()
+	github.rulesets[1] = branchRuleset(config.Repository{ObservedRequiredChecks: []string{"concurrent / check"}})
+	mutations := github.mutations
+	github.mu.Unlock()
+	if err := Apply(context.Background(), client, manifest, plan, plan.ID); err == nil || !strings.Contains(err.Error(), "no longer matches") {
+		t.Fatalf("Apply() error = %v, want concurrent required-check drift", err)
+	}
+	github.mu.Lock()
+	defer github.mu.Unlock()
+	if github.mutations != mutations {
+		t.Fatalf("mutations = %d, want %d", github.mutations, mutations)
+	}
+}
+
+func requiredCheckContexts(t *testing.T, data json.RawMessage) []string {
+	t.Helper()
+	var payload struct {
+		Rules []struct {
+			Type       string `json:"type"`
+			Parameters struct {
+				Checks []struct {
+					Context string `json:"context"`
+				} `json:"required_status_checks"`
+			} `json:"parameters"`
+		} `json:"rules"`
+	}
+	if err := json.Unmarshal(data, &payload); err != nil {
+		t.Fatalf("decode ruleset operation: %v", err)
+	}
+	for _, rule := range payload.Rules {
+		if rule.Type != "required_status_checks" {
+			continue
+		}
+		contexts := make([]string, len(rule.Parameters.Checks))
+		for index, check := range rule.Parameters.Checks {
+			contexts[index] = check.Context
+		}
+		return contexts
+	}
+	t.Fatal("ruleset operation has no required status checks")
+	return nil
 }
 
 func TestDependabotAlertsNotFoundProducesExactEnableOperation(t *testing.T) {
@@ -522,11 +654,11 @@ func validEmptyPlan(apiVersion string) Plan {
 
 func testGovernance() config.Governance {
 	return config.Governance{
-		SchemaVersion: 1,
+		SchemaVersion: 2,
 		APIVersion:    "2026-03-10",
 		Owners:        []config.Owner{{Name: "gomaja", Type: "user"}},
 		Defaults: config.GovernanceDefaults{
-			Profile: config.ProfileGoStrict, DefaultBranch: "main", RequiredCheck: "github-ci / gate",
+			Profile: config.ProfileGoStrict, DefaultBranch: "main", RequiredChecks: []string{"github-ci / gate"},
 			PublicOnly: true, RefuseForks: true, RefuseArchived: true, RefusePrivate: true, RefuseUnexpectedOwners: true,
 		},
 		Repositories: []config.Repository{{Name: "example", Owner: "gomaja", EnforceCaller: false}},

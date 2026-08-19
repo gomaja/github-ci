@@ -45,7 +45,7 @@ func TestDetectRepositoryShapes(t *testing.T) {
 			fixture: "go-multi",
 			consumer: func() config.Consumer {
 				value := consumer(config.ProfileGoStrict)
-				value.Modules = []config.Module{".", "services/api"}
+				value.Go = &config.Go{Modules: []config.GoModule{{Path: "."}, {Path: "services/api"}}}
 				return value
 			}(),
 			expected: map[string]evidence.Applicability{
@@ -57,7 +57,7 @@ func TestDetectRepositoryShapes(t *testing.T) {
 			fixture: "go-generated",
 			consumer: func() config.Consumer {
 				value := consumer(config.ProfileGoLibrary)
-				value.Generated = []string{"generated"}
+				value.GeneratedPaths = []string{"generated"}
 				return value
 			}(),
 			expected: map[string]evidence.Applicability{
@@ -442,15 +442,17 @@ func TestInspectClassifiesExactFileShapes(t *testing.T) {
 
 func TestIsGeneratedUsesDirectoryBoundaries(t *testing.T) {
 	for _, test := range []struct {
-		name string
-		want bool
+		name      string
+		generated []string
+		want      bool
 	}{
-		{name: "generated", want: true},
-		{name: "generated/file.go", want: true},
-		{name: "generated-other/file.go", want: false},
-		{name: "other/file.go", want: false},
+		{name: "generated", generated: []string{"generated"}, want: true},
+		{name: "generated/file.go", generated: []string{"generated"}, want: true},
+		{name: "generated-other/file.go", generated: []string{"generated"}, want: false},
+		{name: "other/file.go", generated: []string{"generated"}, want: false},
+		{name: "root/file.go", generated: []string{"."}, want: true},
 	} {
-		if got := isGenerated(test.name, []string{"generated"}); got != test.want {
+		if got := isGenerated(test.name, test.generated); got != test.want {
 			t.Errorf("isGenerated(%q) = %t, want %t", test.name, got, test.want)
 		}
 	}
@@ -547,12 +549,12 @@ func TestDetectRejectsInvalidOrContradictoryInput(t *testing.T) {
 		{name: "repository profile with module", tracked: fstest.MapFS{"go.mod": &fstest.MapFile{Data: []byte("module example.com/bad\n")}}, input: validInput(config.ProfileRepositoryOnly), want: "would omit tracked Go modules"},
 		{name: "configured module missing", tracked: fstest.MapFS{"go.mod": &fstest.MapFile{Data: []byte("module example.com/root\n")}}, input: func() Input {
 			value := validInput(config.ProfileGoStrict)
-			value.Consumer.Modules = []config.Module{".", "missing"}
+			value.Consumer.Go = &config.Go{Modules: []config.GoModule{{Path: "."}, {Path: "missing"}}}
 			return value
 		}(), want: "configured module"},
 		{name: "tracked module omitted", tracked: fstest.MapFS{"go.mod": &fstest.MapFile{}, "services/api/go.mod": &fstest.MapFile{}}, input: func() Input {
 			value := validInput(config.ProfileGoStrict)
-			value.Consumer.Modules = []config.Module{"."}
+			value.Consumer.Go = &config.Go{Modules: []config.GoModule{{Path: "."}}}
 			return value
 		}(), want: "omits tracked module"},
 		{name: "exceptions manifest not tracked", tracked: fstest.MapFS{"README.md": &fstest.MapFile{}}, input: func() Input {
@@ -661,7 +663,7 @@ func (info singleFileInfo) IsDir() bool       { return info.mode.IsDir() }
 func (singleFileInfo) Sys() any               { return nil }
 
 func consumer(profile config.Profile) config.Consumer {
-	return config.Consumer{SchemaVersion: 1, Profile: profile}
+	return config.Consumer{SchemaVersion: 2, Profile: profile}
 }
 
 func validInput(profile config.Profile) Input {

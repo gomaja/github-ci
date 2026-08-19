@@ -20,5 +20,3 @@ jobs:
       contents: read
       security-events: write  # CodeQL publishes results evaluated by the local gate.
     uses: ./.github/workflows/go.yml
-    with:
-      profile: go-strict

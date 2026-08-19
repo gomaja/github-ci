@@ -4,7 +4,7 @@ GOIMPORTS ?= $(HOME)/go/bin/goimports
 GOPLS ?= $(HOME)/go/bin/gopls
 STATICCHECK ?= $(HOME)/go/bin/staticcheck
 
-.PHONY: build format-check generate lint test test-race verify verify-generated vet
+.PHONY: build format-check generate gopls lint test test-race verify verify-generated vet
 
 build:
 	$(GO) build ./...
@@ -26,11 +26,13 @@ lint:
 	$(STATICCHECK) ./...
 	$(GOLANGCI_LINT) run --config configs/golangci.yml ./...
 
+gopls:
+	git ls-files -z '*.go' ':!testdata/repositories/**' | xargs -0 $(GOPLS) check
+
 generate:
 	$(GO) run ./cmd/github-ci generate --root .
 
 verify-generated:
 	$(GO) run ./cmd/github-ci verify-generated --root .
 
-verify: format-check verify-generated build test test-race vet lint
-	$(GOPLS) check $$(git ls-files '*.go' ':!testdata/repositories/**')
+verify: format-check verify-generated build test test-race vet lint gopls

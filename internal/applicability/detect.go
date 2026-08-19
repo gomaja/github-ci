@@ -72,7 +72,7 @@ func Detect(tracked fs.FS, input Input) (evidence.Plan, error) {
 	}) {
 		return evidence.Plan{}, fmt.Errorf("configured exceptions manifest %q is not tracked", input.Consumer.Exceptions)
 	}
-	shape := inspect(files, input.Consumer.Generated)
+	shape := inspect(files, input.Consumer.GeneratedPaths)
 	if err := validateModules(input.Consumer, shape.modules); err != nil {
 		return evidence.Plan{}, err
 	}
@@ -213,12 +213,12 @@ func validateModules(consumer config.Consumer, detected []string) error {
 	if !isGoProfile && len(detected) != 0 {
 		return fmt.Errorf("profile %q would omit tracked Go modules", consumer.Profile)
 	}
-	if len(consumer.Modules) == 0 {
+	if consumer.Go == nil || len(consumer.Go.Modules) == 0 {
 		return nil
 	}
-	configured := make([]string, len(consumer.Modules))
-	for index, module := range consumer.Modules {
-		configured[index] = string(module)
+	configured := make([]string, len(consumer.Go.Modules))
+	for index, module := range consumer.Go.Modules {
+		configured[index] = string(module.Path)
 	}
 	slices.Sort(configured)
 	for _, module := range configured {
@@ -263,7 +263,7 @@ func capabilityApplies(capability Capability, shape repositoryShape) bool {
 
 func isGenerated(name string, generated []string) bool {
 	for _, prefix := range generated {
-		if name == prefix || strings.HasPrefix(name, prefix+"/") {
+		if prefix == "." || name == prefix || strings.HasPrefix(name, prefix+"/") {
 			return true
 		}
 	}

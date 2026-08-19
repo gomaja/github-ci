@@ -33,29 +33,27 @@ type Owner struct {
 
 // GovernanceDefaults is the policy shared by all governed repositories.
 type GovernanceDefaults struct {
-	Profile                Profile `yaml:"profile"`
-	DefaultBranch          string  `yaml:"default-branch"`
-	RequiredCheck          string  `yaml:"required-check"`
-	PublicOnly             bool    `yaml:"public-only"`
-	RefuseForks            bool    `yaml:"refuse-forks"`
-	RefuseArchived         bool    `yaml:"refuse-archived"`
-	RefusePrivate          bool    `yaml:"refuse-private"`
-	RefuseUnexpectedOwners bool    `yaml:"refuse-unexpected-owners"`
+	Profile                Profile  `yaml:"profile"`
+	DefaultBranch          string   `yaml:"default-branch"`
+	RequiredChecks         []string `yaml:"required-checks"`
+	PublicOnly             bool     `yaml:"public-only"`
+	RefuseForks            bool     `yaml:"refuse-forks"`
+	RefuseArchived         bool     `yaml:"refuse-archived"`
+	RefusePrivate          bool     `yaml:"refuse-private"`
+	RefuseUnexpectedOwners bool     `yaml:"refuse-unexpected-owners"`
 }
 
 // Repository adds repository-specific applicability and caller policy.
 type Repository struct {
-	Name                  string    `yaml:"name"`
-	Owner                 string    `yaml:"owner,omitempty"`
-	Profile               Profile   `yaml:"profile,omitempty"`
-	Modules               []Module  `yaml:"modules,omitempty"`
-	BuildTags             []string  `yaml:"build-tags,omitempty"`
-	Services              []Service `yaml:"services,omitempty"`
-	Generated             []string  `yaml:"generated,omitempty"`
-	Exceptions            string    `yaml:"exceptions,omitempty"`
-	EnforceCaller         bool      `yaml:"enforce-caller"`
-	WorkflowSHA           string    `yaml:"workflow-sha,omitempty"`
-	ObservedRequiredCheck string    `yaml:"observed-required-check,omitempty"`
+	Name                   string   `yaml:"name"`
+	Owner                  string   `yaml:"owner,omitempty"`
+	Profile                Profile  `yaml:"profile,omitempty"`
+	Go                     *Go      `yaml:"go,omitempty"`
+	GeneratedPaths         []string `yaml:"generated-paths,omitempty"`
+	Exceptions             string   `yaml:"exceptions,omitempty"`
+	EnforceCaller          bool     `yaml:"enforce-caller"`
+	WorkflowSHA            string   `yaml:"workflow-sha,omitempty"`
+	ObservedRequiredChecks []string `yaml:"observed-required-checks,omitempty"`
 }
 
 // DecodeGovernance parses and validates exactly one strict YAML document.
@@ -104,7 +102,7 @@ func (governance Governance) Validate() error {
 
 	repositories := make(map[string]struct{}, len(governance.Repositories))
 	for _, repository := range governance.Repositories {
-		if err := repository.validate(governance.Defaults.Profile, owners); err != nil {
+		if err := repository.validate(governance.Defaults, owners); err != nil {
 			return err
 		}
 		if _, exists := repositories[repository.Name]; exists {
@@ -125,8 +123,18 @@ func (defaults GovernanceDefaults) validate() error {
 	if err := validateText("default-branch", defaults.DefaultBranch); err != nil {
 		return err
 	}
-	if err := validateText("required-check", defaults.RequiredCheck); err != nil {
-		return err
+	if len(defaults.RequiredChecks) == 0 {
+		return errors.New("at least one required check is required")
+	}
+	checks := make(map[string]struct{}, len(defaults.RequiredChecks))
+	for _, check := range defaults.RequiredChecks {
+		if err := validateText("required check", check); err != nil {
+			return err
+		}
+		if _, exists := checks[check]; exists {
+			return fmt.Errorf("duplicate required check %q", check)
+		}
+		checks[check] = struct{}{}
 	}
 	if !defaults.PublicOnly {
 		return errors.New("public-only must be true")
@@ -146,7 +154,7 @@ func (defaults GovernanceDefaults) validate() error {
 	return nil
 }
 
-func (repository Repository) validate(defaultProfile Profile, owners map[string]struct{}) error {
+func (repository Repository) validate(defaults GovernanceDefaults, owners map[string]struct{}) error {
 	if err := validateText("repository name", repository.Name); err != nil {
 		return err
 	}
@@ -164,35 +172,52 @@ func (repository Repository) validate(defaultProfile Profile, owners map[string]
 
 	profile := repository.Profile
 	if profile == "" {
-		profile = defaultProfile
+		profile = defaults.Profile
 	}
 	consumer := Consumer{
-		SchemaVersion: schemaVersion,
-		Profile:       profile,
-		Modules:       repository.Modules,
-		BuildTags:     repository.BuildTags,
-		Services:      repository.Services,
-		Generated:     repository.Generated,
-		Exceptions:    repository.Exceptions,
+		SchemaVersion:  schemaVersion,
+		Profile:        profile,
+		Go:             repository.Go,
+		GeneratedPaths: repository.GeneratedPaths,
+		Exceptions:     repository.Exceptions,
 	}
 	if err := consumer.Validate(); err != nil {
 		return fmt.Errorf("repository %q: %w", repository.Name, err)
 	}
 
+	return validateRepositoryCallerPolicy(repository, defaults.RequiredChecks)
+}
+
+func validateRepositoryCallerPolicy(repository Repository, requiredChecks []string) error {
 	if repository.WorkflowSHA != "" && !workflowSHAPattern.MatchString(repository.WorkflowSHA) {
 		return fmt.Errorf("repository %q workflow-sha must be an immutable 40-character lowercase hexadecimal commit SHA", repository.Name)
 	}
-	if repository.ObservedRequiredCheck != "" {
-		if err := validateText("observed-required-check", repository.ObservedRequiredCheck); err != nil {
+	if repository.ObservedRequiredChecks != nil && len(repository.ObservedRequiredChecks) == 0 {
+		return fmt.Errorf("repository %q: observed-required-checks must not be empty", repository.Name)
+	}
+	observed := make(map[string]struct{}, len(repository.ObservedRequiredChecks))
+	for _, check := range repository.ObservedRequiredChecks {
+		if err := validateText("observed required check", check); err != nil {
 			return fmt.Errorf("repository %q: %w", repository.Name, err)
+		}
+		if _, exists := observed[check]; exists {
+			return fmt.Errorf("repository %q has duplicate observed required check %q", repository.Name, check)
+		}
+		observed[check] = struct{}{}
+	}
+	if len(observed) != 0 {
+		for _, required := range requiredChecks {
+			if _, exists := observed[required]; !exists {
+				return fmt.Errorf("repository %q: required check %q has not been observed", repository.Name, required)
+			}
 		}
 	}
 	if repository.EnforceCaller {
 		if repository.WorkflowSHA == "" {
 			return fmt.Errorf("repository %q workflow-sha must be an immutable 40-character lowercase hexadecimal commit SHA", repository.Name)
 		}
-		if repository.ObservedRequiredCheck == "" {
-			return fmt.Errorf("repository %q: observed-required-check must not be empty", repository.Name)
+		if len(repository.ObservedRequiredChecks) == 0 {
+			return fmt.Errorf("repository %q: observed-required-checks must not be empty", repository.Name)
 		}
 	}
 	return nil

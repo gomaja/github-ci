@@ -36,13 +36,11 @@ func RenderCallers(manifest config.Governance, output, workflowSHA, onlyReposito
 		}
 		profile := repositoryProfile(repository.Profile, manifest.Defaults.Profile)
 		consumer := config.Consumer{
-			SchemaVersion: 1,
-			Profile:       profile,
-			Modules:       repository.Modules,
-			BuildTags:     repository.BuildTags,
-			Services:      repository.Services,
-			Generated:     repository.Generated,
-			Exceptions:    repository.Exceptions,
+			SchemaVersion:  2,
+			Profile:        profile,
+			Go:             repository.Go,
+			GeneratedPaths: repository.GeneratedPaths,
+			Exceptions:     repository.Exceptions,
 		}
 		consumerYAML, err := yaml.Marshal(consumer)
 		if err != nil {
@@ -51,7 +49,7 @@ func RenderCallers(manifest config.Governance, output, workflowSHA, onlyReposito
 		root := filepath.Join(output, owner, repository.Name)
 		files := map[string][]byte{
 			filepath.Join(".github", "github-ci.yaml"):                     consumerYAML,
-			filepath.Join(".github", "workflows", "github-ci.yml"):         []byte(standardCaller(workflowSHA, profile)),
+			filepath.Join(".github", "workflows", "github-ci.yml"):         []byte(standardCaller(workflowSHA)),
 			filepath.Join(".github", "workflows", "github-ci-deep.yml"):    []byte(deepCaller(workflowSHA)),
 			filepath.Join(".github", "workflows", "github-ci-release.yml"): []byte(releaseCaller(workflowSHA)),
 		}
@@ -75,7 +73,7 @@ func repositoryProfile(configured, fallback config.Profile) config.Profile {
 	return fallback
 }
 
-func standardCaller(sha string, profile config.Profile) string {
+func standardCaller(sha string) string {
 	return fmt.Sprintf(`# github-ci commit %s
 name: github-ci
 
@@ -95,9 +93,7 @@ jobs:
       contents: read
       security-events: write  # CodeQL publishes results evaluated by the local gate.
     uses: gomaja/github-ci/.github/workflows/go.yml@%s
-    with:
-      profile: %s
-`, sha, sha, profile)
+`, sha, sha)
 }
 
 func deepCaller(sha string) string {

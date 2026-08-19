@@ -1,0 +1,21 @@
+schema-version: 2
+profile: go-library
+go:
+  defaults:
+    packages: [., ./generated]
+    module-mode: readonly
+    build-tags: [canary_a, canary_b]
+    test-timeout: 12m
+    package-parallelism: 3
+    race-parallelism: 1
+    coverage-packages: [.]
+  modules:
+    - path: .
+    - path: tools
+      packages: [.]
+      module-mode: mod
+      test-timeout: 7m
+      package-parallelism: 2
+      coverage-packages: []
+generated-paths:
+  - generated

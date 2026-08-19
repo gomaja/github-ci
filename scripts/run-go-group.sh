@@ -5,6 +5,7 @@ set -euo pipefail
 : "${SOURCE_DIR:?}"
 : "${CENTRAL_DIR:?}"
 : "${PLAN_PATH:?}"
+: "${GO_PLAN_PATH:?}"
 : "${CONFIG_PATH:?}"
 : "${OUTPUT_DIR:?}"
 
@@ -13,15 +14,35 @@ if [[ -n ${RUNNER_TEMP:-} ]]; then
 fi
 
 group=${1:?group is required}
+source "$CENTRAL_DIR/scripts/load-go-plan.sh"
 records="$OUTPUT_DIR/records"
 reports="$OUTPUT_DIR/reports"
 parts="$OUTPUT_DIR/parts"
 mkdir -p "$records" "$reports" "$parts"
 
-modules=()
-while IFS= read -r module; do
-	modules+=("$module")
-done < <("$GITHUB_CI_CLI" modules --repository "$SOURCE_DIR" --config "$CONFIG_PATH" | jq -r '.modules[]')
+load_go_modules "$GO_PLAN_PATH"
+modules=("${GO_PLAN_MODULE_PATHS[@]}")
+
+module_directory() {
+	local index=$1
+	if [[ "${GO_PLAN_MODULE_DIRECTORIES[$index]}" == "." ]]; then
+		printf '%s' "$SOURCE_DIR"
+	else
+		printf '%s' "$SOURCE_DIR/${GO_PLAN_MODULE_DIRECTORIES[$index]}"
+	fi
+}
+
+execute_planned() {
+	local index=$1 tool=$2 directory
+	shift 2
+	load_go_invocation "$GO_PLAN_PATH" "$index" "$tool"
+	directory=$(module_directory "$index")
+	if ((${#GO_PLAN_ENVIRONMENT[@]} == 0)); then
+		(cd "$directory" && "${GO_PLAN_ARGUMENTS[@]}" "$@")
+	else
+		(cd "$directory" && env "${GO_PLAN_ENVIRONMENT[@]}" "${GO_PLAN_ARGUMENTS[@]}" "$@")
+	fi
+}
 
 safe_name() {
 	printf '%s' "${1//\//--}"
@@ -132,12 +153,12 @@ run_module_command() {
 		return 0
 	fi
 	((applicability == 0)) || return "$applicability"
-	local overall=0 index=0 module module_dir native name coverage
+	local overall=0 index module module_dir native name coverage
 	local -a aggregate_inputs files
 	name=$(safe_name "$tool--$command_id")
-	for module in "${modules[@]}"; do
-		module_dir="$SOURCE_DIR"
-		[[ "$module" == "." ]] || module_dir="$SOURCE_DIR/$module"
+	for index in "${!modules[@]}"; do
+		module=${modules[$index]}
+		module_dir=$(module_directory "$index")
 		native="$parts/$name-$index.native"
 		set +e
 		case "$command_id" in
@@ -147,12 +168,12 @@ run_module_command() {
 			printf '{"schema_version":"1","execution_successful":%s}\n' "$([[ $status -eq 0 ]] && printf true || printf false)" >"$native"
 			;;
 		go/build)
-			(cd "$module_dir" && go build ./...)
+			execute_planned "$index" build
 			status=$?
 			printf '{"schema_version":"1","execution_successful":%s}\n' "$([[ $status -eq 0 ]] && printf true || printf false)" >"$native"
 			;;
 		go/vet)
-			(cd "$module_dir" && go vet ./...)
+			execute_planned "$index" vet
 			status=$?
 			printf '{"schema_version":"1","execution_successful":%s}\n' "$([[ $status -eq 0 ]] && printf true || printf false)" >"$native"
 			;;
@@ -165,33 +186,43 @@ run_module_command() {
 			if ((${#files[@]} == 0)); then
 				status=0
 			else
-				(cd "$module_dir" && gopls check "${files[@]}") >>"$native" 2>&1
+				execute_planned "$index" gopls "${files[@]}" >>"$native" 2>&1
 				status=$?
 			fi
 			;;
 		go/test)
 			coverage="$parts/$name-$index.coverage"
-			(cd "$module_dir" && gotestsum --format standard-quiet --junitfile "$native" -- -count=1 -covermode=atomic -coverprofile="$coverage" ./...)
+			load_go_invocation "$GO_PLAN_PATH" "$index" test
+			if ((${#GO_PLAN_ENVIRONMENT[@]} == 0)); then
+				(cd "$module_dir" && gotestsum --format standard-quiet --junitfile "$native" -- "${GO_PLAN_ARGUMENTS[@]:2}" -coverprofile="$coverage")
+			else
+				(cd "$module_dir" && env "${GO_PLAN_ENVIRONMENT[@]}" gotestsum --format standard-quiet --junitfile "$native" -- "${GO_PLAN_ARGUMENTS[@]:2}" -coverprofile="$coverage")
+			fi
 			status=$?
 			if [[ -s "$coverage" ]]; then
 				gocover-cobertura <"$coverage" >"$parts/$name-$index.cobertura.xml"
 			fi
 			;;
 		go/race)
-			(cd "$module_dir" && gotestsum --format standard-quiet --junitfile "$native" -- -count=1 -race ./...)
+			load_go_invocation "$GO_PLAN_PATH" "$index" race
+			if ((${#GO_PLAN_ENVIRONMENT[@]} == 0)); then
+				(cd "$module_dir" && gotestsum --format standard-quiet --junitfile "$native" -- "${GO_PLAN_ARGUMENTS[@]:2}")
+			else
+				(cd "$module_dir" && env "${GO_PLAN_ENVIRONMENT[@]}" gotestsum --format standard-quiet --junitfile "$native" -- "${GO_PLAN_ARGUMENTS[@]:2}")
+			fi
 			status=$?
 			;;
 		staticcheck/default)
 			printf '{"schema_version":"1","parser":"staticcheck-jsonl-v1","execution_successful":true}\n' >"$native"
-			(cd "$module_dir" && staticcheck -f json ./...) >>"$native"
+			execute_planned "$index" staticcheck >>"$native"
 			status=$?
 			;;
 		golangci-lint/default)
-			(cd "$module_dir" && golangci-lint run --config "$CENTRAL_DIR/configs/golangci.yml" --output.text.path /dev/null --output.json.path "$native" ./...)
+			execute_planned "$index" golangci-lint --config "$CENTRAL_DIR/configs/golangci.yml" --output.text.path /dev/null --output.json.path "$native"
 			status=$?
 			;;
 		govulncheck/modules)
-			(cd "$module_dir" && govulncheck -json ./...) >"$native"
+			execute_planned "$index" govulncheck >"$native"
 			status=$?
 			;;
 		*)
@@ -203,11 +234,25 @@ run_module_command() {
 		[[ -s "$native" ]] || return 2
 		((status == 0)) || overall=1
 		aggregate_inputs+=("$module=$native")
-		((index += 1))
 	done
 	local report="$reports/$name.native"
 	aggregate_parts "$parser" "$report" "${aggregate_inputs[@]}"
 	record_result "$tool" "$command_id" "$version" "$report" "$overall"
+}
+
+run_unrecorded_group() {
+	local mode=$1 index
+	for index in "${!modules[@]}"; do
+		case "$mode" in
+		compatibility)
+			execute_planned "$index" build
+			execute_planned "$index" test
+			;;
+		codeql-build)
+			execute_planned "$index" build
+			;;
+		esac
+	done
 }
 
 case "$group" in
@@ -229,6 +274,9 @@ analysis)
 	run_module_command staticcheck staticcheck/default "$(staticcheck -version)" staticcheck
 	run_module_command golangci-lint golangci-lint/default 2.12.2 golangci-lint
 	run_module_command govulncheck govulncheck/modules 1.7.0 govulncheck
+	;;
+compatibility | codeql-build)
+	run_unrecorded_group "$group"
 	;;
 *)
 	printf 'unsupported Go group: %s\n' "$group" >&2

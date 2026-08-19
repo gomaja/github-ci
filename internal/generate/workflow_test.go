@@ -24,6 +24,7 @@ func TestGoWorkflowContract(t *testing.T) {
 	jobs := assertWorkflowJobs(t, workflow)
 	assertWorkflowJobContracts(t, jobs)
 	assertWorkflowExecutionContracts(t, jobs)
+	assertGoPlanWorkflowContract(t, jobs, string(data))
 	assertBootstrapNetworkAccess(t, jobs)
 	assertScannerRuntimeContracts(t, jobs)
 	assertWorkflowTextContracts(t, string(data))
@@ -94,15 +95,74 @@ func TestGeneratedWorkflowsBindHelpersToDefiningWorkflow(t *testing.T) {
 	}
 }
 
+func TestBootstrapBuildsFromItsActionBoundRepository(t *testing.T) {
+	data, err := os.ReadFile("../../actions/bootstrap/action.yml")
+	if err != nil {
+		t.Fatalf("read bootstrap action: %v", err)
+	}
+	text := string(data)
+	if !strings.Contains(text, `CENTRAL_DIR: ${{ github.action_path }}/../..`) {
+		t.Error("bootstrap action does not derive its repository from github.action_path")
+	}
+	if strings.Contains(text, `CENTRAL_DIR: ${{ github.workspace }}/github-ci`) {
+		t.Error("bootstrap action assumes a workspace checkout named github-ci")
+	}
+}
+
+func TestStandardAndDeepWorkflowsUploadDistinctArtifacts(t *testing.T) {
+	standard := uploadedArtifactNames(t, "../../.github/workflows/go.yml")
+	deep := uploadedArtifactNames(t, "../../.github/workflows/deep.yml")
+	for name := range standard {
+		if _, exists := deep[name]; exists {
+			t.Errorf("standard and deep workflows both upload artifact %q", name)
+		}
+	}
+}
+
+func uploadedArtifactNames(t *testing.T, name string) map[string]struct{} {
+	t.Helper()
+	data, err := os.ReadFile(name)
+	if err != nil {
+		t.Fatalf("read %s: %v", name, err)
+	}
+	var workflow map[string]any
+	if err := yaml.Unmarshal(data, &workflow); err != nil {
+		t.Fatalf("decode %s: %v", name, err)
+	}
+	names := map[string]struct{}{}
+	for jobName, rawJob := range mapping(t, workflow["jobs"], name+" jobs") {
+		job := mapping(t, rawJob, name+" job "+jobName)
+		steps, _ := job["steps"].([]any)
+		for _, rawStep := range steps {
+			step := mapping(t, rawStep, name+" job "+jobName+" step")
+			uses, _ := step["uses"].(string)
+			if !strings.HasPrefix(uses, "actions/upload-artifact@") {
+				continue
+			}
+			with := mapping(t, step["with"], name+" job "+jobName+" upload.with")
+			artifact, ok := with["name"].(string)
+			if !ok || artifact == "" {
+				t.Fatalf("%s job %s upload has no literal artifact name", name, jobName)
+			}
+			if _, exists := names[artifact]; exists {
+				t.Fatalf("%s uploads duplicate artifact %q", name, artifact)
+			}
+			names[artifact] = struct{}{}
+		}
+	}
+	return names
+}
+
 func assertWorkflowCallContract(t *testing.T, workflow map[string]any) {
 	t.Helper()
 	on := mapping(t, workflow["on"], "on")
 	workflowCall := mapping(t, on["workflow_call"], "on.workflow_call")
 	inputs := mapping(t, workflowCall["inputs"], "on.workflow_call.inputs")
-	for _, input := range []string{"profile", "config-path", "go-version", "previous-go-version"} {
-		if _, exists := inputs[input]; !exists {
-			t.Errorf("workflow_call input %q is missing", input)
-		}
+	if len(inputs) != 1 {
+		t.Errorf("workflow_call inputs = %#v, want config-path only", inputs)
+	}
+	if _, exists := inputs["config-path"]; !exists {
+		t.Error("workflow_call input config-path is missing")
 	}
 }
 
@@ -140,6 +200,10 @@ func assertWorkflowExecutionContracts(t *testing.T, jobs map[string]any) {
 	t.Helper()
 	preflight := mapping(t, jobs["preflight"], "preflight")
 	assertDualCheckout(t, preflight)
+	outputs := mapping(t, preflight["outputs"], "preflight.outputs")
+	if outputs["profile"] != "${{ steps.consumer.outputs.profile }}" || outputs["has-go"] != "${{ steps.consumer.outputs.has-go }}" {
+		t.Errorf("preflight outputs = %#v", outputs)
+	}
 	compatibility := mapping(t, jobs["compatibility"], "compatibility")
 	strategy := mapping(t, compatibility["strategy"], "compatibility.strategy")
 	if strategy["fail-fast"] != false {
@@ -147,8 +211,8 @@ func assertWorkflowExecutionContracts(t *testing.T, jobs map[string]any) {
 	}
 	for _, name := range []string{"formatting", "core", "tests", "analysis", "compatibility"} {
 		job := mapping(t, jobs[name], name)
-		if job["if"] != "${{ inputs.profile != 'repository-only' }}" {
-			t.Errorf("Go-only job %q if = %#v, want repository-only exclusion", name, job["if"])
+		if job["if"] != "${{ needs.preflight.outputs.has-go == 'true' }}" {
+			t.Errorf("Go-only job %q if = %#v, want validated preflight capability", name, job["if"])
 		}
 	}
 	for _, name := range []string{"evidence", "gate"} {
@@ -177,11 +241,14 @@ func assertCompatibilityGateContract(t *testing.T, gate map[string]any) {
 			continue
 		}
 		environment := mapping(t, step["env"], "compatibility gate env")
-		if environment["EXPECTED_PROFILE"] != "${{ inputs.profile }}" {
+		if environment["EXPECTED_PROFILE"] != "${{ needs.preflight.outputs.profile }}" {
 			t.Errorf("compatibility gate profile = %#v", environment["EXPECTED_PROFILE"])
 		}
+		if environment["HAS_GO"] != "${{ needs.preflight.outputs.has-go }}" {
+			t.Errorf("compatibility gate has-go = %#v", environment["HAS_GO"])
+		}
 		run, _ := step["run"].(string)
-		profileBranch := `if [[ "$EXPECTED_PROFILE" == repository-only ]]; then
+		profileBranch := `if [[ "$HAS_GO" == false ]]; then
   [[ "$COMPATIBILITY_RESULT" == skipped ]]
 else
   [[ "$COMPATIBILITY_RESULT" == success ]]
@@ -192,6 +259,33 @@ fi`
 		return
 	}
 	t.Error("gate has no aggregate enforcement step")
+}
+
+func assertGoPlanWorkflowContract(t *testing.T, jobs map[string]any, text string) {
+	t.Helper()
+	for _, forbidden := range []string{
+		"inputs.profile", "inputs.go-version", "inputs.previous-go-version",
+		"go build ./...", "go test ./...", "go vet ./...",
+	} {
+		if strings.Contains(text, forbidden) {
+			t.Errorf("standard workflow reconstructs policy with %q", forbidden)
+		}
+	}
+	for _, required := range []string{
+		`"$CLI" go-plan`, "go-plan.json", "github-ci-plan", "1.26.6", "1.25.13",
+		`bash "$CENTRAL_DIR/scripts/run-go-group.sh" compatibility`,
+		`bash "$CENTRAL_DIR/scripts/run-go-group.sh" codeql-build`,
+	} {
+		if !strings.Contains(text, required) {
+			t.Errorf("standard workflow is missing typed-plan contract %q", required)
+		}
+	}
+	for _, name := range []string{"formatting", "core", "tests", "analysis", "compatibility"} {
+		job := mapping(t, jobs[name], name)
+		if job["needs"] != "preflight" {
+			t.Errorf("Go job %q needs = %#v, want preflight", name, job["needs"])
+		}
+	}
 }
 
 func assertBootstrapNetworkAccess(t *testing.T, jobs map[string]any) {
@@ -425,51 +519,98 @@ func TestDeepWorkflowContract(t *testing.T) {
 	}
 	text := string(data)
 	for _, required := range []string{
-		"portability:", "fuzz-benchmark:", "mutation:", "history-refresh:", "services:",
-		"gremlins unleash", "gitleaks git", "go mod edit -json", `go list -m -u -json "${dependencies[@]}"`,
-		"go list ./...", "go test \"$package\"", `^Fuzz[[:alnum:]_]*$`, "-bench .", "-fuzz",
-		"postgres:18.1@sha256:", "redis:8.6.1@sha256:",
+		"preflight:", "portability:", "fuzz-benchmark:", "mutation:", "history-refresh:",
+		"go-plan.json", "github-ci-deep-plan", "scripts/run-deep-go.sh\" portability",
+		"scripts/run-deep-go.sh\" fuzz-benchmark", "scripts/run-deep-go.sh\" mutation-context",
+		"gitleaks git", "go mod edit -json", `go list -m -u -json "${dependencies[@]}"`,
+		"1.26.6", "1.25.13", "ubuntu-latest", "macos-latest", "windows-latest",
 	} {
 		if !strings.Contains(text, required) {
 			t.Errorf("deep workflow is missing %q", required)
 		}
 	}
-	if strings.Contains(text, "egress-policy: audit") {
-		t.Error("deep workflow contains audit-only egress")
-	}
-	if strings.Contains(text, "go test ./... -run '^$' -fuzz") {
-		t.Error("deep workflow attempts to fuzz multiple packages in one go test invocation")
-	}
-	if strings.Contains(text, `^Fuzz[[:alnum:]_]+$`) {
-		t.Error("deep workflow skips the valid bare Fuzz target name")
-	}
-	if strings.Contains(text, "go list -m -u -json all") {
-		t.Error("deep workflow requires updates for transitive modules outside the root go.mod")
-	}
-	for _, required := range []string{
-		`--output "$report"`,
-		`--timeout-coefficient 20`,
-		`--arithmetic-base`,
-		`--conditionals-boundary`,
-		`--conditionals-negation`,
-		`--increment-decrement`,
-		`--invert-assignments`,
-		`--invert-bitwise`,
-		`--invert-bwassign`,
-		`--invert-logical`,
-		`--invert-loopctrl`,
-		`--invert-negatives`,
-		`--remove-self-assignments`,
-		`module_path=$(cd "$directory" && GOWORK=off go list -m -f '{{.Path}}')`,
-		`"$CLI" validate-gremlins --report "$report" --module "$module_path"`,
-		`"$CLI" validate-gremlins-no-results --log "$transcript" --module "$module_path" --output "$evidence"`,
-		`name: github-ci-mutation`,
+	for _, forbidden := range []string{
+		"services:", "postgres:", "redis:", "POSTGRES_DSN", "REDIS_ADDR", "-tags integration",
+		"inputs.profile", "inputs.go-version", "inputs.previous-go-version",
+		"go build ./...", "go test ./...", "go vet ./...", "go list ./...",
+		"egress-policy: audit", "go list -m -u -json all", "== skipped",
 	} {
-		if !strings.Contains(text, required) {
-			t.Errorf("deep workflow does not independently enforce mutation result %q", required)
+		if strings.Contains(text, forbidden) {
+			t.Errorf("deep workflow contains forbidden %q", forbidden)
+		}
+	}
+	var workflow map[string]any
+	if err := yaml.Unmarshal(data, &workflow); err != nil {
+		t.Fatalf("decode deep workflow: %v", err)
+	}
+	on := mapping(t, workflow["on"], "deep on")
+	inputs := mapping(t, mapping(t, on["workflow_call"], "deep workflow_call")["inputs"], "deep inputs")
+	if len(inputs) != 2 || inputs["config-path"] == nil || inputs["fuzz-time"] == nil {
+		t.Errorf("deep inputs = %#v, want config-path and fuzz-time", inputs)
+	}
+	jobs := mapping(t, workflow["jobs"], "deep jobs")
+	if _, exists := jobs["services"]; exists {
+		t.Error("deep workflow still defines a central services job")
+	}
+	for _, name := range []string{"portability", "fuzz-benchmark", "mutation", "history-refresh"} {
+		job := mapping(t, jobs[name], "deep "+name)
+		if job["needs"] != "preflight" {
+			t.Errorf("deep job %q needs = %#v, want preflight", name, job["needs"])
+		}
+	}
+	for _, name := range []string{"preflight", "portability", "fuzz-benchmark", "mutation", "history-refresh"} {
+		job := mapping(t, jobs[name], "deep "+name)
+		assertDualCheckout(t, job)
+		assertNoExpressionsInRun(t, name, job)
+	}
+	gate := mapping(t, jobs["gate"], "deep gate")
+	needs := sequence(t, gate["needs"], "deep gate needs")
+	if !slices.Equal(needs, []any{"preflight", "portability", "fuzz-benchmark", "mutation", "history-refresh"}) {
+		t.Errorf("deep gate needs = %#v", needs)
+	}
+	for _, assertion := range []string{
+		`[[ "$PREFLIGHT_RESULT" == success ]]`,
+		`[[ "$FUZZ_RESULT" == success ]]`,
+		`[[ "$HISTORY_RESULT" == success ]]`,
+		`[[ "$MUTATION_RESULT" == success ]]`,
+		`[[ "$PORTABILITY_RESULT" == success ]]`,
+	} {
+		if !strings.Contains(text, assertion) {
+			t.Errorf("deep gate is missing %q", assertion)
 		}
 	}
 	assertImmutableUses(t, text)
+}
+
+func TestDeepExecutorContract(t *testing.T) {
+	data, err := os.ReadFile("../../scripts/run-deep-go.sh")
+	if err != nil {
+		t.Fatalf("read deep executor: %v", err)
+	}
+	text := string(data)
+	for _, required := range []string{
+		`load_go_invocation "$GO_PLAN_PATH" "$index" build`,
+		`load_go_invocation "$GO_PLAN_PATH" "$index" test`,
+		`load_go_invocation "$GO_PLAN_PATH" "$index" gopls`,
+		`^Fuzz[[:alnum:]_]*$`, `-fuzz="^${target}$"`, `-fuzztime="$FUZZ_TIME"`,
+		`--workers 2`, `--timeout-coefficient 20`, `--arithmetic-base`,
+		`--conditionals-boundary`, `--conditionals-negation`, `--increment-decrement`,
+		`--invert-assignments`, `--invert-bitwise`, `--invert-bwassign`,
+		`--invert-logical`, `--invert-loopctrl`, `--invert-negatives`,
+		`--remove-self-assignments`, `--output "$report" .`,
+		`validate-gremlins --report "$report" --module "$module_path"`,
+		`validate-gremlins-no-results --log "$transcript" --module "$module_path" --output "$evidence"`,
+	} {
+		if !strings.Contains(text, required) {
+			t.Errorf("deep executor is missing %q", required)
+		}
+	}
+	if strings.Contains(text, "./...") {
+		t.Error("deep executor reconstructs a root package scope")
+	}
+	if count := strings.Count(text, `for index in "${!GO_PLAN_MODULE_PATHS[@]}"`); count != 3 {
+		t.Errorf("deep executor module loops = %d, want 3", count)
+	}
 }
 
 func TestReleaseWorkflowProducesEvidenceWithoutPublishing(t *testing.T) {
@@ -485,17 +626,23 @@ func TestReleaseWorkflowProducesEvidenceWithoutPublishing(t *testing.T) {
 		"sbom.cdx.json",
 		"attest-build-provenance",
 		"include-callers:",
+		"acceptance-required:",
 		"default: false",
 		`ref: ${{ inputs.tag || github.ref }}`,
 		`INCLUDE_CALLERS: ${{ inputs.include-callers }}`,
-		`REF_TYPE: ${{ github.ref_type }}`,
+		`ACCEPTANCE_REQUIRED: ${{ inputs.acceptance-required }}`,
 		`REPOSITORY: ${{ github.repository }}`,
 		`WORKFLOW_REPOSITORY: ${{ job.workflow_repository }}`,
+		`WORKFLOW_SHA: ${{ job.workflow_sha }}`,
 		`source_sha=$(git -C "$SOURCE_DIR" rev-parse HEAD)`,
 		`[[ "$source_sha" == "$tagged_sha" ]]`,
-		`if [[ "$REF_TYPE" == "tag" ]]`,
+		`[[ "$tagged_sha" == "$EVENT_SHA" ]]`,
 		`if [[ "$INCLUDE_CALLERS" == "true" ]]`,
+		`if [[ "$ACCEPTANCE_REQUIRED" == "true" ]]`,
 		`[[ "$REPOSITORY" == "$WORKFLOW_REPOSITORY" ]]`,
+		`[[ "$WORKFLOW_SHA" == "$tagged_sha" ]]`,
+		`verify-acceptance-record --record "$ACCEPTANCE_RECORD" --expected-sha "$tagged_sha"`,
+		`--asset dist/release-acceptance.json`,
 		"github-ci-govern",
 		"render-callers",
 		`--workflow-sha "$tagged_sha"`,
@@ -509,7 +656,7 @@ func TestReleaseWorkflowProducesEvidenceWithoutPublishing(t *testing.T) {
 			t.Errorf("release workflow is missing %q", required)
 		}
 	}
-	for _, forbidden := range []string{"gh release", "git tag", "egress-policy: audit"} {
+	for _, forbidden := range []string{"gh release", "git tag", "egress-policy: audit", "REF_TYPE", `if [[ "$REF_TYPE" == "tag" ]]`} {
 		if strings.Contains(text, forbidden) {
 			t.Errorf("release workflow contains forbidden %q", forbidden)
 		}
@@ -528,9 +675,51 @@ func TestRepositoryReleaseCallerIncludesPinnedCallers(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read repository release caller: %v", err)
 	}
-	if !strings.Contains(string(data), "include-callers: true") {
+	text := string(data)
+	if !strings.Contains(text, "include-callers: true") {
 		t.Error("repository release caller does not include SHA-pinned caller assets")
 	}
+	for _, required := range []string{
+		"actions: read", "acceptance:", "release-candidate.yml", "head_sha", "status=success",
+		"github-ci-release-acceptance", "verify-acceptance-record", "acceptance-required: true", "needs: acceptance",
+		`WORKFLOW_REPOSITORY: ${{ job.workflow_repository }}`,
+		`WORKFLOW_SHA: ${{ job.workflow_sha }}`,
+		`[[ "$REPOSITORY" == "$WORKFLOW_REPOSITORY" ]]`,
+		`[[ "$WORKFLOW_SHA" == "$tagged_sha" ]]`,
+		`[[ "$tagged_sha" == "$EVENT_SHA" ]]`,
+	} {
+		if !strings.Contains(text, required) {
+			t.Errorf("repository release caller is missing %q", required)
+		}
+	}
+	if strings.Contains(text, "REF_TYPE") || strings.Contains(text, `if [[ "$REF_TYPE" == "tag" ]]`) {
+		t.Error("repository release caller permits branch-dispatched evidence for a different tag commit")
+	}
+	assertImmutableUses(t, text)
+}
+
+func TestReleaseCandidateRequiresLocalAndExternalAcceptance(t *testing.T) {
+	data, err := os.ReadFile("../../.github/workflows/release-candidate.yml")
+	if err != nil {
+		t.Fatalf("read release candidate workflow: %v", err)
+	}
+	text := string(data)
+	for _, required := range []string{
+		"workflow_dispatch:", "canary-repository:", "standard-run-id:", "deep-run-id:", "fork-run-id:",
+		"local-standard:", "uses: ./.github/workflows/go.yml", "local-deep:", "uses: ./.github/workflows/deep.yml",
+		"verify-acceptance", `--candidate-sha "$CANDIDATE_SHA"`, "github-ci-release-acceptance", "if-no-files-found: error",
+		"needs: [local-standard, local-deep, verify]", "RESULT_STANDARD", "RESULT_DEEP", "RESULT_VERIFY",
+	} {
+		if !strings.Contains(text, required) {
+			t.Errorf("release candidate workflow is missing %q", required)
+		}
+	}
+	for _, forbidden := range []string{"git tag", "gh release", "pull-requests: write", "contents: write"} {
+		if strings.Contains(text, forbidden) {
+			t.Errorf("release candidate workflow contains forbidden %q", forbidden)
+		}
+	}
+	assertImmutableUses(t, text)
 }
 
 func TestGeneratedCallerHasRequiredEvents(t *testing.T) {

@@ -1,4 +1,4 @@
-schema-version: 1
+schema-version: 2
 api-version: "2026-03-10"
 owners:
   - name: gomaja
@@ -6,7 +6,8 @@ owners:
 defaults:
   profile: go-strict
   default-branch: main
-  required-check: gate / gate
+  required-checks:
+    - gate / gate
   public-only: true
   refuse-forks: true
   refuse-archived: true
@@ -15,7 +16,8 @@ defaults:
 repositories:
   - name: github-ci
     enforce-caller: false
-    observed-required-check: gate / gate
+    observed-required-checks:
+      - gate / gate
   - name: go-asn1
     enforce-caller: false
   - name: go-asn1-gsmmap
@@ -38,4 +40,5 @@ repositories:
     profile: repository-only
     enforce-caller: false
     workflow-sha: 3dc64d2ab02b3d5ce3f2eacacfdc1eec9a9e78f7
-    observed-required-check: gate / gate
+    observed-required-checks:
+      - gate / gate

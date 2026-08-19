@@ -19,7 +19,7 @@ runs:
     - name: Build policy CLI
       shell: bash
       env:
-        CENTRAL_DIR: ${{ github.workspace }}/github-ci
+        CENTRAL_DIR: ${{ github.action_path }}/../..
         BIN_DIR: ${{ runner.temp }}/github-ci-bin
       run: |
         set -euo pipefail

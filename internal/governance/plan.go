@@ -16,7 +16,10 @@ import (
 	"github.com/gomaja/github-ci/internal/config"
 )
 
-const securityEnabled = "enabled"
+const (
+	securityEnabled      = "enabled"
+	requiredStatusChecks = "required_status_checks"
+)
 
 // Plan is an ordered, content-addressed desired-state change set.
 type Plan struct {
@@ -191,12 +194,13 @@ func Apply(ctx context.Context, client Client, manifest config.Governance, plan 
 	}
 
 	remaining := slices.Clone(plan.Operations)
+	expectedObservedHash := plan.ObservedHash
 	for len(remaining) != 0 {
 		live, err := BuildPlan(ctx, client, manifest)
 		if err != nil {
 			return fmt.Errorf("revalidate governance plan: %w", err)
 		}
-		if !slices.EqualFunc(live.Operations, remaining, operationsEqual) {
+		if live.ObservedHash != expectedObservedHash || !slices.EqualFunc(live.Operations, remaining, operationsEqual) {
 			return fmt.Errorf("live repository state no longer matches the approved governance plan: live %s, approved %s", operationSummary(live.Operations), operationSummary(remaining))
 		}
 		current := remaining[0]
@@ -207,6 +211,14 @@ func Apply(ctx context.Context, client Client, manifest config.Governance, plan 
 			return fmt.Errorf("apply %s to %s: %w", current.Kind, current.Repository, err)
 		}
 		remaining = remaining[1:]
+		postMutation, err := BuildPlan(ctx, client, manifest)
+		if err != nil {
+			return fmt.Errorf("verify %s mutation: %w", current.Kind, err)
+		}
+		if !slices.EqualFunc(postMutation.Operations, remaining, operationsEqual) {
+			return fmt.Errorf("governance mutation %s did not produce the approved remaining plan", current.Kind)
+		}
+		expectedObservedHash = postMutation.ObservedHash
 	}
 
 	live, err := BuildPlan(ctx, client, manifest)
@@ -405,11 +417,17 @@ func branchRuleset(repository config.Repository) rulesetPayload {
 			"tool": "CodeQL", "alerts_threshold": "all", "security_alerts_threshold": "all",
 		}}}},
 	}
-	if repository.ObservedRequiredCheck != "" {
-		rules = append(rules, rulesetRule{Type: "required_status_checks", Parameters: map[string]any{
+	if len(repository.ObservedRequiredChecks) != 0 {
+		contexts := slices.Clone(repository.ObservedRequiredChecks)
+		slices.Sort(contexts)
+		checks := make([]map[string]string, len(contexts))
+		for index, check := range contexts {
+			checks[index] = map[string]string{"context": check}
+		}
+		rules = append(rules, rulesetRule{Type: requiredStatusChecks, Parameters: map[string]any{
 			"strict_required_status_checks_policy": true,
 			"do_not_enforce_on_create":             false,
-			"required_status_checks":               []map[string]string{{"context": repository.ObservedRequiredCheck}},
+			requiredStatusChecks:                   checks,
 		}})
 	}
 	return rulesetPayload{
@@ -461,7 +479,26 @@ func normalizeRuleset(payload *rulesetPayload) {
 	}
 	slices.Sort(payload.Conditions.RefName.Include)
 	slices.Sort(payload.Conditions.RefName.Exclude)
+	for index := range payload.Rules {
+		normalizeRequiredStatusChecks(&payload.Rules[index])
+	}
 	slices.SortFunc(payload.Rules, func(left, right rulesetRule) int { return strings.Compare(left.Type, right.Type) })
+}
+
+func normalizeRequiredStatusChecks(rule *rulesetRule) {
+	if rule.Type != requiredStatusChecks || rule.Parameters == nil {
+		return
+	}
+	switch checks := rule.Parameters[requiredStatusChecks].(type) {
+	case []map[string]string:
+		slices.SortFunc(checks, func(left, right map[string]string) int {
+			return strings.Compare(string(mustJSON(left)), string(mustJSON(right)))
+		})
+	case []any:
+		slices.SortFunc(checks, func(left, right any) int {
+			return strings.Compare(string(mustJSON(left)), string(mustJSON(right)))
+		})
+	}
 }
 
 func sameRulesetScope(left, right rulesetPayload) bool {

@@ -10,16 +10,120 @@ on:
         required: true
         type: string
 
+concurrency:
+  group: github-ci-release-${{ github.ref }}
+  cancel-in-progress: false
+
 permissions:
   contents: read
 
 jobs:
-  assurance:
+  acceptance:
+    name: exact-commit acceptance
     permissions:
+      actions: read  # Acceptance locates and downloads the exact candidate run artifact.
+      contents: read
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c
+        with:
+          egress-policy: block
+          disable-telemetry: true
+          allowed-endpoints: >-
+            api.github.com:443
+            github.com:443
+            *.github.com:443
+            *.githubusercontent.com:443
+            go.dev:443
+            proxy.golang.org:443
+            sum.golang.org:443
+            storage.googleapis.com:443
+      - name: Check out tagged source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          path: source
+          ref: ${{ inputs.tag || github.ref }}
+      - name: Bootstrap policy CLI
+        uses: ./source/actions/bootstrap
+        with:
+          go-version: 1.26.6
+          install-tools: "false"
+      - name: Find successful candidate run at tag commit
+        id: candidate
+        env:
+          EVENT_SHA: ${{ github.sha }}
+          GH_TOKEN: ${{ github.token }}
+          REF_NAME: ${{ github.ref_name }}
+          REPOSITORY: ${{ github.repository }}
+          REQUESTED_TAG: ${{ inputs.tag }}
+          SOURCE_DIR: ${{ github.workspace }}/source
+          WORKFLOW_REPOSITORY: ${{ job.workflow_repository }}
+          WORKFLOW_SHA: ${{ job.workflow_sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="$REQUESTED_TAG"
+          [[ -n "$tag" ]] || tag="$REF_NAME"
+          [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          tagged_sha=$(git -C "$SOURCE_DIR" rev-parse "refs/tags/$tag^{commit}")
+          source_sha=$(git -C "$SOURCE_DIR" rev-parse HEAD)
+          [[ "$source_sha" == "$tagged_sha" ]]
+          [[ "$REPOSITORY" == "$WORKFLOW_REPOSITORY" ]]
+          [[ "$WORKFLOW_SHA" == "$tagged_sha" ]]
+          [[ "$tagged_sha" == "$EVENT_SHA" ]]
+          pages="$RUNNER_TEMP/release-candidate-runs.json"
+          gh api --method GET --paginate \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2026-03-10" \
+            "/repos/$REPOSITORY/actions/workflows/release-candidate.yml/runs" \
+            -f event=workflow_dispatch \
+            -f head_sha="$tagged_sha" \
+            -f status=success \
+            -f per_page=100 >"$pages"
+          run_id=$(jq -ers --arg sha "$tagged_sha" '
+            [.[].workflow_runs[] |
+              select(.head_sha == $sha and .event == "workflow_dispatch" and .status == "completed" and .conclusion == "success")] |
+            sort_by(.created_at) | reverse | .[0].id // empty
+          ' <"$pages")
+          [[ "$run_id" =~ ^[1-9][0-9]*$ ]]
+          printf 'run-id=%s\ntagged-sha=%s\n' "$run_id" "$tagged_sha" >>"$GITHUB_OUTPUT"
+      - name: Download candidate acceptance
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          github-token: ${{ github.token }}
+          name: github-ci-release-acceptance
+          path: ${{ runner.temp }}/github-ci-release-acceptance
+          repository: ${{ github.repository }}
+          run-id: ${{ steps.candidate.outputs.run-id }}
+      - name: Revalidate candidate acceptance
+        env:
+          CLI: ${{ runner.temp }}/github-ci-bin/github-ci
+          EXPECTED_SHA: ${{ steps.candidate.outputs.tagged-sha }}
+          RECORD: ${{ runner.temp }}/github-ci-release-acceptance/acceptance.json
+        shell: bash
+        run: >-
+          "$CLI" verify-acceptance-record --record "$RECORD" --expected-sha "$EXPECTED_SHA"
+      - name: Upload acceptance for release evidence
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: github-ci-release-acceptance
+          path: ${{ runner.temp }}/github-ci-release-acceptance/acceptance.json
+          if-no-files-found: error
+          retention-days: 30
+
+  assurance:
+    needs: acceptance
+    permissions:
+      actions: read  # The called release workflow downloads the acceptance artifact.
       contents: read
       id-token: write  # Provenance attestation requires an OIDC identity.
       attestations: write  # The called workflow records build provenance.
     uses: ./.github/workflows/release.yml
     with:
+      acceptance-required: true
       include-callers: true
       tag: ${{ inputs.tag }}

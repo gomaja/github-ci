@@ -127,6 +127,36 @@ func TestKnownReasonCodesAndToolsComeFromCatalog(t *testing.T) {
 	}
 }
 
+func TestAPIDiffAppliesOnlyToLibraryProfile(t *testing.T) {
+	for _, entry := range DefaultCatalog() {
+		if entry.Tool != "apidiff" {
+			continue
+		}
+		if !slices.Equal(entry.Profiles, []config.Profile{config.ProfileGoLibrary}) {
+			t.Fatalf("apidiff profiles = %#v, want go-library only", entry.Profiles)
+		}
+		return
+	}
+	t.Fatal("apidiff catalog entry is missing")
+}
+
+func TestGoLibraryExtendsEveryGoStrictCommandOnlyWithAPIDiff(t *testing.T) {
+	libraryOnly := []string{}
+	for _, entry := range DefaultCatalog() {
+		strict := slices.Contains(entry.Profiles, config.ProfileGoStrict)
+		library := slices.Contains(entry.Profiles, config.ProfileGoLibrary)
+		if strict && !library {
+			t.Errorf("go-strict command %s/%s is absent from go-library", entry.Tool, entry.CommandID)
+		}
+		if library && !strict {
+			libraryOnly = append(libraryOnly, entry.Tool+"/"+entry.CommandID)
+		}
+	}
+	if !slices.Equal(libraryOnly, []string{"apidiff/apidiff/public-api"}) {
+		t.Fatalf("go-library-only commands = %#v", libraryOnly)
+	}
+}
+
 func TestReasonForBindsReasonToCommand(t *testing.T) {
 	if got, ok := ReasonFor("staticcheck", "staticcheck/default"); !ok || got != ReasonNoGoModule {
 		t.Fatalf("ReasonFor(staticcheck) = %q, %t", got, ok)

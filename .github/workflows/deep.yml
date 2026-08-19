@@ -4,23 +4,13 @@ name: reusable-deep
 on:
   workflow_call:
     inputs:
-      profile:
-        required: false
-        default: go-strict
-        type: string
       config-path:
+        description: Repository-relative consumer configuration.
         required: false
         default: .github/github-ci.yaml
         type: string
-      go-version:
-        required: false
-        default: "1.26.6"
-        type: string
-      previous-go-version:
-        required: false
-        default: "1.25.13"
-        type: string
       fuzz-time:
+        description: Duration for each discovered fuzz target.
         required: false
         default: 30s
         type: string
@@ -29,35 +19,123 @@ permissions:
   contents: read
 
 jobs:
-  portability:
-    name: ${{ matrix.os }} / Go ${{ matrix.go-version }}
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
-        go-version: ["${{ inputs.go-version }}", "${{ inputs.previous-go-version }}"]
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 45
+  preflight:
+    name: preflight
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c
+        with:
+          egress-policy: block
+          disable-telemetry: true
+          allowed-endpoints: >-
+            api.github.com:443
+            github.com:443
+            *.github.com:443
+            *.githubusercontent.com:443
+            go.dev:443
+            proxy.golang.org:443
+            sum.golang.org:443
+            storage.googleapis.com:443
       - name: Check out consumer
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
+          path: source
+      - name: Check out workflow helpers
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          persist-credentials: false
+          path: github-ci
+      - name: Bootstrap policy CLI
+        uses: ./github-ci/actions/bootstrap
+        with:
+          go-version: 1.26.6
+          install-tools: "false"
+      - name: Build validated Go plan
+        env:
+          CLI: ${{ runner.temp }}/github-ci-bin/github-ci
+          CONFIG_PATH: ${{ inputs.config-path }}
+          GO_PLAN_PATH: ${{ runner.temp }}/github-ci-plan/go-plan.json
+          POLICY_PATH: ${{ github.workspace }}/github-ci/policies/tools.yaml
+          SOURCE_DIR: ${{ github.workspace }}/source
+          SUBJECT_SHA: ${{ github.sha }}
+          PLAN_PATH: ${{ runner.temp }}/github-ci-plan/plan.json
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$(dirname "$GO_PLAN_PATH")"
+          "$CLI" preflight --repository "$SOURCE_DIR" --config "$CONFIG_PATH" --policy "$POLICY_PATH" --subject-sha "$SUBJECT_SHA" --output "$PLAN_PATH"
+          "$CLI" go-plan --repository "$SOURCE_DIR" --config "$CONFIG_PATH" >"$GO_PLAN_PATH"
+      - name: Upload validated Go plan
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: github-ci-deep-plan
+          path: ${{ runner.temp }}/github-ci-plan
+          if-no-files-found: error
+          retention-days: 7
+
+  portability:
+    name: ${{ matrix.os }} / Go ${{ matrix.go-version }}
+    needs: preflight
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        go-version: ["1.26.6", "1.25.13"]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c
+        with:
+          egress-policy: block
+          disable-telemetry: true
+          allowed-endpoints: >-
+            api.github.com:443
+            github.com:443
+            *.github.com:443
+            *.githubusercontent.com:443
+            go.dev:443
+            proxy.golang.org:443
+            sum.golang.org:443
+            storage.googleapis.com:443
+      - name: Check out consumer
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+          path: source
+      - name: Check out workflow helpers
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          persist-credentials: false
+          path: github-ci
       - name: Set up Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
         with:
           go-version: ${{ matrix.go-version }}
           cache: false
-      - name: Build, test, and vet
+      - name: Download validated Go plan
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: github-ci-deep-plan
+          path: ${{ runner.temp }}/github-ci-plan
+      - name: Build, test, and vet configured modules
+        env:
+          CENTRAL_DIR: ${{ github.workspace }}/github-ci
+          GO_PLAN_PATH: ${{ runner.temp }}/github-ci-plan/go-plan.json
+          SOURCE_DIR: ${{ github.workspace }}/source
         shell: bash
-        run: |
-          set -euo pipefail
-          go build ./...
-          go test ./... -count=1
-          go vet ./...
+        run: bash "$CENTRAL_DIR/scripts/run-deep-go.sh" portability
 
   fuzz-benchmark:
     name: fuzz and benchmarks
+    needs: preflight
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
@@ -88,36 +166,28 @@ jobs:
           ref: ${{ job.workflow_sha }}
           persist-credentials: false
           path: github-ci
-      - name: Bootstrap policy CLI
-        uses: ./github-ci/actions/bootstrap
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
         with:
-          go-version: ${{ inputs.go-version }}
-          install-tools: "false"
-      - name: Run every fuzz target and benchmark
+          go-version: 1.26.6
+          cache: false
+      - name: Download validated Go plan
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: github-ci-deep-plan
+          path: ${{ runner.temp }}/github-ci-plan
+      - name: Run every configured fuzz target and benchmark
         env:
-          CLI: ${{ runner.temp }}/github-ci-bin/github-ci
-          CONFIG_PATH: ${{ inputs.config-path }}
+          CENTRAL_DIR: ${{ github.workspace }}/github-ci
           FUZZ_TIME: ${{ inputs.fuzz-time }}
+          GO_PLAN_PATH: ${{ runner.temp }}/github-ci-plan/go-plan.json
           SOURCE_DIR: ${{ github.workspace }}/source
         shell: bash
-        run: |
-          set -euo pipefail
-          while IFS= read -r module; do
-            directory="$SOURCE_DIR"
-            [[ "$module" == "." ]] || directory="$SOURCE_DIR/$module"
-            packages=$(cd "$directory" && go list ./...)
-            while IFS= read -r package; do
-              targets=$(cd "$directory" && go test "$package" -list '^Fuzz')
-              while IFS= read -r target; do
-                [[ "$target" =~ ^Fuzz[[:alnum:]_]*$ ]] || continue
-                (cd "$directory" && go test "$package" -run '^$' -fuzz "^${target}$" -fuzztime "$FUZZ_TIME")
-              done <<< "$targets"
-            done <<< "$packages"
-            (cd "$directory" && go test ./... -run '^$' -bench . -benchtime=1s)
-          done < <("$CLI" modules --repository "$SOURCE_DIR" --config "$CONFIG_PATH" | jq -r '.modules[]')
+        run: bash "$CENTRAL_DIR/scripts/run-deep-go.sh" fuzz-benchmark
 
   mutation:
     name: mutation testing
+    needs: preflight
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
@@ -150,8 +220,13 @@ jobs:
       - name: Bootstrap policy CLI
         uses: ./github-ci/actions/bootstrap
         with:
-          go-version: ${{ inputs.go-version }}
+          go-version: 1.26.6
           install-tools: "false"
+      - name: Download validated Go plan
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: github-ci-deep-plan
+          path: ${{ runner.temp }}/github-ci-plan
       - name: Install mutation tool
         env:
           BIN_DIR: ${{ runner.temp }}/github-ci-bin
@@ -160,46 +235,13 @@ jobs:
         run: bash "$CENTRAL_DIR/scripts/install-scanners.sh" deep
       - name: Require complete mutation efficacy
         env:
-          CLI: ${{ runner.temp }}/github-ci-bin/github-ci
-          CONFIG_PATH: ${{ inputs.config-path }}
+          CENTRAL_DIR: ${{ github.workspace }}/github-ci
+          GITHUB_CI_CLI: ${{ runner.temp }}/github-ci-bin/github-ci
+          GO_PLAN_PATH: ${{ runner.temp }}/github-ci-plan/go-plan.json
           MUTATION_DIR: ${{ runner.temp }}/github-ci-mutation
           SOURCE_DIR: ${{ github.workspace }}/source
         shell: bash
-        run: |
-          set -euo pipefail
-          export PATH="$RUNNER_TEMP/github-ci-bin:$PATH"
-          mkdir -p "$MUTATION_DIR"
-          index=0
-          while IFS= read -r module; do
-            directory="$SOURCE_DIR"
-            [[ "$module" == "." ]] || directory="$SOURCE_DIR/$module"
-            module_path=$(cd "$directory" && GOWORK=off go list -m -f '{{.Path}}')
-            report="$MUTATION_DIR/module-${index}.json"
-            transcript="$MUTATION_DIR/module-${index}.log"
-            evidence="$MUTATION_DIR/module-${index}-no-results.json"
-            # Gremlins v0.6.0 derives mutant timeouts from the cached baseline test duration.
-            (cd "$directory" && gremlins unleash \
-              --workers 2 \
-              --timeout-coefficient 20 \
-              --arithmetic-base \
-              --conditionals-boundary \
-              --conditionals-negation \
-              --increment-decrement \
-              --invert-assignments \
-              --invert-bitwise \
-              --invert-bwassign \
-              --invert-logical \
-              --invert-loopctrl \
-              --invert-negatives \
-              --remove-self-assignments \
-              --output "$report" .) 2>&1 | tee "$transcript"
-            if [[ -f "$report" ]]; then
-              "$CLI" validate-gremlins --report "$report" --module "$module_path"
-            else
-              "$CLI" validate-gremlins-no-results --log "$transcript" --module "$module_path" --output "$evidence"
-            fi
-            index=$((index + 1))
-          done < <("$CLI" modules --repository "$SOURCE_DIR" --config "$CONFIG_PATH" | jq -r '.modules[]')
+        run: bash "$CENTRAL_DIR/scripts/run-deep-go.sh" mutation-context
       - name: Upload mutation evidence
         if: ${{ always() }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
@@ -211,6 +253,7 @@ jobs:
 
   history-refresh:
     name: history and dependency refresh
+    needs: preflight
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
@@ -244,27 +287,34 @@ jobs:
       - name: Bootstrap policy CLI
         uses: ./github-ci/actions/bootstrap
         with:
-          go-version: ${{ inputs.go-version }}
+          go-version: 1.26.6
           install-tools: "false"
+      - name: Download validated Go plan
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: github-ci-deep-plan
+          path: ${{ runner.temp }}/github-ci-plan
       - name: Install history scanner
         env:
           BIN_DIR: ${{ runner.temp }}/github-ci-bin
           CENTRAL_DIR: ${{ github.workspace }}/github-ci
         shell: bash
         run: bash "$CENTRAL_DIR/scripts/install-scanners.sh" deep
-      - name: Scan full history and dependency updates
+      - name: Scan full history and direct dependency updates
         env:
-          CLI: ${{ runner.temp }}/github-ci-bin/github-ci
-          CONFIG_PATH: ${{ inputs.config-path }}
+          CENTRAL_DIR: ${{ github.workspace }}/github-ci
+          GO_PLAN_PATH: ${{ runner.temp }}/github-ci-plan/go-plan.json
           SOURCE_DIR: ${{ github.workspace }}/source
         shell: bash
         run: |
           set -euo pipefail
           export PATH="$RUNNER_TEMP/github-ci-bin:$PATH"
           gitleaks git --no-banner --redact=100 "$SOURCE_DIR"
-          while IFS= read -r module; do
+          source "$CENTRAL_DIR/scripts/load-go-plan.sh"
+          load_go_modules "$GO_PLAN_PATH"
+          for index in "${!GO_PLAN_MODULE_PATHS[@]}"; do
             directory="$SOURCE_DIR"
-            [[ "$module" == "." ]] || directory="$SOURCE_DIR/$module"
+            [[ "${GO_PLAN_MODULE_DIRECTORIES[$index]}" == "." ]] || directory="$SOURCE_DIR/${GO_PLAN_MODULE_DIRECTORIES[$index]}"
             updates=$(
               cd "$directory"
               module_file=$(go mod edit -json)
@@ -279,47 +329,12 @@ jobs:
               fi
             )
             [[ "$updates" == 0 ]]
-          done < <("$CLI" modules --repository "$SOURCE_DIR" --config "$CONFIG_PATH" | jq -r '.modules[]')
-          if grep -qx 'module github.com/gomaja/github-ci' "$SOURCE_DIR/go.mod"; then
-            "$CLI" verify-generated --root "$SOURCE_DIR"
-          fi
-
-  services:
-    name: integration services
-    runs-on: ubuntu-latest
-    timeout-minutes: 45
-    services:
-      postgres:
-        image: postgres:18.1@sha256:1090bc3a8ccfb0b55f78a494d76f8d603434f7e4553543d6e807bc7bd6bbd17f
-        env:
-          POSTGRES_PASSWORD: postgres
-        ports:
-          - 5432:5432
-      redis:
-        image: redis:8.6.1@sha256:315270d166080f537bbdf1b489b603aaaa213cb55a544acfa51feb7481abb1c0
-        ports:
-          - 6379:6379
-    steps:
-      - name: Check out consumer
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-        with:
-          persist-credentials: false
-      - name: Set up Go
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
-        with:
-          go-version: ${{ inputs.go-version }}
-          cache: false
-      - name: Run integration-tagged tests
-        env:
-          POSTGRES_DSN: postgres://postgres:postgres@localhost:5432/postgres?sslmode=disable
-          REDIS_ADDR: localhost:6379
-        shell: bash
-        run: go test ./... -count=1 -tags integration
+          done
 
   gate:
     name: gate
     if: ${{ always() }}
-    needs: [portability, fuzz-benchmark, mutation, history-refresh, services]
+    needs: [preflight, portability, fuzz-benchmark, mutation, history-refresh]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -329,12 +344,12 @@ jobs:
           HISTORY_RESULT: ${{ needs.history-refresh.result }}
           MUTATION_RESULT: ${{ needs.mutation.result }}
           PORTABILITY_RESULT: ${{ needs.portability.result }}
-          SERVICES_RESULT: ${{ needs.services.result }}
+          PREFLIGHT_RESULT: ${{ needs.preflight.result }}
         shell: bash
         run: |
           set -euo pipefail
+          [[ "$PREFLIGHT_RESULT" == success ]]
           [[ "$FUZZ_RESULT" == success ]]
           [[ "$HISTORY_RESULT" == success ]]
           [[ "$MUTATION_RESULT" == success ]]
           [[ "$PORTABILITY_RESULT" == success ]]
-          [[ "$SERVICES_RESULT" == success ]]

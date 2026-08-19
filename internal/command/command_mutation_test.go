@@ -273,7 +273,7 @@ func TestTrackedRepositoryAcceptsEmptyIndex(t *testing.T) {
 
 func TestReadTrackedConsumerRejectsControlCharacterPath(t *testing.T) {
 	name := "control\npath"
-	tracked := fstest.MapFS{name: &fstest.MapFile{Data: []byte("schema-version: 1\nprofile: repository-only\n")}}
+	tracked := fstest.MapFS{name: &fstest.MapFile{Data: []byte("schema-version: 2\nprofile: repository-only\n")}}
 	if _, err := readTrackedConsumer(tracked, name); err == nil || err.Error() != "consumer configuration must be a safe repository-relative path" {
 		t.Fatalf("readTrackedConsumer() error = %v", err)
 	}
