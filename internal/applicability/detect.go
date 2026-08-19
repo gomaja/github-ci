@@ -318,6 +318,7 @@ func envCommandArguments(arguments []string) []string {
 func expandEnvSplitString(arguments []string) ([]string, bool) {
 	for len(arguments) != 0 {
 		argument := arguments[0]
+		remaining, isOption := consumeEnvOption(arguments)
 		if isDetachedEnvSplitOption(argument) {
 			return arguments[1:], true
 		}
@@ -332,13 +333,8 @@ func expandEnvSplitString(arguments []string) ([]string, bool) {
 			return append([]string{argument[2:]}, arguments[1:]...), true
 		case isEnvEndOptions(argument):
 			return arguments, false
-		case isEnvOptionWithDetachedValue(argument):
-			if len(arguments) == 1 {
-				return arguments, false
-			}
-			arguments = arguments[2:]
-		case isEnvOptionWithAttachedValue(argument), isEnvOptionWithoutValue(argument):
-			arguments = arguments[1:]
+		case isOption:
+			arguments = remaining
 		case strings.ContainsRune(argument, '='):
 			return arguments, false
 		case strings.HasPrefix(argument, "-"):
@@ -372,6 +368,55 @@ func isEnvFlagBundle(flags string) bool {
 		}
 	}
 	return true
+}
+
+func consumeEnvOption(arguments []string) ([]string, bool) {
+	if len(arguments) == 0 {
+		return arguments, false
+	}
+	argument := arguments[0]
+	if isEnvOptionWithDetachedValue(argument) {
+		if len(arguments) == 1 {
+			return nil, true
+		}
+		return arguments[2:], true
+	}
+	if isEnvOptionWithAttachedValue(argument) || isEnvOptionWithoutValue(argument) {
+		return arguments[1:], true
+	}
+	arity, valid := envShortOptionArity(argument)
+	if !valid {
+		return arguments, false
+	}
+	if arity == 2 {
+		if len(arguments) == 1 {
+			return nil, true
+		}
+		return arguments[2:], true
+	}
+	return arguments[1:], true
+}
+
+func envShortOptionArity(argument string) (int, bool) {
+	if len(argument) < 2 || argument[0] != '-' || argument[1] == '-' {
+		return 0, false
+	}
+	flags := argument[1:]
+	for flags != "" {
+		flag := flags[0]
+		flags = flags[1:]
+		switch flag {
+		case '0', 'i', 'v':
+		case 'u', 'C':
+			if flags == "" {
+				return 2, true
+			}
+			return 1, true
+		default:
+			return 0, false
+		}
+	}
+	return 1, true
 }
 
 func isEnvOptionWithDetachedValue(argument string) bool {
@@ -525,16 +570,12 @@ func isEnvSpace(character byte) bool {
 func envSelectsSupportedShell(arguments []string) bool {
 	for len(arguments) != 0 {
 		argument := arguments[0]
+		remaining, isOption := consumeEnvOption(arguments)
 		switch {
 		case isEnvEndOptions(argument):
 			return envCommandSelectsSupportedShell(arguments[1:])
-		case isEnvOptionWithDetachedValue(argument):
-			if len(arguments) == 1 {
-				return false
-			}
-			arguments = arguments[2:]
-		case isEnvOptionWithAttachedValue(argument), isEnvOptionWithoutValue(argument):
-			arguments = arguments[1:]
+		case isOption:
+			arguments = remaining
 		case strings.HasPrefix(argument, "-"):
 			return false
 		default:

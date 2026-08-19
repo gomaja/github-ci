@@ -204,12 +204,18 @@ func TestIsShellRecognizesSupportedShebangRegardlessOfMode(t *testing.T) {
 		{name: "env unknown option before split option", file: trackedFile{data: []byte("#!/usr/bin/env --unknown -S bash\n")}},
 		{name: "env invalid short bundle before split option", file: trackedFile{data: []byte("#!/usr/bin/env -xSbash\n")}},
 		{name: "env option before split option", file: trackedFile{data: []byte("#!/usr/bin/env -u PATH -S bash\n")}, want: true},
+		{name: "env grouped unset before split option", file: trackedFile{data: []byte("#!/usr/bin/env -iu PATH -S bash\n")}, want: true},
 		{name: "env end options before shell", file: trackedFile{data: []byte("#!/usr/bin/env -- bash\n")}, want: true},
 		{name: "env option shaped command after end options", file: trackedFile{data: []byte("#!/usr/bin/env -- --unset PATH bash\n")}},
 		{name: "env unset short", file: trackedFile{data: []byte("#!/usr/bin/env -u PATH bash\n")}, want: true},
 		{name: "env unset attached S name", file: trackedFile{data: []byte("#!/usr/bin/env -uSHELL bash\n")}, want: true},
+		{name: "env grouped unset", file: trackedFile{data: []byte("#!/usr/bin/env -iu PATH bash\n")}, want: true},
+		{name: "env grouped unset attached", file: trackedFile{data: []byte("#!/usr/bin/env -iuPATH bash\n")}, want: true},
+		{name: "env grouped unset consumes suffix", file: trackedFile{data: []byte("#!/usr/bin/env -iuSHELL bash\n")}, want: true},
+		{name: "env value option stops grouping", file: trackedFile{data: []byte("#!/usr/bin/env -ui PATH bash\n")}},
 		{name: "env unset long", file: trackedFile{data: []byte("#!/usr/bin/env --unset PATH bash\n")}, want: true},
 		{name: "env chdir short", file: trackedFile{data: []byte("#!/usr/bin/env -C /tmp sh\n")}, want: true},
+		{name: "env grouped chdir", file: trackedFile{data: []byte("#!/usr/bin/env -ivC /tmp sh\n")}, want: true},
 		{name: "env chdir long", file: trackedFile{data: []byte("#!/usr/bin/env --chdir /tmp ksh\n")}, want: true},
 		{name: "CRLF", file: trackedFile{data: []byte("#!/usr/bin/env bash\r\n")}, want: true},
 		{name: "env without command", file: trackedFile{data: []byte("#!/usr/bin/env\n")}},
@@ -280,8 +286,11 @@ func TestExpandEnvSplitStringHonorsOptionPrefix(t *testing.T) {
 		{name: "long attached", input: []string{"--split-string=bash", "-e"}, want: []string{"bash", "-e"}, split: true},
 		{name: "empty long attached", input: []string{"--split-string="}, split: true},
 		{name: "detached value option", input: []string{"-u", "PATH", "-S", "bash"}, want: []string{"bash"}, split: true},
+		{name: "grouped detached value option", input: []string{"-iu", "PATH", "-S", "bash"}, want: []string{"bash"}, split: true},
+		{name: "grouped attached value option", input: []string{"-iuPATH", "-S", "bash"}, want: []string{"bash"}, split: true},
+		{name: "grouped value consumes split flag", input: []string{"-iuSHELL", "bash"}, want: []string{"bash"}},
 		{name: "attached value option", input: []string{"--unset=PATH", "-S", "bash"}, want: []string{"bash"}, split: true},
-		{name: "missing option value", input: []string{"-u"}, want: []string{"-u"}},
+		{name: "missing option value", input: []string{"-u"}},
 		{name: "end options", input: []string{"--", "-S", "bash"}, want: []string{"--", "-S", "bash"}},
 		{name: "assignment", input: []string{"MODE=strict", "-S", "bash"}, want: []string{"MODE=strict", "-S", "bash"}},
 		{name: "command", input: []string{"python", "-S", "bash"}, want: []string{"python", "-S", "bash"}},
@@ -332,6 +341,33 @@ func TestEnvOptionClassifiers(t *testing.T) {
 		if isEnvOptionWithoutValue(argument) {
 			t.Errorf("isEnvOptionWithoutValue(%q) = true", argument)
 		}
+	}
+}
+
+func TestEnvShortOptionArity(t *testing.T) {
+	tests := []struct {
+		argument string
+		arity    int
+		valid    bool
+	}{
+		{argument: "-i", arity: 1, valid: true},
+		{argument: "-iv", arity: 1, valid: true},
+		{argument: "-iu", arity: 2, valid: true},
+		{argument: "-ivC", arity: 2, valid: true},
+		{argument: "-iuPATH", arity: 1, valid: true},
+		{argument: "-ui", arity: 1, valid: true},
+		{argument: "-S"},
+		{argument: "-x"},
+		{argument: "--unset"},
+		{argument: "-"},
+	}
+	for _, test := range tests {
+		t.Run(test.argument, func(t *testing.T) {
+			arity, valid := envShortOptionArity(test.argument)
+			if arity != test.arity || valid != test.valid {
+				t.Fatalf("envShortOptionArity(%q) = %d, %t; want %d, %t", test.argument, arity, valid, test.arity, test.valid)
+			}
+		})
 	}
 }
 
