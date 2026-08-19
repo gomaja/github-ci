@@ -215,7 +215,7 @@ func validateGremlinsScalars(report gremlinsReport) error {
 		if percentage.value == nil {
 			return fmt.Errorf("%s is required", percentage.name)
 		}
-		if math.IsNaN(*percentage.value) || math.IsInf(*percentage.value, 0) || *percentage.value != 100 {
+		if *percentage.value != 100 {
 			return fmt.Errorf("%s must equal 100", percentage.name)
 		}
 	}
@@ -231,7 +231,13 @@ func validateGremlinsScalars(report gremlinsReport) error {
 	if report.ElapsedTime == nil {
 		return errors.New("elapsed_time is required")
 	}
-	if math.IsNaN(*report.ElapsedTime) || math.IsInf(*report.ElapsedTime, 0) || *report.ElapsedTime < 0 {
+	if math.IsNaN(*report.ElapsedTime) {
+		return errors.New("elapsed_time must not be negative or non-finite")
+	}
+	if math.IsInf(*report.ElapsedTime, 0) {
+		return errors.New("elapsed_time must not be negative or non-finite")
+	}
+	if *report.ElapsedTime < 0 {
 		return errors.New("elapsed_time must not be negative or non-finite")
 	}
 	if report.MutatorStatistics == nil {

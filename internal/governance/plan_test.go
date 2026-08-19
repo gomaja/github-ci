@@ -111,6 +111,60 @@ func TestApplyRejectsConcurrentDrift(t *testing.T) {
 	}
 }
 
+func TestApplyRejectsEachInvalidIdentityCondition(t *testing.T) {
+	manifest := testGovernance()
+	client := Client{BaseURL: "http://example.com", APIVersion: manifest.APIVersion}
+	tests := []struct {
+		name   string
+		mutate func(*Plan)
+	}{
+		{
+			name: "schema version",
+			mutate: func(plan *Plan) {
+				plan.SchemaVersion = "2"
+				plan.ID = planDigest(*plan)
+			},
+		},
+		{
+			name: "identity digest",
+			mutate: func(plan *Plan) {
+				plan.ID = strings.Repeat("f", 64)
+			},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			plan := validEmptyPlan(manifest.APIVersion)
+			test.mutate(&plan)
+			if err := Apply(context.Background(), client, manifest, plan, plan.ID); err == nil || err.Error() != "invalid governance plan identity" {
+				t.Fatalf("Apply() error = %v, want invalid governance plan identity", err)
+			}
+		})
+	}
+}
+
+func TestApplyRejectsEachAPIVersionMismatch(t *testing.T) {
+	tests := []struct {
+		name            string
+		clientVersion   string
+		manifestVersion string
+	}{
+		{name: "client", clientVersion: "2025-01-01", manifestVersion: "2026-03-10"},
+		{name: "manifest", clientVersion: "2026-03-10", manifestVersion: "2025-01-01"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			manifest := testGovernance()
+			manifest.APIVersion = test.manifestVersion
+			plan := validEmptyPlan("2026-03-10")
+			client := Client{BaseURL: "http://example.com", APIVersion: test.clientVersion}
+			if err := Apply(context.Background(), client, manifest, plan, plan.ID); err == nil || err.Error() != "client, manifest, and plan API versions differ" {
+				t.Fatalf("Apply() error = %v, want API-version mismatch", err)
+			}
+		})
+	}
+}
+
 func TestBuildPlanRefusesUnexpectedRepositoryScope(t *testing.T) {
 	t.Parallel()
 	github := newFakeGitHub()
@@ -187,6 +241,174 @@ func TestRulesetNameMatchTakesPrecedenceOverOverlappingScope(t *testing.T) {
 	operation := plan.Operations[0]
 	if operation.Kind != "delete-overlapping-ruleset" || operation.Path != "/repos/gomaja/example/rulesets/1" {
 		t.Fatalf("Operation = %#v, want deletion of lower-ID overlapping ruleset", operation)
+	}
+}
+
+func TestBuildPlanCreatesEveryMissingRuleset(t *testing.T) {
+	github, client, manifest := convergedFakeGitHub(t)
+	github.mu.Lock()
+	github.rulesets = make(map[int64]rulesetPayload)
+	github.nextRuleset = 1
+	github.mu.Unlock()
+
+	plan, err := BuildPlan(context.Background(), client, manifest)
+	if err != nil {
+		t.Fatalf("BuildPlan() error = %v", err)
+	}
+	if len(plan.Operations) != 2 {
+		t.Fatalf("Operations = %#v, want two ruleset creations", plan.Operations)
+	}
+	wantNames := map[string]bool{
+		branchRuleset(manifest.Repositories[0]).Name: false,
+		tagRuleset().Name: false,
+	}
+	for index, operation := range plan.Operations {
+		var payload rulesetPayload
+		if err := json.Unmarshal(operation.Body, &payload); err != nil {
+			t.Fatalf("decode Operation[%d] body: %v", index, err)
+		}
+		if operation.Kind != "create-ruleset" {
+			t.Fatalf("Operation[%d] = %#v, want create-ruleset", index, operation)
+		}
+		if _, found := wantNames[payload.Name]; !found {
+			t.Fatalf("Operation[%d] ruleset name = %q, want one of %v", index, payload.Name, wantNames)
+		}
+		wantNames[payload.Name] = true
+	}
+	for name, found := range wantNames {
+		if !found {
+			t.Fatalf("no create-ruleset operation for %q", name)
+		}
+	}
+}
+
+func TestRulesetSelectionStopsAtFirstExactNameMatch(t *testing.T) {
+	github, client, manifest := convergedFakeGitHub(t)
+	github.mu.Lock()
+	github.rulesets[3] = branchRuleset(manifest.Repositories[0])
+	github.nextRuleset = 4
+	github.mu.Unlock()
+
+	plan, err := BuildPlan(context.Background(), client, manifest)
+	if err != nil {
+		t.Fatalf("BuildPlan() error = %v", err)
+	}
+	if len(plan.Operations) != 1 || plan.Operations[0].Kind != "delete-overlapping-ruleset" ||
+		plan.Operations[0].Path != "/repos/gomaja/example/rulesets/3" {
+		t.Fatalf("Operations = %#v, want deletion of later exact-name duplicate", plan.Operations)
+	}
+}
+
+func TestBuildPlanDetectsEachIndependentPolicyDrift(t *testing.T) {
+	tests := []struct {
+		name   string
+		kind   string
+		mutate func(*fakeGitHub)
+	}{
+		{name: "workflow write permissions", kind: "workflow-permissions", mutate: func(github *fakeGitHub) { github.workflow.DefaultPermissions = "write" }},
+		{name: "workflow approval", kind: "workflow-permissions", mutate: func(github *fakeGitHub) { github.workflow.CanApprove = true }},
+		{name: "GitHub-owned Actions", kind: "selected-actions", mutate: func(github *fakeGitHub) { github.selected.GitHubOwnedAllowed = false }},
+		{name: "verified Actions", kind: "selected-actions", mutate: func(github *fakeGitHub) { github.selected.VerifiedAllowed = true }},
+		{name: "selected Action patterns", kind: "selected-actions", mutate: func(github *fakeGitHub) { github.selected.PatternsAllowed = []string{"ossf/scorecard-action@*"} }},
+		{name: "secret scanning", kind: "secret-scanning", mutate: func(github *fakeGitHub) { github.repository.SecurityAndAnalysis.SecretScanning.Status = "disabled" }},
+		{name: "push protection", kind: "secret-scanning", mutate: func(github *fakeGitHub) { github.repository.SecurityAndAnalysis.PushProtection.Status = "disabled" }},
+		{name: "security fixes disabled", kind: "dependabot-security-updates", mutate: func(github *fakeGitHub) { github.fixes.Enabled = false }},
+		{name: "security fixes paused", kind: "dependabot-security-updates", mutate: func(github *fakeGitHub) { github.fixes.Paused = true }},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			github, client, manifest := convergedFakeGitHub(t)
+			github.mu.Lock()
+			test.mutate(github)
+			github.mu.Unlock()
+			plan, err := BuildPlan(context.Background(), client, manifest)
+			if err != nil {
+				t.Fatalf("BuildPlan() error = %v", err)
+			}
+			if len(plan.Operations) != 1 || plan.Operations[0].Kind != test.kind {
+				t.Fatalf("Operations = %#v, want only %q", plan.Operations, test.kind)
+			}
+		})
+	}
+}
+
+func TestRepositorySettingsDriftDetectsEveryIndependentField(t *testing.T) {
+	desired := repositoryState{
+		AllowSquashMerge:         true,
+		DeleteBranchOnMerge:      true,
+		AllowUpdateBranch:        true,
+		SquashMergeCommitTitle:   "COMMIT_OR_PR_TITLE",
+		SquashMergeCommitMessage: "COMMIT_MESSAGES",
+	}
+	if repositorySettingsDrift(desired) {
+		t.Fatal("repositorySettingsDrift(desired) = true")
+	}
+	tests := []struct {
+		name   string
+		mutate func(*repositoryState)
+	}{
+		{name: "squash merge", mutate: func(state *repositoryState) { state.AllowSquashMerge = false }},
+		{name: "merge commit", mutate: func(state *repositoryState) { state.AllowMergeCommit = true }},
+		{name: "rebase merge", mutate: func(state *repositoryState) { state.AllowRebaseMerge = true }},
+		{name: "delete branch", mutate: func(state *repositoryState) { state.DeleteBranchOnMerge = false }},
+		{name: "update branch", mutate: func(state *repositoryState) { state.AllowUpdateBranch = false }},
+		{name: "squash title", mutate: func(state *repositoryState) { state.SquashMergeCommitTitle = "PR_TITLE" }},
+		{name: "squash message", mutate: func(state *repositoryState) { state.SquashMergeCommitMessage = "PR_BODY" }},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			state := desired
+			test.mutate(&state)
+			if !repositorySettingsDrift(state) {
+				t.Fatal("repositorySettingsDrift(drifted) = false")
+			}
+		})
+	}
+}
+
+func TestOperationsEqualChecksEveryFieldAndCanonicalBody(t *testing.T) {
+	base := operation("gomaja/example", "actions-policy", http.MethodPut, "/repos/gomaja/example/actions", json.RawMessage(`{"a":1,"b":2}`))
+	equivalent := base
+	equivalent.Body = json.RawMessage(" { \"a\": 1, \"b\": 2 } ")
+	if !operationsEqual(base, equivalent) {
+		t.Fatal("operationsEqual(canonical JSON) = false")
+	}
+	tests := []struct {
+		name   string
+		mutate func(*Operation)
+	}{
+		{name: "repository", mutate: func(operation *Operation) { operation.Repository = "gomaja/other" }},
+		{name: "kind", mutate: func(operation *Operation) { operation.Kind = "selected-actions" }},
+		{name: "method", mutate: func(operation *Operation) { operation.Method = http.MethodPatch }},
+		{name: "path", mutate: func(operation *Operation) { operation.Path += "/other" }},
+		{name: "body", mutate: func(operation *Operation) { operation.Body = json.RawMessage(`{"a":2}`) }},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			changed := base
+			test.mutate(&changed)
+			if operationsEqual(base, changed) {
+				t.Fatal("operationsEqual(different operation) = true")
+			}
+		})
+	}
+
+	for _, test := range []struct {
+		name        string
+		left, right json.RawMessage
+		want        bool
+	}{
+		{name: "both absent", want: true},
+		{name: "left absent", right: json.RawMessage(`{}`)},
+		{name: "right absent", left: json.RawMessage(`{}`)},
+		{name: "same JSON", left: json.RawMessage(`{"a":1}`), right: json.RawMessage(" { \"a\": 1 } "), want: true},
+		{name: "malformed JSON", left: json.RawMessage(`{`), right: json.RawMessage(`{`)},
+	} {
+		t.Run("body "+test.name, func(t *testing.T) {
+			if got := equalJSONBody(test.left, test.right); got != test.want {
+				t.Fatalf("equalJSONBody() = %t, want %t", got, test.want)
+			}
+		})
 	}
 }
 
@@ -279,6 +501,23 @@ func convergeFakeGitHub(t *testing.T, client Client, manifest config.Governance)
 	if err := Apply(context.Background(), client, manifest, plan, plan.ID); err != nil {
 		t.Fatalf("Apply() error = %v", err)
 	}
+}
+
+func convergedFakeGitHub(t *testing.T) (*fakeGitHub, Client, config.Governance) {
+	t.Helper()
+	github := newFakeGitHub()
+	server := httptest.NewServer(github)
+	t.Cleanup(server.Close)
+	client := Client{BaseURL: server.URL, APIVersion: "2026-03-10", HTTP: server.Client()}
+	manifest := testGovernance()
+	convergeFakeGitHub(t, client, manifest)
+	return github, client, manifest
+}
+
+func validEmptyPlan(apiVersion string) Plan {
+	plan := Plan{SchemaVersion: "1", APIVersion: apiVersion, ObservedHash: strings.Repeat("a", 64), Operations: []Operation{}}
+	plan.ID = planDigest(plan)
+	return plan
 }
 
 func testGovernance() config.Governance {

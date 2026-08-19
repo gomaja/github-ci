@@ -15,7 +15,7 @@ import (
 	"github.com/gomaja/github-ci/internal/securefs"
 )
 
-const maxPlanBytes = 16 << 20
+const maxPlanBytes = 16_777_216
 
 // RunCLI executes the governance command-line interface.
 func RunCLI(ctx context.Context, args []string, stdout, stderr io.Writer) int {

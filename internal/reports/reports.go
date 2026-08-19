@@ -8,8 +8,11 @@ import (
 	"io"
 )
 
-// MaxInputBytes is the hard limit for every native report parser.
-const MaxInputBytes = 64 << 20
+const (
+	// MaxInputBytes is the hard limit for every native report parser.
+	MaxInputBytes = 67_108_864
+	maxReadBytes  = 67_108_865
+)
 
 const sarifTool = "sarif"
 const scorecardSARIFTool = "scorecard-sarif"
@@ -121,7 +124,7 @@ func ParserTool(parserVersion string) (string, bool) {
 }
 
 func readBounded(reader io.Reader) ([]byte, error) {
-	data, err := io.ReadAll(io.LimitReader(reader, MaxInputBytes+1))
+	data, err := io.ReadAll(io.LimitReader(reader, maxReadBytes))
 	if err != nil {
 		return nil, fmt.Errorf("read report: %w", err)
 	}

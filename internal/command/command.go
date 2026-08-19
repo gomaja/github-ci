@@ -37,7 +37,7 @@ const (
 	exitSuccess  = 0
 	exitFinding  = 1
 	exitError    = 2
-	maxJSON      = 64 << 20
+	maxJSON      = 67_108_864
 	flagConfig   = "--config"
 	flagManifest = "--manifest"
 	flagOutput   = "--output"
@@ -958,9 +958,13 @@ func trackedRepository(ctx context.Context, root string) (fs.FS, string, error) 
 		return nil, "", errors.New("enumerate tracked files")
 	}
 	tracked := make(fstest.MapFS)
+	if len(index) == 0 {
+		return tracked, subject, nil
+	}
+	index = bytes.TrimSuffix(index, []byte{0})
 	for raw := range bytes.SplitSeq(index, []byte{0}) {
 		if len(raw) == 0 {
-			continue
+			return nil, "", errors.New("git index contains an empty record")
 		}
 		before, after, ok := bytes.Cut(raw, []byte{'\t'})
 		if !ok {

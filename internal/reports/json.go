@@ -46,7 +46,10 @@ func countGovulncheck(data []byte) (int, error) {
 		var entry govulncheckMessage
 		err := decoder.Decode(&entry)
 		if errors.Is(err, io.EOF) {
-			break
+			if messages == 0 {
+				return 0, errors.New("empty govulncheck stream")
+			}
+			return findings, nil
 		}
 		if err != nil {
 			return 0, fmt.Errorf("decode govulncheck message %d: %w", messages, err)
@@ -60,10 +63,6 @@ func countGovulncheck(data []byte) (int, error) {
 		}
 		messages++
 	}
-	if messages == 0 {
-		return 0, errors.New("empty govulncheck stream")
-	}
-	return findings, nil
 }
 
 func validateGovulncheckMessage(entry govulncheckMessage, index int) (bool, error) {
@@ -139,7 +138,7 @@ func countStaticcheck(data []byte) (int, error) {
 		var diagnostic json.RawMessage
 		err := decoder.Decode(&diagnostic)
 		if errors.Is(err, io.EOF) {
-			break
+			return findings, nil
 		}
 		if err != nil {
 			return 0, fmt.Errorf("decode staticcheck diagnostic %d: %w", findings, err)
@@ -149,7 +148,6 @@ func countStaticcheck(data []byte) (int, error) {
 		}
 		findings++
 	}
-	return findings, nil
 }
 
 const staticcheckJSONLParserIdentity = "staticcheck-jsonl-v1"

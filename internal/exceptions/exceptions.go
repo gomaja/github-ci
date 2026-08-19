@@ -21,7 +21,7 @@ import (
 
 const (
 	schemaVersion    = 1
-	maxDocumentBytes = 1 << 20
+	maxDocumentBytes = 1_048_576
 	maxExceptionDays = 90
 )
 
@@ -157,7 +157,10 @@ func LoadDetailed(reader io.Reader, now time.Time) (Set, []Issue, error) {
 		}
 		return Set{}, nil, fmt.Errorf("decode exceptions: %w", err)
 	}
-	if node.Kind == 0 || len(node.Content) == 0 {
+	if node.Kind == 0 {
+		return Set{}, nil, errors.New("empty exception document")
+	}
+	if len(node.Content) == 0 {
 		return Set{}, nil, errors.New("empty exception document")
 	}
 	if err := rejectDuplicateKeys(&node); err != nil {
@@ -327,10 +330,10 @@ func validateEntryIdentity(wire entryWire, add issueAdder) {
 	} else if !applicability.IsKnownTool(wire.Tool) {
 		add("unknown-tool", wire.Tool)
 	}
-	if err := validateText("rule", wire.Rule); err != nil || !rulePattern.MatchString(wire.Rule) {
+	if !validRule(wire.Rule) {
 		add("invalid-rule", "rule must be an exact analyzer identifier")
 	}
-	if err := validateText("fingerprint", wire.Fingerprint); err != nil || !fingerprintPattern.MatchString(wire.Fingerprint) || isPlaceholder(wire.Fingerprint) {
+	if !validFingerprint(wire.Fingerprint) {
 		add("invalid-fingerprint", "fingerprint must be a stable exact identifier")
 	}
 	if strings.ContainsAny(wire.Scope, "*?[]{}") {
@@ -349,9 +352,39 @@ func validateEntryGovernance(wire entryWire, add issueAdder) {
 	if err := validateText("owner", wire.Owner); err != nil || isPlaceholder(wire.Owner) {
 		add("invalid-owner", "owner must identify the accountable maintainer")
 	}
-	if err := validateText("approval", wire.Approval); err != nil || isPlaceholder(wire.Approval) || (!strings.Contains(wire.Approval, "#") && !strings.HasPrefix(wire.Approval, "https://")) {
+	if !validApproval(wire.Approval) {
 		add("invalid-approval", "approval must be a durable issue, pull request, or HTTPS reference")
 	}
+}
+
+func validRule(value string) bool {
+	if validateText("rule", value) != nil {
+		return false
+	}
+	return rulePattern.MatchString(value)
+}
+
+func validFingerprint(value string) bool {
+	if validateText("fingerprint", value) != nil {
+		return false
+	}
+	if !fingerprintPattern.MatchString(value) {
+		return false
+	}
+	return !isPlaceholder(value)
+}
+
+func validApproval(value string) bool {
+	if validateText("approval", value) != nil {
+		return false
+	}
+	if isPlaceholder(value) {
+		return false
+	}
+	if strings.Contains(value, "#") {
+		return true
+	}
+	return strings.HasPrefix(value, "https://")
 }
 
 func validateEntryLifecycle(wire entryWire, today time.Time, entry *Entry, add issueAdder) {
@@ -436,9 +469,8 @@ func validateSetJSONShape(data []byte) error {
 		return errors.New("exception JSON entries must be an array")
 	}
 	if validatedJSON, present := root["validated_on"]; present {
-		var validatedOn string
-		if len(bytes.TrimSpace(validatedJSON)) == 0 || bytes.TrimSpace(validatedJSON)[0] != '"' || json.Unmarshal(validatedJSON, &validatedOn) != nil || validatedOn == "" {
-			return errors.New("exception JSON validated_on must be a non-empty date string when present")
+		if err := validateValidatedOnJSON(validatedJSON); err != nil {
+			return err
 		}
 	}
 	var entries []map[string]json.RawMessage
@@ -455,6 +487,25 @@ func validateSetJSONShape(data []byte) error {
 				return fmt.Errorf("unknown exception JSON entries[%d] field %q", index, key)
 			}
 		}
+	}
+	return nil
+}
+
+func validateValidatedOnJSON(data json.RawMessage) error {
+	invalid := errors.New("exception JSON validated_on must be a non-empty date string when present")
+	trimmed := bytes.TrimSpace(data)
+	if len(trimmed) == 0 {
+		return invalid
+	}
+	if trimmed[0] != '"' {
+		return invalid
+	}
+	var validatedOn string
+	if err := json.Unmarshal(data, &validatedOn); err != nil {
+		return invalid
+	}
+	if validatedOn == "" {
+		return invalid
 	}
 	return nil
 }
@@ -541,7 +592,10 @@ func parseDate(value string) (time.Time, error) {
 		return time.Time{}, errors.New("date must not be empty")
 	}
 	date, err := time.Parse(time.DateOnly, value)
-	if err != nil || date.Format(time.DateOnly) != value {
+	if err != nil {
+		return time.Time{}, fmt.Errorf("date %q must use YYYY-MM-DD", value)
+	}
+	if date.Format(time.DateOnly) != value {
 		return time.Time{}, fmt.Errorf("date %q must use YYYY-MM-DD", value)
 	}
 	return date, nil

@@ -177,6 +177,26 @@ func TestDetectRecognizesDirectExecutableShellShebangs(t *testing.T) {
 	}
 }
 
+func TestIsShellRequiresExecutableModeAndRecognizedShebang(t *testing.T) {
+	tests := []struct {
+		name string
+		file trackedFile
+		want bool
+	}{
+		{name: "non-executable shebang", file: trackedFile{mode: 0o644, data: []byte("#!/bin/sh\n")}},
+		{name: "executable sh", file: trackedFile{mode: 0o755, data: []byte("#!/bin/sh\n")}, want: true},
+		{name: "executable bash", file: trackedFile{mode: 0o755, data: []byte("#!/bin/bash\n")}, want: true},
+		{name: "unrecognized", file: trackedFile{mode: 0o755, data: []byte("#!/usr/bin/env fish\n")}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := isShell(test.file, ""); got != test.want {
+				t.Fatalf("isShell() = %t, want %t", got, test.want)
+			}
+		})
+	}
+}
+
 func TestReadTrackedFilesEnforcesExactByteLimits(t *testing.T) {
 	tests := []struct {
 		name    string

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"regexp"
+	"strings"
 	"testing"
 )
 
@@ -31,6 +32,17 @@ func TestValidate(t *testing.T) {
 		t.Run(test.path, func(t *testing.T) {
 			if got := Validate("path", test.path) == nil; got != test.want {
 				t.Fatalf("Validate(%q) success = %t, want %t", test.path, got, test.want)
+			}
+		})
+	}
+}
+
+func TestValidateClassifiesEveryAbsolutePathForm(t *testing.T) {
+	for _, value := range []string{"/absolute", `\server\share`, "C:/absolute"} {
+		t.Run(value, func(t *testing.T) {
+			err := Validate("path", value)
+			if err == nil || !strings.Contains(err.Error(), "must be relative, not absolute") {
+				t.Fatalf("Validate(%q) error = %v", value, err)
 			}
 		})
 	}

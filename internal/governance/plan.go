@@ -514,8 +514,11 @@ func operationsEqual(left, right Operation) bool {
 }
 
 func equalJSONBody(left, right json.RawMessage) bool {
-	if len(left) == 0 || len(right) == 0 {
+	if len(left) == 0 {
 		return len(left) == len(right)
+	}
+	if len(right) == 0 {
+		return false
 	}
 	var leftCompact bytes.Buffer
 	var rightCompact bytes.Buffer

@@ -2,6 +2,7 @@ package governance
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -9,6 +10,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"testing/iotest"
 	"time"
 )
 
@@ -120,6 +122,52 @@ func TestReadResponseAcceptsExactSizeLimit(t *testing.T) {
 	}
 }
 
+func TestReadResponseRejectsIndependentReadAndCloseFailures(t *testing.T) {
+	tests := []struct {
+		name string
+		body io.ReadCloser
+	}{
+		{
+			name: "read failure",
+			body: readCloser{
+				Reader: iotest.ErrReader(errors.New("read failure")),
+			},
+		},
+		{
+			name: "close failure",
+			body: readCloser{
+				Reader:   strings.NewReader("response"),
+				closeErr: errors.New("close failure"),
+			},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if _, err := readResponse(&http.Response{Body: test.body}); err == nil || err.Error() != "read GitHub response" {
+				t.Fatalf("readResponse() error = %v, want read GitHub response", err)
+			}
+		})
+	}
+}
+
+func TestDecodeResponseSkipsAbsentDestinationOrBody(t *testing.T) {
+	tests := []struct {
+		name   string
+		data   []byte
+		output any
+	}{
+		{name: "absent destination", data: []byte("not JSON")},
+		{name: "empty body", data: []byte(" \n\t"), output: &map[string]any{}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if err := decodeResponse("application/json", test.data, test.output); err != nil {
+				t.Fatalf("decodeResponse() error = %v, want nil", err)
+			}
+		})
+	}
+}
+
 func TestClientDoesNotRetryPost(t *testing.T) {
 	t.Parallel()
 	var requests atomic.Int32
@@ -220,4 +268,13 @@ func FuzzClientResponseDecoding(f *testing.F) {
 		var output map[string]any
 		_, _ = client.do(context.Background(), http.MethodGet, "/repos/gomaja/example", nil, &output)
 	})
+}
+
+type readCloser struct {
+	io.Reader
+	closeErr error
+}
+
+func (reader readCloser) Close() error {
+	return reader.closeErr
 }

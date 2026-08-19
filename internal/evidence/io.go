@@ -10,7 +10,7 @@ import (
 	"path/filepath"
 )
 
-const maxEvidenceBytes = 64 << 20
+const maxEvidenceBytes = 67_108_864
 
 // Read decodes and validates exactly one bounded evidence record.
 func Read(reader io.Reader) (Record, error) {

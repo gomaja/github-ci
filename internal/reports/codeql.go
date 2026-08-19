@@ -21,20 +21,9 @@ func normalizeCodeQLEmptyNotificationText(data []byte) []byte {
 	}
 	changed := false
 	for _, run := range runs {
-		var invocations []map[string]json.RawMessage
-		if json.Unmarshal(run["invocations"], &invocations) != nil {
-			continue
+		if normalizeCodeQLRun(run) {
+			changed = true
 		}
-		for _, invocation := range invocations {
-			for _, property := range []string{"toolExecutionNotifications", "toolConfigurationNotifications"} {
-				changed = normalizeCodeQLNotifications(invocation, property) || changed
-			}
-		}
-		encoded, err := json.Marshal(invocations)
-		if err != nil {
-			return data
-		}
-		run["invocations"] = encoded
 	}
 	if !changed {
 		return data
@@ -51,6 +40,27 @@ func normalizeCodeQLEmptyNotificationText(data []byte) []byte {
 	return encoded
 }
 
+func normalizeCodeQLRun(run map[string]json.RawMessage) bool {
+	var invocations []map[string]json.RawMessage
+	if json.Unmarshal(run["invocations"], &invocations) != nil {
+		return false
+	}
+	changed := false
+	for _, invocation := range invocations {
+		for _, property := range []string{"toolExecutionNotifications", "toolConfigurationNotifications"} {
+			if normalizeCodeQLNotifications(invocation, property) {
+				changed = true
+			}
+		}
+	}
+	encoded, err := json.Marshal(invocations)
+	if err != nil {
+		return false
+	}
+	run["invocations"] = encoded
+	return changed
+}
+
 func normalizeCodeQLNotifications(invocation map[string]json.RawMessage, property string) bool {
 	raw, exists := invocation[property]
 	if !exists {
@@ -62,20 +72,9 @@ func normalizeCodeQLNotifications(invocation map[string]json.RawMessage, propert
 	}
 	changed := false
 	for _, notification := range notifications {
-		var message map[string]json.RawMessage
-		if json.Unmarshal(notification["message"], &message) != nil {
-			continue
+		if normalizeCodeQLNotification(notification) {
+			changed = true
 		}
-		if !bytes.Equal(bytes.TrimSpace(message["text"]), []byte(`""`)) {
-			continue
-		}
-		message["text"] = json.RawMessage(`"` + codeQLEmptyNotificationText + `"`)
-		encoded, err := json.Marshal(message)
-		if err != nil {
-			continue
-		}
-		notification["message"] = encoded
-		changed = true
 	}
 	if !changed {
 		return false
@@ -85,5 +84,22 @@ func normalizeCodeQLNotifications(invocation map[string]json.RawMessage, propert
 		return false
 	}
 	invocation[property] = encoded
+	return true
+}
+
+func normalizeCodeQLNotification(notification map[string]json.RawMessage) bool {
+	var message map[string]json.RawMessage
+	if json.Unmarshal(notification["message"], &message) != nil {
+		return false
+	}
+	if !bytes.Equal(bytes.TrimSpace(message["text"]), []byte(`""`)) {
+		return false
+	}
+	message["text"] = json.RawMessage(`"` + codeQLEmptyNotificationText + `"`)
+	encoded, err := json.Marshal(message)
+	if err != nil {
+		return false
+	}
+	notification["message"] = encoded
 	return true
 }

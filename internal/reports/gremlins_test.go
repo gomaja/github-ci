@@ -2,6 +2,8 @@ package reports
 
 import (
 	"bytes"
+	"encoding/json"
+	"math"
 	"os"
 	"strings"
 	"testing"
@@ -136,6 +138,35 @@ func TestValidateGremlinsAcceptsZeroElapsedTime(t *testing.T) {
 	report := strings.Replace(valid, `"elapsed_time":1.5`, `"elapsed_time":0`, 1)
 	if err := ValidateGremlins(strings.NewReader(report), gremlinsModule); err != nil {
 		t.Fatalf("ValidateGremlins() error = %v", err)
+	}
+}
+
+func TestValidateGremlinsScalarsRejectsNonFiniteValues(t *testing.T) {
+	var valid gremlinsReport
+	if err := json.Unmarshal(mustGremlinsFixture(t), &valid); err != nil {
+		t.Fatalf("decode valid report: %v", err)
+	}
+	tests := []struct {
+		name   string
+		value  float64
+		assign func(*gremlinsReport, *float64)
+		want   string
+	}{
+		{name: "efficacy NaN", value: math.NaN(), assign: func(report *gremlinsReport, value *float64) { report.TestEfficacy = value }, want: "test_efficacy"},
+		{name: "coverage positive infinity", value: math.Inf(1), assign: func(report *gremlinsReport, value *float64) { report.MutationsCoverage = value }, want: "mutations_coverage"},
+		{name: "elapsed NaN", value: math.NaN(), assign: func(report *gremlinsReport, value *float64) { report.ElapsedTime = value }, want: "elapsed_time"},
+		{name: "elapsed positive infinity", value: math.Inf(1), assign: func(report *gremlinsReport, value *float64) { report.ElapsedTime = value }, want: "elapsed_time"},
+		{name: "elapsed negative infinity", value: math.Inf(-1), assign: func(report *gremlinsReport, value *float64) { report.ElapsedTime = value }, want: "elapsed_time"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			report := valid
+			test.assign(&report, &test.value)
+			err := validateGremlinsScalars(report)
+			if err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("validateGremlinsScalars() error = %v, want %q", err, test.want)
+			}
+		})
 	}
 }
 
