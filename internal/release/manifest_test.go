@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -59,7 +60,7 @@ func TestWriteEvidenceCreatesVerifiableAtomicFiles(t *testing.T) {
 		if err != nil {
 			t.Fatalf("stat %s: %v", name, err)
 		}
-		if info.Mode().Perm() != 0o644 {
+		if runtime.GOOS != "windows" && info.Mode().Perm() != 0o644 {
 			t.Errorf("%s permissions = %o, want 644", name, info.Mode().Perm())
 		}
 	}

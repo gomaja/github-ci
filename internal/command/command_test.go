@@ -287,6 +287,11 @@ func TestRunFilesClassifiesTrackedRepository(t *testing.T) {
 	if output, err := command.CombinedOutput(); err != nil {
 		t.Fatalf("git add fixtures: %v: %s", err, output)
 	}
+	command = exec.CommandContext(t.Context(), "git", "update-index", "--chmod=+x", "scripts/check")
+	command.Dir = repository
+	if output, err := command.CombinedOutput(); err != nil {
+		t.Fatalf("stage extensionless script as executable: %v: %s", err, output)
+	}
 
 	want := map[string]string{
 		"all-go":    "generated/main.go\x00main.go\x00",
