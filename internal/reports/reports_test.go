@@ -394,6 +394,8 @@ func TestCountScorecardSARIFKeepsGovernanceIndicatorsNonBlocking(t *testing.T) {
 		`{"ruleId":"CodeReviewID","message":{"text":"historical approvals"}},` +
 		`{"ruleId":"MaintainedID","message":{"text":"repository age"}},` +
 		`{"ruleId":"CIIBestPracticesID","message":{"text":"external attestation"}},` +
+		`{"ruleId":"SASTID","message":{"text":"reusable CodeQL workflow"}},` +
+		`{"ruleId":"FuzzingID","message":{"text":"reusable deep fuzz workflow"}},` +
 		`{"ruleId":"SecurityPolicyID","message":{"text":"missing reporting link"}}]}]}`
 
 	result, err := Count("scorecard-sarif", strings.NewReader(report))
@@ -407,8 +409,8 @@ func TestCountScorecardSARIFKeepsGovernanceIndicatorsNonBlocking(t *testing.T) {
 	if err != nil {
 		t.Fatalf("strict Count() error = %v", err)
 	}
-	if strict.Findings != 5 {
-		t.Fatalf("strict Count() findings = %d, want all 5 observations", strict.Findings)
+	if strict.Findings != 7 {
+		t.Fatalf("strict Count() findings = %d, want all 7 observations", strict.Findings)
 	}
 }
 

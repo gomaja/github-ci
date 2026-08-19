@@ -12,7 +12,7 @@ Producer compatibility handling never replaces this raw copy or changes the
 digest bound into the evidence record.
 
 OpenSSF Scorecard is evaluated through the dedicated `scorecard-sarif/v1`
-policy. The complete native SARIF remains in evidence, while four repository
+policy. The complete native SARIF remains in evidence, while six repository
 governance indicators do not count as blocking code or configuration findings:
 
 - `BranchProtectionID` is enforced and drift-checked independently by the
@@ -24,9 +24,15 @@ governance indicators do not count as blocking code or configuration findings:
   defines no project remediation for a low score.
 - `CIIBestPracticesID` measures an external, self-attested badge rather than a
   source, dependency, workflow, or repository-setting defect.
+- `SASTID` cannot inspect the implementation of a reusable workflow. CodeQL is
+  mandatory in standard assurance and its native SARIF remains independently
+  blocking.
+- `FuzzingID` cannot inspect the implementation of a reusable workflow. The
+  explicitly selected deep workflow runs every discovered Go fuzz target and
+  fails closed through its own gate.
 
 All other Scorecard rules are blocking. An error-level result remains blocking
-even when it uses one of these three rule identifiers. This classification is
+even when it uses one of these six rule identifiers. This classification is
 part of the versioned parser policy, not an evidence exception.
 
 ## Trust Boundaries
