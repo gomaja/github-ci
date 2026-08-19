@@ -17,8 +17,7 @@ import (
 )
 
 const (
-	consumerConfigPath  = ".github/github-ci.yaml"
-	maxGeneratedEntries = 10_000
+	consumerConfigPath = ".github/github-ci.yaml"
 )
 
 // Input identifies the candidate and the three external canary runs to verify.
@@ -297,63 +296,60 @@ func verifyCanaryModules(ctx context.Context, client Client, repositoryName, ref
 }
 
 func verifyCanaryGeneratedPaths(ctx context.Context, client Client, repositoryName, ref string, generatedPaths []string) error {
+	tree, err := client.getTree(ctx, repositoryName, ref)
+	if err != nil {
+		return fmt.Errorf("read generated Git tree: %w", err)
+	}
 	generatedGo := false
-	entryCount := 0
-	for _, generatedPath := range generatedPaths {
-		found, err := findGeneratedGo(ctx, client, repositoryName, ref, generatedPath, generatedPath, make(map[string]struct{}), &entryCount)
-		if err != nil {
-			return fmt.Errorf("read generated path %q: %w", generatedPath, err)
+	foundPaths := make(map[string]bool, len(generatedPaths))
+	seen := make(map[string]struct{}, len(tree.Entries))
+	for _, entry := range tree.Entries {
+		if err := pathpolicy.Validate("Git tree path", entry.Path); err != nil {
+			return err
 		}
-		generatedGo = generatedGo || found
+		if _, exists := seen[entry.Path]; exists {
+			return fmt.Errorf("git tree contains duplicate path %q", entry.Path)
+		}
+		seen[entry.Path] = struct{}{}
+		if !validGitTreeMode(entry) {
+			return fmt.Errorf("git tree path %q has inconsistent type %q and mode %q", entry.Path, entry.Type, entry.Mode)
+		}
+		if !gitSHAPattern.MatchString(entry.SHA) {
+			return fmt.Errorf("git tree path %q has invalid object SHA", entry.Path)
+		}
+		for _, generatedPath := range generatedPaths {
+			inside := generatedPath == "." || entry.Path == generatedPath || strings.HasPrefix(entry.Path, generatedPath+"/")
+			if !inside {
+				continue
+			}
+			foundPaths[generatedPath] = true
+			if strings.HasSuffix(entry.Path, ".go") && entry.Type == "blob" && (entry.Mode == "100644" || entry.Mode == "100755") {
+				generatedGo = true
+			}
+		}
+	}
+	for _, generatedPath := range generatedPaths {
+		if !foundPaths[generatedPath] {
+			return fmt.Errorf("generated path %q is not present in the exact commit Git tree", generatedPath)
+		}
 	}
 	if !generatedGo {
-		return errors.New("canary generated path must contain a tracked Go source file")
+		return errors.New("canary generated path must contain a regular tracked Go source blob")
 	}
 	return nil
 }
 
-func findGeneratedGo(ctx context.Context, client Client, repositoryName, ref, root, current string, seen map[string]struct{}, entryCount *int) (bool, error) {
-	if _, exists := seen[current]; exists {
-		return false, fmt.Errorf("generated directory %q was visited more than once", current)
+func validGitTreeMode(entry gitTreeEntry) bool {
+	switch entry.Type {
+	case "blob":
+		return entry.Mode == "100644" || entry.Mode == "100755" || entry.Mode == "120000"
+	case "tree":
+		return entry.Mode == "040000"
+	case "commit":
+		return entry.Mode == "160000"
+	default:
+		return false
 	}
-	seen[current] = struct{}{}
-	entries, err := client.getContent(ctx, repositoryName, current, ref)
-	if err != nil {
-		return false, err
-	}
-	found := false
-	singleFile := len(entries) == 1 && entries[0].Type == contentTypeFile && entries[0].Path == current
-	for _, entry := range entries {
-		(*entryCount)++
-		if *entryCount > maxGeneratedEntries {
-			return false, fmt.Errorf("generated paths exceed %d entries", maxGeneratedEntries)
-		}
-		if err := pathpolicy.Validate("generated API path", entry.Path); err != nil {
-			return false, err
-		}
-		if entry.Name != path.Base(entry.Path) {
-			return false, fmt.Errorf("generated API path %q has mismatched name %q", entry.Path, entry.Name)
-		}
-		if root != "." && entry.Path != root && !strings.HasPrefix(entry.Path, root+"/") {
-			return false, fmt.Errorf("generated API path %q escapes %q", entry.Path, root)
-		}
-		if !singleFile && path.Dir(entry.Path) != current {
-			return false, fmt.Errorf("generated API path %q is not a direct child of %q", entry.Path, current)
-		}
-		switch entry.Type {
-		case contentTypeFile:
-			found = found || strings.HasSuffix(entry.Path, ".go")
-		case "dir":
-			nested, nestedErr := findGeneratedGo(ctx, client, repositoryName, ref, root, entry.Path, seen, entryCount)
-			if nestedErr != nil {
-				return false, nestedErr
-			}
-			found = found || nested
-		default:
-			return false, fmt.Errorf("generated API path %q has unsupported type %q", entry.Path, entry.Type)
-		}
-	}
-	return found, nil
 }
 
 func verifyForkPullRequest(ctx context.Context, client Client, baseRepository string, run workflowRun) (int64, error) {

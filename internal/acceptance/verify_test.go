@@ -58,20 +58,39 @@ func TestVerifyAcceptsExplicitPackageLocalCoverage(t *testing.T) {
 
 func TestVerifyFindsGeneratedGoInNestedDirectories(t *testing.T) {
 	fixture := newAcceptanceFixture()
-	directory := []any{map[string]any{
-		"type": "dir", "size": 0, "name": "api", "path": "generated/api",
-		"sha": strings.Repeat("d", 40), "url": "https://example.invalid/api",
-	}}
-	file := []any{map[string]any{
-		"type": "file", "size": 14, "name": "model.go", "path": "generated/api/model.go",
-		"sha": strings.Repeat("e", 40), "url": "https://example.invalid/model.go",
-	}}
 	for _, repository := range []string{testCanary, testFork} {
-		fixture.raw["/repos/"+repository+"/contents/generated"] = mustJSON(t, directory)
-		fixture.raw["/repos/"+repository+"/contents/generated/api"] = mustJSON(t, file)
+		fixture.trees[repository] = []map[string]any{
+			gitTreeFixture("generated", "040000", "tree"),
+			gitTreeFixture("generated/api", "040000", "tree"),
+			gitTreeFixture("generated/api/model.go", "100644", "blob"),
+		}
 	}
 	if _, err := fixture.verify(t); err != nil {
 		t.Fatalf("Verify() with nested generated Go error = %v", err)
+	}
+}
+
+func TestVerifyRejectsGeneratedGoThatIsNotARegularBlob(t *testing.T) {
+	tests := []struct {
+		name       string
+		mode       string
+		objectType string
+		want       string
+	}{
+		{name: "symlink", mode: "120000", objectType: "blob", want: "regular tracked Go source"},
+		{name: "submodule", mode: "160000", objectType: "commit", want: "regular tracked Go source"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			fixture := newAcceptanceFixture()
+			fixture.trees[testCanary] = []map[string]any{
+				gitTreeFixture("generated", "040000", "tree"),
+				gitTreeFixture("generated/model.go", test.mode, test.objectType),
+			}
+			if _, err := fixture.verify(t); err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("Verify() error = %v, want substring %q", err, test.want)
+			}
+		})
 	}
 }
 
@@ -124,8 +143,20 @@ func TestVerifyRejectsEveryUnprovenCondition(t *testing.T) {
 			f.config = strings.Replace(f.config, "generated-paths:\n  - generated\n", "", 1)
 		}, want: "generated path"},
 		{name: "untracked generated source", mutate: func(f *acceptanceFixture) {
-			f.raw["/repos/"+testCanary+"/contents/generated"] = "[]"
+			f.trees[testCanary] = []map[string]any{}
 		}, want: "generated path"},
+		{name: "truncated Git tree", mutate: func(f *acceptanceFixture) {
+			f.treeTruncated[testCanary] = true
+		}, want: "truncated"},
+		{name: "duplicate Git tree path", mutate: func(f *acceptanceFixture) {
+			f.trees[testCanary] = append(f.trees[testCanary], gitTreeFixture("generated/model.go", "100644", "blob"))
+		}, want: "duplicate path"},
+		{name: "inconsistent Git tree mode", mutate: func(f *acceptanceFixture) {
+			f.trees[testCanary][1]["mode"] = "040000"
+		}, want: "inconsistent type"},
+		{name: "invalid Git object SHA", mutate: func(f *acceptanceFixture) {
+			f.trees[testCanary][1]["sha"] = "main"
+		}, want: "invalid object SHA"},
 		{name: "untracked module", mutate: func(f *acceptanceFixture) {
 			f.status["/repos/"+testCanary+"/contents/tools/go.mod"] = http.StatusNotFound
 		}, want: "tracked go.mod"},
@@ -199,6 +230,8 @@ type acceptanceFixture struct {
 	forkConfig         string
 	pullHeadRepository string
 	pullPages          map[int][]map[string]any
+	trees              map[string][]map[string]any
+	treeTruncated      map[string]bool
 }
 
 func newAcceptanceFixture() *acceptanceFixture {
@@ -214,6 +247,14 @@ func newAcceptanceFixture() *acceptanceFixture {
 		status:             make(map[string]int),
 		raw:                make(map[string]string),
 		pullHeadRepository: testFork,
+		trees:              make(map[string][]map[string]any),
+		treeTruncated:      make(map[string]bool),
+	}
+	for _, repository := range []string{testCanary, testFork} {
+		fixture.trees[repository] = []map[string]any{
+			gitTreeFixture("generated", "040000", "tree"),
+			gitTreeFixture("generated/model.go", "100644", "blob"),
+		}
 	}
 	fixture.standardCaller = "name: github-ci\non: [workflow_dispatch]\npermissions:\n  contents: read\njobs:\n  gate:\n    uses: gomaja/github-ci/.github/workflows/go.yml@" + testCandidateSHA + "\n"
 	fixture.deepCaller = "name: github-ci-deep\non: [workflow_dispatch]\npermissions:\n  contents: read\njobs:\n  assurance:\n    uses: gomaja/github-ci/.github/workflows/deep.yml@" + testCandidateSHA + "\n"
@@ -310,25 +351,43 @@ func (fixture *acceptanceFixture) ServeHTTP(writer http.ResponseWriter, request 
 		runID, _ := strconv.ParseInt(parts[6], 10, 64)
 		writeFixtureJSON(writer, fixture.runs[runID])
 	case path == "/repos/"+testCanary+"/pulls":
-		if request.URL.Query().Get("state") != "all" || request.URL.Query().Get("head") != "forker:feature" {
-			http.Error(writer, "unexpected pull request filter", http.StatusBadRequest)
+		fixture.servePullRequests(writer, request)
+	case strings.HasPrefix(path, "/repos/") && strings.Contains(path, "/git/trees/"):
+		if request.URL.Query().Get("recursive") != "1" {
+			http.Error(writer, "recursive tree required", http.StatusBadRequest)
 			return
 		}
-		if fixture.pullPages != nil {
-			page, _ := strconv.Atoi(request.URL.Query().Get("page"))
-			writeFixtureJSON(writer, fixture.pullPages[page])
-			return
+		repository := testCanary
+		if strings.HasPrefix(path, "/repos/"+testFork+"/") {
+			repository = testFork
 		}
-		writeFixtureJSON(writer, []any{map[string]any{
-			"number": 7, "state": "open",
-			"head": map[string]any{"sha": testForkSHA, "repo": map[string]any{"full_name": fixture.pullHeadRepository, "private": false, "fork": true}},
-			"base": map[string]any{"sha": testConsumerSHA, "repo": map[string]any{"full_name": testCanary, "private": false, "fork": false}},
-		}})
+		ref := path[strings.LastIndex(path, "/")+1:]
+		writeFixtureJSON(writer, map[string]any{
+			"sha": ref, "url": "https://example.invalid/tree/" + ref,
+			"tree": fixture.trees[repository], "truncated": fixture.treeTruncated[repository],
+		})
 	case strings.HasPrefix(path, "/repos/") && strings.Contains(path, "/contents/"):
 		fixture.serveContent(writer, path)
 	default:
 		http.Error(writer, "unhandled "+path, http.StatusNotFound)
 	}
+}
+
+func (fixture *acceptanceFixture) servePullRequests(writer http.ResponseWriter, request *http.Request) {
+	if request.URL.Query().Get("state") != "all" || request.URL.Query().Get("head") != "forker:feature" {
+		http.Error(writer, "unexpected pull request filter", http.StatusBadRequest)
+		return
+	}
+	if fixture.pullPages != nil {
+		page, _ := strconv.Atoi(request.URL.Query().Get("page"))
+		writeFixtureJSON(writer, fixture.pullPages[page])
+		return
+	}
+	writeFixtureJSON(writer, []any{map[string]any{
+		"number": 7, "state": "open",
+		"head": map[string]any{"sha": testForkSHA, "repo": map[string]any{"full_name": fixture.pullHeadRepository, "private": false, "fork": true}},
+		"base": map[string]any{"sha": testConsumerSHA, "repo": map[string]any{"full_name": testCanary, "private": false, "fork": false}},
+	}})
 }
 
 func (fixture *acceptanceFixture) serveContent(writer http.ResponseWriter, path string) {
@@ -338,12 +397,6 @@ func (fixture *acceptanceFixture) serveContent(writer http.ResponseWriter, path 
 	}
 	var content string
 	switch {
-	case strings.HasSuffix(path, "/contents/generated"):
-		writeFixtureJSON(writer, []any{map[string]any{
-			"type": "file", "size": 14, "name": "model.go", "path": "generated/model.go",
-			"sha": strings.Repeat("d", 40), "url": "https://example.invalid/model.go",
-		}})
-		return
 	case strings.HasSuffix(path, "/contents/go.mod"):
 		content = "module example.invalid/canary\n"
 	case strings.HasSuffix(path, "/contents/tools/go.mod"):
@@ -364,6 +417,17 @@ func (fixture *acceptanceFixture) serveContent(writer http.ResponseWriter, path 
 		"type": "file", "encoding": "base64", "size": len(content), "name": "fixture", "path": path[strings.Index(path, "/contents/")+len("/contents/"):],
 		"sha": strings.Repeat("d", 40), "content": base64.StdEncoding.EncodeToString([]byte(content)),
 	})
+}
+
+func gitTreeFixture(path, mode, objectType string) map[string]any {
+	entry := map[string]any{
+		"path": path, "mode": mode, "type": objectType,
+		"sha": strings.Repeat("d", 40), "url": "https://example.invalid/object",
+	}
+	if objectType == "blob" {
+		entry["size"] = 14
+	}
+	return entry
 }
 
 func writeFixtureJSON(writer http.ResponseWriter, value any) {

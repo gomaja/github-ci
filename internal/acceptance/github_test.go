@@ -62,6 +62,56 @@ func TestGitHubClientRejectsIncompleteOrUnknownPullRequestFields(t *testing.T) {
 	}
 }
 
+func TestGitHubClientRejectsUntrustedGitTreeResponses(t *testing.T) {
+	tests := []struct {
+		name   string
+		mutate func(map[string]any)
+		want   string
+	}{
+		{name: "unknown response field", mutate: func(tree map[string]any) { tree["unexpected"] = true }, want: "unknown field"},
+		{name: "missing response SHA", mutate: func(tree map[string]any) { delete(tree, "sha") }, want: `missing "sha"`},
+		{name: "wrong response SHA", mutate: func(tree map[string]any) { tree["sha"] = strings.Repeat("e", 40) }, want: "does not match"},
+		{name: "missing truncation state", mutate: func(tree map[string]any) { delete(tree, "truncated") }, want: `missing "truncated"`},
+		{name: "truncated", mutate: func(tree map[string]any) { tree["truncated"] = true }, want: "truncated"},
+		{name: "null entries", mutate: func(tree map[string]any) { tree["tree"] = nil }, want: `missing "tree"`},
+		{name: "unknown entry field", mutate: func(tree map[string]any) {
+			firstGitTreeEntry(tree)["unexpected"] = true
+		}, want: "unknown field"},
+		{name: "missing entry mode", mutate: func(tree map[string]any) {
+			delete(firstGitTreeEntry(tree), "mode")
+		}, want: `missing "mode"`},
+		{name: "negative entry size", mutate: func(tree map[string]any) {
+			firstGitTreeEntry(tree)["size"] = -1
+		}, want: "must not be negative"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			response := map[string]any{
+				"sha": testConsumerSHA, "truncated": false,
+				"tree": []map[string]any{gitTreeFixture("generated/model.go", "100644", "blob")},
+				"url":  "https://example.invalid/tree",
+			}
+			test.mutate(response)
+			server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+				writeFixtureJSON(writer, response)
+			}))
+			t.Cleanup(server.Close)
+			client := Client{BaseURL: server.URL, APIVersion: GitHubAPIVersion, HTTP: server.Client()}
+			if _, err := client.getTree(context.Background(), testCanary, testConsumerSHA); err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("getTree() error = %v, want %q", err, test.want)
+			}
+		})
+	}
+}
+
+func firstGitTreeEntry(tree map[string]any) map[string]any {
+	entries, ok := tree["tree"].([]map[string]any)
+	if !ok || len(entries) == 0 {
+		panic("Git tree fixture is missing entries")
+	}
+	return entries[0]
+}
+
 func TestGitHubClientRejectsRedirectsOversizedResponsesAndUnsafeConfiguration(t *testing.T) {
 	tests := []struct {
 		name    string

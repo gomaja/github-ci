@@ -24,7 +24,9 @@ const (
 	maxJobs           = 10_000
 	pullsPerPage      = 100
 	maxPullRequests   = 10_000
+	maxGitTreeEntries = 100_000
 	fieldName         = "name"
+	fieldPath         = "path"
 	jsonNull          = "null"
 )
 
@@ -97,6 +99,20 @@ type contentEntry struct {
 	Content  string
 }
 
+type gitTree struct {
+	SHA       string
+	Truncated bool
+	Entries   []gitTreeEntry
+}
+
+type gitTreeEntry struct {
+	Path string
+	Mode string
+	Type string
+	SHA  string
+	Size *int64
+}
+
 var repositoryFields = fieldSet(
 	"allow_auto_merge", "allow_forking", "allow_merge_commit", "allow_rebase_merge", "allow_squash_merge", "allow_update_branch",
 	"archive_url", "archived", "assignees_url", "blobs_url", "branches_url", "clone_url", "collaborators_url", "comments_url",
@@ -116,7 +132,7 @@ var repositoryFields = fieldSet(
 var workflowRunFields = fieldSet(
 	"actor", "artifacts_url", "cancel_url", "check_suite_id", "check_suite_node_id", "check_suite_url", "conclusion", "created_at",
 	"display_title", "event", "head_branch", "head_commit", "head_repository", "head_sha", "html_url", "id", "jobs_url", "logs_url",
-	fieldName, "node_id", "path", "previous_attempt_url", "pull_requests", "referenced_workflows", "repository", "rerun_url", "run_attempt",
+	fieldName, "node_id", fieldPath, "previous_attempt_url", "pull_requests", "referenced_workflows", "repository", "rerun_url", "run_attempt",
 	"run_number", "run_started_at", "status", "triggering_actor", "updated_at", "url", "workflow_id", "workflow_url",
 )
 
@@ -136,9 +152,13 @@ var pullRequestFields = fieldSet(
 var pullBranchFields = fieldSet("label", "ref", "repo", "sha", "user")
 
 var contentFields = fieldSet(
-	"_links", "content", "download_url", "encoding", "git_url", "html_url", fieldName, "path", "sha", "size", "submodule_git_url",
+	"_links", "content", "download_url", "encoding", "git_url", "html_url", fieldName, fieldPath, "sha", "size", "submodule_git_url",
 	"target", "type", "url",
 )
+
+var gitTreeFields = fieldSet("sha", "tree", "truncated", "url")
+
+var gitTreeEntryFields = fieldSet("mode", fieldPath, "sha", "size", "type", "url")
 
 func (client Client) getRepository(ctx context.Context, name string) (repository, error) {
 	data, err := client.get(ctx, "/repos/"+escapeRepository(name), nil)
@@ -178,7 +198,7 @@ func (client Client) getRun(ctx context.Context, repositoryName string, id int64
 		return workflowRun{}, err
 	}
 	for name, destination := range map[string]*string{
-		fieldName: &run.Name, "event": &run.Event, "status": &run.Status, "conclusion": &run.Conclusion, "head_branch": &run.HeadBranch, "head_sha": &run.HeadSHA, "path": &run.Path,
+		fieldName: &run.Name, "event": &run.Event, "status": &run.Status, "conclusion": &run.Conclusion, "head_branch": &run.HeadBranch, "head_sha": &run.HeadSHA, fieldPath: &run.Path,
 	} {
 		if err := decodeRequired(fields, name, destination); err != nil {
 			return workflowRun{}, err
@@ -425,6 +445,58 @@ func (client Client) getFile(ctx context.Context, repositoryName, name, ref stri
 	return data, nil
 }
 
+func (client Client) getTree(ctx context.Context, repositoryName, ref string) (gitTree, error) {
+	if !gitSHAPattern.MatchString(ref) {
+		return gitTree{}, errors.New("git tree ref must be a 40-character lowercase hexadecimal commit SHA")
+	}
+	query := url.Values{"recursive": {"1"}}
+	data, err := client.get(ctx, "/repos/"+escapeRepository(repositoryName)+"/git/trees/"+url.PathEscape(ref), query)
+	if err != nil {
+		return gitTree{}, err
+	}
+	fields, err := strictObject(data, gitTreeFields)
+	if err != nil {
+		return gitTree{}, fmt.Errorf("decode Git tree: %w", err)
+	}
+	var tree gitTree
+	if err := decodeRequired(fields, "sha", &tree.SHA); err != nil {
+		return gitTree{}, err
+	}
+	if tree.SHA != ref {
+		return gitTree{}, fmt.Errorf("git tree SHA %q does not match requested commit %q", tree.SHA, ref)
+	}
+	if err := decodeRequired(fields, "truncated", &tree.Truncated); err != nil {
+		return gitTree{}, err
+	}
+	if tree.Truncated {
+		return gitTree{}, errors.New("git tree response is truncated")
+	}
+	rawEntries, exists := fields["tree"]
+	if !exists || string(rawEntries) == jsonNull {
+		return gitTree{}, errors.New("git tree response is missing \"tree\"")
+	}
+	var raw []json.RawMessage
+	decoder := json.NewDecoder(bytes.NewReader(rawEntries))
+	if err := decoder.Decode(&raw); err != nil {
+		return gitTree{}, fmt.Errorf("decode Git tree entries: %w", err)
+	}
+	if err := requireEOF(decoder); err != nil {
+		return gitTree{}, fmt.Errorf("decode Git tree entries: %w", err)
+	}
+	if len(raw) > maxGitTreeEntries {
+		return gitTree{}, fmt.Errorf("git tree exceeds %d entries", maxGitTreeEntries)
+	}
+	tree.Entries = make([]gitTreeEntry, 0, len(raw))
+	for index, item := range raw {
+		entry, decodeErr := decodeGitTreeEntry(item)
+		if decodeErr != nil {
+			return gitTree{}, fmt.Errorf("decode Git tree entry %d: %w", index, decodeErr)
+		}
+		tree.Entries = append(tree.Entries, entry)
+	}
+	return tree, nil
+}
+
 func (client Client) get(ctx context.Context, endpoint string, query url.Values) ([]byte, error) {
 	base, err := client.normalizedBaseURL()
 	if err != nil {
@@ -534,7 +606,7 @@ func decodeContent(data []byte) (contentEntry, error) {
 		return contentEntry{}, fmt.Errorf("decode contents: %w", err)
 	}
 	var entry contentEntry
-	for name, destination := range map[string]*string{"type": &entry.Type, fieldName: &entry.Name, "path": &entry.Path, "sha": &entry.SHA} {
+	for name, destination := range map[string]*string{"type": &entry.Type, fieldName: &entry.Name, fieldPath: &entry.Path, "sha": &entry.SHA} {
 		if err := decodeRequired(fields, name, destination); err != nil {
 			return contentEntry{}, err
 		}
@@ -550,6 +622,30 @@ func decodeContent(data []byte) (contentEntry, error) {
 		if err := json.Unmarshal(raw, &entry.Size); err != nil {
 			return contentEntry{}, fmt.Errorf("decode %q: %w", "size", err)
 		}
+	}
+	return entry, nil
+}
+
+func decodeGitTreeEntry(data []byte) (gitTreeEntry, error) {
+	fields, err := strictObject(data, gitTreeEntryFields)
+	if err != nil {
+		return gitTreeEntry{}, err
+	}
+	var entry gitTreeEntry
+	for name, destination := range map[string]*string{fieldPath: &entry.Path, "mode": &entry.Mode, "type": &entry.Type, "sha": &entry.SHA} {
+		if err := decodeRequired(fields, name, destination); err != nil {
+			return gitTreeEntry{}, err
+		}
+	}
+	if raw, exists := fields["size"]; exists && string(raw) != jsonNull {
+		var size int64
+		if err := json.Unmarshal(raw, &size); err != nil {
+			return gitTreeEntry{}, fmt.Errorf("decode %q: %w", "size", err)
+		}
+		if size < 0 {
+			return gitTreeEntry{}, errors.New("git tree entry size must not be negative")
+		}
+		entry.Size = &size
 	}
 	return entry, nil
 }
