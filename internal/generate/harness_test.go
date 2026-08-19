@@ -158,6 +158,32 @@ func TestDeliberateRace(t *testing.T) {
 	}
 }
 
+func TestScannerHarnessSkipsCommandsOutsideProfile(t *testing.T) {
+	root := repositoryRoot(t)
+	artifacts := t.TempDir()
+	plan := filepath.Join(artifacts, "plan.json")
+	writeFixtureFile(t, artifacts, "plan.json", `{"expected":[{"tool":"unrelated","command_id":"unrelated/noop"}]}`+"\n")
+	cli := filepath.Join(artifacts, "unexpected-cli")
+	writeFixtureFile(t, artifacts, "unexpected-cli", "#!/usr/bin/env bash\nexit 90\n")
+	if err := os.Chmod(cli, 0o755); err != nil {
+		t.Fatalf("make unexpected CLI executable: %v", err)
+	}
+
+	for _, group := range []string{"security", "supply-chain", "repository"} {
+		output := filepath.Join(artifacts, group)
+		environment := []string{
+			"GITHUB_CI_CLI=" + cli,
+			"SOURCE_DIR=" + artifacts,
+			"CENTRAL_DIR=" + root,
+			"PLAN_PATH=" + plan,
+			"CONFIG_PATH=.github/github-ci.yaml",
+			"OUTPUT_DIR=" + output,
+			"BIN_DIR=" + artifacts,
+		}
+		runCommand(t, root, environment, "bash", filepath.Join(root, "scripts", "run-scanners.sh"), group)
+	}
+}
+
 func cleanGoRepository(t *testing.T) string {
 	t.Helper()
 	root := t.TempDir()

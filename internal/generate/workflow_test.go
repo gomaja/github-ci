@@ -125,6 +125,12 @@ func assertWorkflowExecutionContracts(t *testing.T, jobs map[string]any) {
 	if strategy["fail-fast"] != false {
 		t.Errorf("compatibility fail-fast = %#v, want false", strategy["fail-fast"])
 	}
+	for _, name := range []string{"formatting", "core", "tests", "analysis", "compatibility"} {
+		job := mapping(t, jobs[name], name)
+		if job["if"] != "${{ inputs.profile != 'repository-only' }}" {
+			t.Errorf("Go-only job %q if = %#v, want repository-only exclusion", name, job["if"])
+		}
+	}
 	for _, name := range []string{"evidence", "gate"} {
 		job := mapping(t, jobs[name], name)
 		if job["if"] != "${{ always() }}" {

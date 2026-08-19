@@ -102,6 +102,7 @@ jobs:
   formatting:
     name: formatting
     needs: preflight
+    if: ${{ inputs.profile != 'repository-only' }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -175,6 +176,7 @@ jobs:
   core:
     name: core correctness
     needs: preflight
+    if: ${{ inputs.profile != 'repository-only' }}
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
@@ -248,6 +250,7 @@ jobs:
   tests:
     name: tests and race
     needs: preflight
+    if: ${{ inputs.profile != 'repository-only' }}
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
@@ -321,6 +324,7 @@ jobs:
   analysis:
     name: static analysis
     needs: preflight
+    if: ${{ inputs.profile != 'repository-only' }}
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
@@ -395,6 +399,7 @@ jobs:
   compatibility:
     name: Go ${{ matrix.go-version }}
     needs: preflight
+    if: ${{ inputs.profile != 'repository-only' }}
     strategy:
       fail-fast: false
       matrix:

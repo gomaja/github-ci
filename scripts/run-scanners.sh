@@ -57,8 +57,32 @@ is_applicable() {
 	((status == 0)) || return "$status"
 }
 
+plan_expects() {
+	local tool=$1 command_id=$2 status
+	set +e
+	jq -e --arg tool "$tool" --arg command "$command_id" \
+		'any(.expected[]; .tool == $tool and .command_id == $command)' "$PLAN_PATH" >/dev/null
+	status=$?
+	set -e
+	if ((status == 1)); then
+		return 1
+	fi
+	((status == 0)) || return "$status"
+}
+
 begin_tool() {
-	local status
+	local status expected_status
+	set +e
+	plan_expects "$1" "$2"
+	expected_status=$?
+	set -e
+	if ((expected_status == 1)); then
+		return 1
+	fi
+	if ((expected_status != 0)); then
+		printf 'plan lookup failed for %s/%s\n' "$1" "$2" >&2
+		exit "$expected_status"
+	fi
 	set +e
 	is_applicable "$1" "$2" "$3"
 	status=$?
