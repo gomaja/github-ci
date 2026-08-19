@@ -161,11 +161,37 @@ func assertWorkflowExecutionContracts(t *testing.T, jobs map[string]any) {
 	if gate["name"] != "gate" {
 		t.Errorf("gate name = %#v, want gate", gate["name"])
 	}
+	assertCompatibilityGateContract(t, gate)
 	codeql := mapping(t, jobs["codeql"], "codeql")
 	codeqlPermissions := mapping(t, codeql["permissions"], "codeql.permissions")
 	if codeqlPermissions["contents"] != "read" || codeqlPermissions["security-events"] != "write" {
 		t.Errorf("CodeQL permissions = %#v", codeqlPermissions)
 	}
+}
+
+func assertCompatibilityGateContract(t *testing.T, gate map[string]any) {
+	t.Helper()
+	for _, rawStep := range sequence(t, gate["steps"], "gate steps") {
+		step := mapping(t, rawStep, "gate step")
+		if step["name"] != "Enforce aggregate result" {
+			continue
+		}
+		environment := mapping(t, step["env"], "compatibility gate env")
+		if environment["EXPECTED_PROFILE"] != "${{ inputs.profile }}" {
+			t.Errorf("compatibility gate profile = %#v", environment["EXPECTED_PROFILE"])
+		}
+		run, _ := step["run"].(string)
+		for _, required := range []string{
+			`[[ "$COMPATIBILITY_RESULT" == skipped ]]`,
+			`[[ "$COMPATIBILITY_RESULT" == success ]]`,
+		} {
+			if !strings.Contains(run, required) {
+				t.Errorf("compatibility gate is missing %q", required)
+			}
+		}
+		return
+	}
+	t.Error("gate has no aggregate enforcement step")
 }
 
 func assertBootstrapNetworkAccess(t *testing.T, jobs map[string]any) {

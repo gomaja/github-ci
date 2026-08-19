@@ -1137,10 +1137,15 @@ jobs:
       - name: Enforce aggregate result
         env:
           COMPATIBILITY_RESULT: ${{ needs.compatibility.result }}
+          EXPECTED_PROFILE: ${{ inputs.profile }}
           STATUS_PATH: ${{ runner.temp }}/github-ci-result/status
         shell: bash
         run: |
           set -euo pipefail
-          [[ "$COMPATIBILITY_RESULT" == success ]]
+          if [[ "$EXPECTED_PROFILE" == repository-only ]]; then
+            [[ "$COMPATIBILITY_RESULT" == skipped ]]
+          else
+            [[ "$COMPATIBILITY_RESULT" == success ]]
+          fi
           [[ -s "$STATUS_PATH" ]]
           [[ "$(cat "$STATUS_PATH")" == 0 ]]
