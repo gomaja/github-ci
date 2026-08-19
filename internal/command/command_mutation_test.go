@@ -201,6 +201,40 @@ func TestTrackedRepositoryRejectsUnmergedIndex(t *testing.T) {
 	}
 }
 
+func TestTrackedRepositoryRejectsUnsupportedGitMode(t *testing.T) {
+	root := newRepository(t)
+	hash := strings.TrimSpace(runGitMutationTest(t, root, nil, "rev-parse", ":README.md"))
+	runGitMutationTest(t, root, nil, "update-index", "--add", "--cacheinfo", "120000", hash, "link")
+
+	if _, _, err := trackedRepository(context.Background(), root); err == nil || err.Error() != `tracked path "link" has unsupported git mode 120000` {
+		t.Fatalf("trackedRepository() error = %v", err)
+	}
+}
+
+func TestTrackedRepositoryMapsSupportedGitModes(t *testing.T) {
+	root := newRepository(t)
+	mustWrite(t, filepath.Join(root, "script"), "#!/bin/sh\ntrue\n")
+	runGitMutationTest(t, root, nil, "add", "script")
+	runGitMutationTest(t, root, nil, "update-index", "--chmod=+x", "script")
+
+	tracked, _, err := trackedRepository(context.Background(), root)
+	if err != nil {
+		t.Fatalf("trackedRepository() error = %v", err)
+	}
+	for name, want := range map[string]fs.FileMode{
+		"README.md": 0o444,
+		"script":    0o555,
+	} {
+		info, statErr := fs.Stat(tracked, name)
+		if statErr != nil {
+			t.Fatalf("stat %s: %v", name, statErr)
+		}
+		if got := info.Mode().Perm(); got != want {
+			t.Errorf("%s mode = %#o, want %#o", name, got, want)
+		}
+	}
+}
+
 func TestTrackedRepositoryRejectsControlCharacterPath(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("Windows filesystems reject control-character paths before Git can index them")
