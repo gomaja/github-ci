@@ -593,7 +593,7 @@ func TestDeepExecutorContract(t *testing.T) {
 		`load_go_invocation "$GO_PLAN_PATH" "$index" test`,
 		`load_go_invocation "$GO_PLAN_PATH" "$index" gopls`,
 		`^Fuzz[[:alnum:]_]*$`, `-fuzz="^${target}$"`, `-fuzztime="$FUZZ_TIME"`,
-		`--workers 2`, `--timeout-coefficient 20`, `--arithmetic-base`,
+		`--integration`, `--workers 2`, `--timeout-coefficient 20`, `--arithmetic-base`,
 		`--conditionals-boundary`, `--conditionals-negation`, `--increment-decrement`,
 		`--invert-assignments`, `--invert-bitwise`, `--invert-bwassign`,
 		`--invert-logical`, `--invert-loopctrl`, `--invert-negatives`,
