@@ -17,6 +17,7 @@ import (
 	"testing/fstest"
 	"time"
 
+	"github.com/gomaja/github-ci/internal/acceptance"
 	"github.com/gomaja/github-ci/internal/config"
 	"github.com/gomaja/github-ci/internal/evidence"
 	"github.com/gomaja/github-ci/internal/gate"
@@ -172,6 +173,54 @@ func TestReleaseEvidenceCommandsEndToEnd(t *testing.T) {
 	})
 	if code != exitError || !strings.Contains(stderr, "does not match manifest") {
 		t.Fatalf("tampered verify code = %d, stderr = %q", code, stderr)
+	}
+}
+
+func TestVerifyAcceptanceRecordCommand(t *testing.T) {
+	record := acceptance.Record{
+		SchemaVersion:    acceptance.SchemaVersion,
+		CandidateSHA:     strings.Repeat("a", 40),
+		CanaryRepository: "acme/go-canary",
+		Runs: []acceptance.RunRecord{
+			{Kind: acceptance.RunStandard, ID: 101, Repository: "acme/go-canary", HeadRepository: "acme/go-canary", Event: "workflow_dispatch", HeadSHA: strings.Repeat("b", 40), WorkflowPath: ".github/workflows/github-ci.yml", WorkflowSHA: strings.Repeat("a", 40), GateJob: "gate / gate"},
+			{Kind: acceptance.RunDeep, ID: 102, Repository: "acme/go-canary", HeadRepository: "acme/go-canary", Event: "workflow_dispatch", HeadSHA: strings.Repeat("b", 40), WorkflowPath: ".github/workflows/github-ci-deep.yml", WorkflowSHA: strings.Repeat("a", 40), GateJob: "assurance / gate"},
+			{Kind: acceptance.RunFork, ID: 103, Repository: "acme/go-canary", HeadRepository: "forker/go-canary", Event: "pull_request", HeadSHA: strings.Repeat("c", 40), WorkflowPath: ".github/workflows/github-ci.yml", WorkflowSHA: strings.Repeat("a", 40), GateJob: "gate / gate", PullRequest: 7},
+		},
+		ConfigSHA256: strings.Repeat("d", 64),
+	}
+	data, err := acceptance.MarshalRecord(record)
+	if err != nil {
+		t.Fatalf("MarshalRecord() error = %v", err)
+	}
+	recordPath := filepath.Join(t.TempDir(), "acceptance.json")
+	if err := os.WriteFile(recordPath, data, 0o600); err != nil {
+		t.Fatalf("write acceptance record: %v", err)
+	}
+	code, _, stderr := runForTest(t, []string{"verify-acceptance-record", "--record", recordPath, "--expected-sha", record.CandidateSHA})
+	if code != exitSuccess || stderr != "" {
+		t.Fatalf("verify-acceptance-record code = %d, stderr = %q", code, stderr)
+	}
+	code, _, stderr = runForTest(t, []string{"verify-acceptance-record", "--record", recordPath, "--expected-sha", strings.Repeat("e", 40)})
+	if code != exitError || !strings.Contains(stderr, "does not match") {
+		t.Fatalf("mismatched verify code = %d, stderr = %q", code, stderr)
+	}
+}
+
+func TestAcceptanceCommandsRejectIncompleteInput(t *testing.T) {
+	tests := []struct {
+		args []string
+		want string
+	}{
+		{args: []string{"verify-acceptance"}, want: "--candidate-sha is required"},
+		{args: []string{"verify-acceptance", "--candidate-sha", "invalid", "--repository", "acme/go-canary", "--standard-run-id", "1", "--deep-run-id", "2", "--fork-run-id", "3", "--output", "out.json"}, want: "40-character"},
+		{args: []string{"verify-acceptance-record"}, want: "--record is required"},
+		{args: []string{"verify-acceptance-record", "--record", "missing", "--expected-sha", strings.Repeat("a", 40), "extra"}, want: "unexpected positional"},
+	}
+	for _, test := range tests {
+		code, _, stderr := runForTest(t, test.args)
+		if code != exitError || !strings.Contains(stderr, test.want) {
+			t.Fatalf("Run(%v) code = %d, stderr = %q, want %q", test.args, code, stderr, test.want)
+		}
 	}
 }
 

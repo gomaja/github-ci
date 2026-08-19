@@ -568,9 +568,11 @@ func TestReleaseWorkflowProducesEvidenceWithoutPublishing(t *testing.T) {
 		"sbom.cdx.json",
 		"attest-build-provenance",
 		"include-callers:",
+		"acceptance-required:",
 		"default: false",
 		`ref: ${{ inputs.tag || github.ref }}`,
 		`INCLUDE_CALLERS: ${{ inputs.include-callers }}`,
+		`ACCEPTANCE_REQUIRED: ${{ inputs.acceptance-required }}`,
 		`REF_TYPE: ${{ github.ref_type }}`,
 		`REPOSITORY: ${{ github.repository }}`,
 		`WORKFLOW_REPOSITORY: ${{ job.workflow_repository }}`,
@@ -578,7 +580,10 @@ func TestReleaseWorkflowProducesEvidenceWithoutPublishing(t *testing.T) {
 		`[[ "$source_sha" == "$tagged_sha" ]]`,
 		`if [[ "$REF_TYPE" == "tag" ]]`,
 		`if [[ "$INCLUDE_CALLERS" == "true" ]]`,
+		`if [[ "$ACCEPTANCE_REQUIRED" == "true" ]]`,
 		`[[ "$REPOSITORY" == "$WORKFLOW_REPOSITORY" ]]`,
+		`verify-acceptance-record --record "$ACCEPTANCE_RECORD" --expected-sha "$tagged_sha"`,
+		`--asset dist/release-acceptance.json`,
 		"github-ci-govern",
 		"render-callers",
 		`--workflow-sha "$tagged_sha"`,
@@ -611,9 +616,43 @@ func TestRepositoryReleaseCallerIncludesPinnedCallers(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read repository release caller: %v", err)
 	}
-	if !strings.Contains(string(data), "include-callers: true") {
+	text := string(data)
+	if !strings.Contains(text, "include-callers: true") {
 		t.Error("repository release caller does not include SHA-pinned caller assets")
 	}
+	for _, required := range []string{
+		"actions: read", "acceptance:", "release-candidate.yml", "head_sha", "status=success",
+		"github-ci-release-acceptance", "verify-acceptance-record", "acceptance-required: true", "needs: acceptance",
+	} {
+		if !strings.Contains(text, required) {
+			t.Errorf("repository release caller is missing %q", required)
+		}
+	}
+	assertImmutableUses(t, text)
+}
+
+func TestReleaseCandidateRequiresLocalAndExternalAcceptance(t *testing.T) {
+	data, err := os.ReadFile("../../.github/workflows/release-candidate.yml")
+	if err != nil {
+		t.Fatalf("read release candidate workflow: %v", err)
+	}
+	text := string(data)
+	for _, required := range []string{
+		"workflow_dispatch:", "canary-repository:", "standard-run-id:", "deep-run-id:", "fork-run-id:",
+		"local-standard:", "uses: ./.github/workflows/go.yml", "local-deep:", "uses: ./.github/workflows/deep.yml",
+		"verify-acceptance", `--candidate-sha "$CANDIDATE_SHA"`, "github-ci-release-acceptance", "if-no-files-found: error",
+		"needs: [local-standard, local-deep, verify]", "RESULT_STANDARD", "RESULT_DEEP", "RESULT_VERIFY",
+	} {
+		if !strings.Contains(text, required) {
+			t.Errorf("release candidate workflow is missing %q", required)
+		}
+	}
+	for _, forbidden := range []string{"git tag", "gh release", "pull-requests: write", "contents: write"} {
+		if strings.Contains(text, forbidden) {
+			t.Errorf("release candidate workflow contains forbidden %q", forbidden)
+		}
+	}
+	assertImmutableUses(t, text)
 }
 
 func TestGeneratedCallerHasRequiredEvents(t *testing.T) {

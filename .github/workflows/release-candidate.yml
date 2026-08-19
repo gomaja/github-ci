@@ -1,0 +1,112 @@
+name: github-ci-release-candidate
+
+on:
+  workflow_dispatch:
+    inputs:
+      canary-repository:
+        description: Public external Go canary owner/repository.
+        required: true
+        type: string
+      standard-run-id:
+        description: Successful standard canary workflow run ID.
+        required: true
+        type: string
+      deep-run-id:
+        description: Successful deep canary workflow run ID.
+        required: true
+        type: string
+      fork-run-id:
+        description: Successful untrusted-fork canary workflow run ID.
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  local-standard:
+    permissions:
+      contents: read
+      security-events: write  # CodeQL publishes results evaluated by the local gate.
+    uses: ./.github/workflows/go.yml
+
+  local-deep:
+    permissions:
+      contents: read
+    uses: ./.github/workflows/deep.yml
+
+  verify:
+    name: verify external acceptance
+    needs: [local-standard, local-deep]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c
+        with:
+          egress-policy: block
+          disable-telemetry: true
+          allowed-endpoints: >-
+            api.github.com:443
+            github.com:443
+            *.github.com:443
+            *.githubusercontent.com:443
+            go.dev:443
+            proxy.golang.org:443
+            sum.golang.org:443
+            storage.googleapis.com:443
+      - name: Check out candidate
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Bootstrap policy CLI
+        uses: ./actions/bootstrap
+        with:
+          go-version: 1.26.6
+          install-tools: "false"
+      - name: Verify exact-commit external adoption
+        env:
+          CANDIDATE_SHA: ${{ github.sha }}
+          CANARY_REPOSITORY: ${{ inputs.canary-repository }}
+          CLI: ${{ runner.temp }}/github-ci-bin/github-ci
+          DEEP_RUN_ID: ${{ inputs.deep-run-id }}
+          FORK_RUN_ID: ${{ inputs.fork-run-id }}
+          GITHUB_TOKEN: ${{ github.token }}
+          OUTPUT: ${{ runner.temp }}/github-ci-release-acceptance/acceptance.json
+          STANDARD_RUN_ID: ${{ inputs.standard-run-id }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          "$CLI" verify-acceptance \
+            --candidate-sha "$CANDIDATE_SHA" \
+            --repository "$CANARY_REPOSITORY" \
+            --standard-run-id "$STANDARD_RUN_ID" \
+            --deep-run-id "$DEEP_RUN_ID" \
+            --fork-run-id "$FORK_RUN_ID" \
+            --output "$OUTPUT"
+          "$CLI" verify-acceptance-record --record "$OUTPUT" --expected-sha "$CANDIDATE_SHA"
+      - name: Upload release acceptance
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: github-ci-release-acceptance
+          path: ${{ runner.temp }}/github-ci-release-acceptance/acceptance.json
+          if-no-files-found: error
+          retention-days: 30
+
+  gate:
+    name: gate
+    if: ${{ always() }}
+    needs: [local-standard, local-deep, verify]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Require complete release acceptance
+        env:
+          RESULT_DEEP: ${{ needs.local-deep.result }}
+          RESULT_STANDARD: ${{ needs.local-standard.result }}
+          RESULT_VERIFY: ${{ needs.verify.result }}
+        shell: bash
+        run: |
+          test "$RESULT_STANDARD" = success
+          test "$RESULT_DEEP" = success
+          test "$RESULT_VERIFY" = success

@@ -22,6 +22,7 @@ import (
 	"time"
 	"unicode"
 
+	"github.com/gomaja/github-ci/internal/acceptance"
 	"github.com/gomaja/github-ci/internal/applicability"
 	"github.com/gomaja/github-ci/internal/config"
 	"github.com/gomaja/github-ci/internal/evidence"
@@ -58,7 +59,7 @@ func Run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 		return exitError
 	}
 	if len(args) == 0 {
-		writeError(dependencies.stderr, errors.New("usage: github-ci <preflight|modules|go-plan|files|applicable|aggregate|parse|record|gate|generate|verify-generated|validate-gremlins|validate-gremlins-no-results|release-evidence|verify-release-evidence>"))
+		writeError(dependencies.stderr, errors.New("usage: github-ci <preflight|modules|go-plan|files|applicable|aggregate|parse|record|gate|generate|verify-generated|validate-gremlins|validate-gremlins-no-results|verify-acceptance|verify-acceptance-record|release-evidence|verify-release-evidence>"))
 		return exitError
 	}
 	return dispatch(ctx, args, dependencies)
@@ -115,6 +116,10 @@ func dispatch(ctx context.Context, args []string, dependencies runtimeDependenci
 		return runValidateGremlins(args[1:], dependencies.stderr)
 	case "validate-gremlins-no-results":
 		return runValidateGremlinsNoResults(args[1:], dependencies.stderr)
+	case "verify-acceptance":
+		return runVerifyAcceptance(ctx, args[1:], dependencies.stderr)
+	case "verify-acceptance-record":
+		return runVerifyAcceptanceRecord(args[1:], dependencies.stderr)
 	case "release-evidence":
 		return runReleaseEvidence(args[1:], dependencies.stderr)
 	case "verify-release-evidence":
@@ -123,6 +128,103 @@ func dispatch(ctx context.Context, args []string, dependencies runtimeDependenci
 		writeError(dependencies.stderr, fmt.Errorf("unknown command %q", args[0]))
 		return exitError
 	}
+}
+
+func runVerifyAcceptance(ctx context.Context, args []string, stderr io.Writer) int {
+	flags := newFlagSet("verify-acceptance", stderr)
+	candidateSHA := flags.String("candidate-sha", "", "exact github-ci candidate commit SHA")
+	repository := flags.String("repository", "", "public external canary owner/repository")
+	standardRunID := flags.Int64("standard-run-id", 0, "successful standard workflow run ID")
+	deepRunID := flags.Int64("deep-run-id", 0, "successful deep workflow run ID")
+	forkRunID := flags.Int64("fork-run-id", 0, "successful untrusted-fork workflow run ID")
+	apiBaseURL := flags.String("api-base-url", "https://api.github.com", "GitHub REST API base URL")
+	tokenEnvironment := flags.String("token-env", "GITHUB_TOKEN", "environment variable containing a GitHub token")
+	output := flags.String("output", "", "canonical acceptance record output path")
+	if err := flags.Parse(args); err != nil {
+		return exitError
+	}
+	if err := noArguments(flags); err != nil {
+		writeError(stderr, err)
+		return exitError
+	}
+	if err := requireFlags(
+		flagValue{"--candidate-sha", *candidateSHA}, flagValue{"--repository", *repository},
+		flagValue{"--standard-run-id", strconv.FormatInt(*standardRunID, 10)}, flagValue{"--deep-run-id", strconv.FormatInt(*deepRunID, 10)},
+		flagValue{"--fork-run-id", strconv.FormatInt(*forkRunID, 10)}, flagValue{"--output", *output},
+	); err != nil {
+		writeError(stderr, err)
+		return exitError
+	}
+	if !validEnvironmentName(*tokenEnvironment) {
+		writeError(stderr, errors.New("--token-env must be an uppercase environment variable name"))
+		return exitError
+	}
+	record, err := acceptance.Verify(ctx, acceptance.Client{
+		BaseURL: *apiBaseURL, APIVersion: acceptance.GitHubAPIVersion, Token: os.Getenv(*tokenEnvironment),
+	}, acceptance.Input{
+		CandidateSHA: *candidateSHA, CanaryRepository: *repository,
+		StandardRunID: *standardRunID, DeepRunID: *deepRunID, ForkRunID: *forkRunID,
+	})
+	if err != nil {
+		writeError(stderr, fmt.Errorf("verify release acceptance: %w", err))
+		return exitError
+	}
+	data, err := acceptance.MarshalRecord(record)
+	if err != nil {
+		writeError(stderr, fmt.Errorf("marshal release acceptance: %w", err))
+		return exitError
+	}
+	if err := writeBytesAtomic(*output, data); err != nil {
+		writeError(stderr, fmt.Errorf("write release acceptance: %w", err))
+		return exitError
+	}
+	return exitSuccess
+}
+
+func runVerifyAcceptanceRecord(args []string, stderr io.Writer) int {
+	flags := newFlagSet("verify-acceptance-record", stderr)
+	recordPath := flags.String("record", "", "canonical acceptance record path")
+	expectedSHA := flags.String("expected-sha", "", "expected github-ci candidate commit SHA")
+	if err := flags.Parse(args); err != nil {
+		return exitError
+	}
+	if err := noArguments(flags); err != nil {
+		writeError(stderr, err)
+		return exitError
+	}
+	if err := requireFlags(flagValue{"--record", *recordPath}, flagValue{"--expected-sha", *expectedSHA}); err != nil {
+		writeError(stderr, err)
+		return exitError
+	}
+	file, err := securefs.Open(*recordPath)
+	if err != nil {
+		writeError(stderr, fmt.Errorf("open acceptance record: %w", err))
+		return exitError
+	}
+	_, decodeErr := acceptance.DecodeRecord(file, *expectedSHA)
+	closeErr := file.Close()
+	if decodeErr != nil {
+		writeError(stderr, decodeErr)
+		return exitError
+	}
+	if closeErr != nil {
+		writeError(stderr, fmt.Errorf("close acceptance record: %w", closeErr))
+		return exitError
+	}
+	return exitSuccess
+}
+
+func validEnvironmentName(value string) bool {
+	if value == "" || (value[0] != '_' && (value[0] < 'A' || value[0] > 'Z')) {
+		return false
+	}
+	for index := 1; index < len(value); index++ {
+		character := value[index]
+		if character != '_' && (character < 'A' || character > 'Z') && (character < '0' || character > '9') {
+			return false
+		}
+	}
+	return true
 }
 
 func runValidateGremlins(args []string, stderr io.Writer) int {
