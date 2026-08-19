@@ -266,9 +266,11 @@ func writeCommandOutput(t *testing.T, directory, output, name string, arguments 
 	t.Helper()
 	command := exec.CommandContext(t.Context(), name, arguments...)
 	command.Dir = directory
+	var stderr bytes.Buffer
+	command.Stderr = &stderr
 	data, err := command.Output()
 	if err != nil {
-		t.Fatalf("%s %s: %v", name, strings.Join(arguments, " "), err)
+		t.Fatalf("%s %s: %v\n%s", name, strings.Join(arguments, " "), err, stderr.String())
 	}
 	if err := os.WriteFile(output, data, 0o600); err != nil {
 		t.Fatalf("write command output: %v", err)
@@ -293,11 +295,11 @@ func runCommand(t *testing.T, directory string, environment []string, name strin
 	command.Dir = directory
 	baseEnvironment := make([]string, 0, len(os.Environ())+1+len(environment))
 	for _, value := range os.Environ() {
-		if !strings.HasPrefix(value, "RUNNER_TEMP=") {
+		if !strings.HasPrefix(value, "RUNNER_TEMP=") && !strings.HasPrefix(value, "GOFLAGS=") && !strings.HasPrefix(value, "GOMAXPROCS=") {
 			baseEnvironment = append(baseEnvironment, value)
 		}
 	}
-	baseEnvironment = append(baseEnvironment, "RUNNER_TEMP=")
+	baseEnvironment = append(baseEnvironment, "RUNNER_TEMP=", "GOFLAGS=", "GOMAXPROCS=")
 	baseEnvironment = append(baseEnvironment, environment...)
 	command.Env = baseEnvironment
 	var output bytes.Buffer
@@ -308,4 +310,10 @@ func runCommand(t *testing.T, directory string, environment []string, name strin
 		_ = json.Unmarshal(output.Bytes(), &detail)
 		t.Fatalf("%s %s failed on %s/%s: %v\n%s", name, strings.Join(arguments, " "), runtime.GOOS, runtime.GOARCH, err, output.String())
 	}
+}
+
+func TestRunCommandSanitizesToolAffectingEnvironment(t *testing.T) {
+	t.Setenv("GOFLAGS", "-mod=mod")
+	t.Setenv("GOMAXPROCS", "9")
+	runCommand(t, t.TempDir(), nil, "bash", "-c", `[[ -z "${GOFLAGS:-}" && -z "${GOMAXPROCS:-}" ]]`)
 }

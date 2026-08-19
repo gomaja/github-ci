@@ -36,7 +36,12 @@ func TestSchema2CanaryHarness(t *testing.T) {
 	} {
 		runCommand(t, source, nil, "git", arguments...)
 	}
-	runCommand(t, source, nil, "bash", "scripts/check-generated.sh")
+	writeFixtureFile(t, source, "generated/model.go", "package generated\n\nconst Model = \"stale\"\n")
+	runCommand(t, filepath.Join(source, "tools"), nil, "bash", filepath.Join(source, "scripts", "check-generated.sh"))
+	generated, err := os.ReadFile(filepath.Join(source, "generated", "model.go"))
+	if err != nil || !strings.Contains(string(generated), `const Model = "schema-2"`) {
+		t.Fatalf("generated source was not restored from a non-root directory: %v\n%s", err, generated)
+	}
 	assertCanaryRequiresBothTags(t, source)
 	runCommand(t, source, nil, "go", "test", "-tags=canary_a,canary_b", "./...")
 	runCommand(t, filepath.Join(source, "tools"), nil, "go", "test", "-tags=canary_a,canary_b", "./...")
@@ -334,6 +339,35 @@ func TestRunDeepGoExecutesPlannedPortabilityAndTaggedFuzz(t *testing.T) {
 	assertCapturedGoArguments(t, capture, []string{"-mod=vendor", "-tags=sqlite,integration", "./cmd/...", "./internal/...", "-bench=.", "-benchtime=1s"})
 }
 
+func TestRunDeepGoFailsClosedWhenDiscoveryReturnsPartialOutput(t *testing.T) {
+	root := repositoryRoot(t)
+	for _, variable := range []string{"FAIL_GO_LIST", "FAIL_FUZZ_LIST"} {
+		t.Run(variable, func(t *testing.T) {
+			temporary := t.TempDir()
+			fakeBin := filepath.Join(temporary, "bin")
+			capture := filepath.Join(temporary, "capture")
+			writeFakeGoTools(t, fakeBin)
+			if err := os.MkdirAll(capture, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			command := exec.CommandContext(t.Context(), "bash", filepath.Join(root, "scripts", "run-deep-go.sh"), "fuzz-benchmark")
+			command.Dir = root
+			command.Env = append(os.Environ(),
+				"CAPTURE_DIR="+capture,
+				"CENTRAL_DIR="+root,
+				"FUZZ_TIME=1s",
+				"GO_PLAN_PATH="+writeGoExecutionPlan(t, temporary),
+				"PATH="+fakeBin+string(os.PathListSeparator)+os.Getenv("PATH"),
+				"SOURCE_DIR="+temporary,
+				variable+"=true",
+			)
+			if err := command.Run(); err == nil {
+				t.Fatalf("run-deep-go ignored a partial-output failure from %s", variable)
+			}
+		})
+	}
+}
+
 func TestRunDeepGoRejectsInvalidFuzzDurationBeforeExecution(t *testing.T) {
 	root := repositoryRoot(t)
 	temporary := t.TempDir()
@@ -444,9 +478,15 @@ printf '%s\0' "${GOFLAGS:-}" "${GOMAXPROCS:-}" "$@" >"$record"
 case "$tool" in
   go)
     if [[ "${1:-}" == version ]]; then printf 'go version go1.26.6 fixture/amd64\n'; fi
-    if [[ "${1:-}" == list ]]; then printf 'example.com/fixture\n'; fi
+    if [[ "${1:-}" == list ]]; then
+      printf 'example.com/fixture\n'
+      [[ "${FAIL_GO_LIST:-false}" != true ]] || exit 42
+    fi
     for argument in "$@"; do
-      if [[ "$argument" == -list=* ]]; then printf 'FuzzBare\n'; fi
+      if [[ "$argument" == -list=* ]]; then
+        printf 'FuzzBare\n'
+        [[ "${FAIL_FUZZ_LIST:-false}" != true ]] || exit 43
+      fi
     done
     ;;
   staticcheck)

@@ -95,6 +95,20 @@ func TestGeneratedWorkflowsBindHelpersToDefiningWorkflow(t *testing.T) {
 	}
 }
 
+func TestBootstrapBuildsFromItsActionBoundRepository(t *testing.T) {
+	data, err := os.ReadFile("../../actions/bootstrap/action.yml")
+	if err != nil {
+		t.Fatalf("read bootstrap action: %v", err)
+	}
+	text := string(data)
+	if !strings.Contains(text, `CENTRAL_DIR: ${{ github.action_path }}/../..`) {
+		t.Error("bootstrap action does not derive its repository from github.action_path")
+	}
+	if strings.Contains(text, `CENTRAL_DIR: ${{ github.workspace }}/github-ci`) {
+		t.Error("bootstrap action assumes a workspace checkout named github-ci")
+	}
+}
+
 func TestStandardAndDeepWorkflowsUploadDistinctArtifacts(t *testing.T) {
 	standard := uploadedArtifactNames(t, "../../.github/workflows/go.yml")
 	deep := uploadedArtifactNames(t, "../../.github/workflows/deep.yml")

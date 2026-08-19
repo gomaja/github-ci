@@ -47,6 +47,34 @@ func TestVerifyBindsSuccessfulRunsCallerConfigAndFork(t *testing.T) {
 	}
 }
 
+func TestVerifyAcceptsExplicitPackageLocalCoverage(t *testing.T) {
+	fixture := newAcceptanceFixture()
+	fixture.config = strings.Replace(fixture.config, "coverage-packages: [./...]", "coverage-packages: []", 1)
+	fixture.forkConfig = fixture.config
+	if _, err := fixture.verify(t); err != nil {
+		t.Fatalf("Verify() with package-local coverage error = %v", err)
+	}
+}
+
+func TestVerifyFindsGeneratedGoInNestedDirectories(t *testing.T) {
+	fixture := newAcceptanceFixture()
+	directory := []any{map[string]any{
+		"type": "dir", "size": 0, "name": "api", "path": "generated/api",
+		"sha": strings.Repeat("d", 40), "url": "https://example.invalid/api",
+	}}
+	file := []any{map[string]any{
+		"type": "file", "size": 14, "name": "model.go", "path": "generated/api/model.go",
+		"sha": strings.Repeat("e", 40), "url": "https://example.invalid/model.go",
+	}}
+	for _, repository := range []string{testCanary, testFork} {
+		fixture.raw["/repos/"+repository+"/contents/generated"] = mustJSON(t, directory)
+		fixture.raw["/repos/"+repository+"/contents/generated/api"] = mustJSON(t, file)
+	}
+	if _, err := fixture.verify(t); err != nil {
+		t.Fatalf("Verify() with nested generated Go error = %v", err)
+	}
+}
+
 func TestVerifyRejectsEveryUnprovenCondition(t *testing.T) {
 	tests := []struct {
 		name   string
@@ -175,7 +203,10 @@ type acceptanceFixture struct {
 
 func newAcceptanceFixture() *acceptanceFixture {
 	fixture := &acceptanceFixture{
-		repository:         map[string]any{"id": int64(1), "name": "go-canary", "full_name": testCanary, "private": false, "fork": false, "archived": false, "disabled": false, "visibility": "public"},
+		repository: map[string]any{
+			"id": int64(1), "name": "go-canary", "full_name": testCanary, "private": false, "fork": false, "archived": false, "disabled": false, "visibility": "public",
+			"organization": map[string]any{"login": "acme"}, "custom_properties": map[string]any{"assurance": "strict"},
+		},
 		runs:               make(map[int64]map[string]any),
 		jobs:               make(map[int64][]map[string]any),
 		jobPages:           make(map[int64]map[int][]map[string]any),
@@ -214,11 +245,18 @@ generated-paths:
 }
 
 func (fixture *acceptanceFixture) run(id int64, name, event, sha, path, headRepository string) map[string]any {
+	headBranch := "main"
+	headDetails := map[string]any{"full_name": headRepository, "private": false, "fork": headRepository != testCanary, "archived": false, "disabled": false}
+	if headRepository != testCanary {
+		headBranch = "feature"
+		headDetails["parent"] = map[string]any{"full_name": testCanary}
+		headDetails["source"] = map[string]any{"full_name": testCanary}
+	}
 	return map[string]any{
 		"id": id, "name": name, "event": event, "status": "completed", "conclusion": "success",
-		"head_sha": sha, "path": path, "run_attempt": 1,
+		"head_branch": headBranch, "head_sha": sha, "path": path, "run_attempt": 1,
 		"repository":      map[string]any{"full_name": testCanary, "private": false, "fork": false, "archived": false, "disabled": false},
-		"head_repository": map[string]any{"full_name": headRepository, "private": false, "fork": headRepository != testCanary, "archived": false, "disabled": false},
+		"head_repository": headDetails,
 	}
 }
 
@@ -271,7 +309,11 @@ func (fixture *acceptanceFixture) ServeHTTP(writer http.ResponseWriter, request 
 		parts := strings.Split(path, "/")
 		runID, _ := strconv.ParseInt(parts[6], 10, 64)
 		writeFixtureJSON(writer, fixture.runs[runID])
-	case path == "/repos/"+testCanary+"/commits/"+testForkSHA+"/pulls":
+	case path == "/repos/"+testCanary+"/pulls":
+		if request.URL.Query().Get("state") != "all" || request.URL.Query().Get("head") != "forker:feature" {
+			http.Error(writer, "unexpected pull request filter", http.StatusBadRequest)
+			return
+		}
 		if fixture.pullPages != nil {
 			page, _ := strconv.Atoi(request.URL.Query().Get("page"))
 			writeFixtureJSON(writer, fixture.pullPages[page])

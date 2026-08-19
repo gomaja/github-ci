@@ -84,7 +84,7 @@
       "additionalProperties": false,
       "properties": {
         "defaults": { "$ref": "#/$defs/go-settings" },
-        "modules": { "type": "array", "maxItems": 128, "items": { "$ref": "#/$defs/go-module" } }
+        "modules": { "type": "array", "minItems": 1, "maxItems": 128, "uniqueItems": true, "items": { "$ref": "#/$defs/go-module" } }
       }
     },
     "go-settings": {

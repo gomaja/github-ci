@@ -32,7 +32,8 @@ Schema 2 adds execution controls that schema 1 could not express:
 
 Defaults apply first. A field present on a module replaces that field rather
 than merging lists. Omitted `go.modules` means all tracked modules are
-discovered. An explicit module list is closed-world and must name all of them.
+discovered. An explicit module list must be nonempty, is closed-world, and must
+name all of them. YAML `null` is rejected for every configuration field.
 
 For example:
 

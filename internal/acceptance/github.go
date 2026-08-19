@@ -51,6 +51,7 @@ type workflowRun struct {
 	Event          string
 	Status         string
 	Conclusion     string
+	HeadBranch     string
 	HeadSHA        string
 	Path           string
 	RunAttempt     int64
@@ -99,14 +100,14 @@ type contentEntry struct {
 var repositoryFields = fieldSet(
 	"allow_auto_merge", "allow_forking", "allow_merge_commit", "allow_rebase_merge", "allow_squash_merge", "allow_update_branch",
 	"archive_url", "archived", "assignees_url", "blobs_url", "branches_url", "clone_url", "collaborators_url", "comments_url",
-	"commits_url", "compare_url", "contents_url", "contributors_url", "created_at", "default_branch", "delete_branch_on_merge",
+	"commits_url", "compare_url", "contents_url", "contributors_url", "created_at", "custom_properties", "default_branch", "delete_branch_on_merge",
 	"deployments_url", "description", "disabled", "downloads_url", "events_url", "fork", "forks", "forks_count", "forks_url",
 	"full_name", "git_commits_url", "git_refs_url", "git_tags_url", "git_url", "has_discussions", "has_downloads", "has_issues",
 	"has_pages", "has_projects", "has_pull_requests", "has_wiki", "homepage", "hooks_url", "html_url", "id", "is_template",
 	"issue_comment_url", "issue_events_url", "issues_url", "keys_url", "labels_url", "language", "languages_url", "license",
 	"merge_commit_message", "merge_commit_title", "merges_url", "milestones_url", "mirror_url", fieldName, "network_count", "node_id",
 	"notifications_url", "open_issues", "open_issues_count", "owner", "permissions", "private", "pull_request_creation_policy",
-	"pulls_url", "pushed_at", "releases_url", "security_and_analysis", "size", "squash_merge_commit_message", "squash_merge_commit_title",
+	"organization", "parent", "pulls_url", "pushed_at", "releases_url", "security_and_analysis", "size", "source", "squash_merge_commit_message", "squash_merge_commit_title",
 	"ssh_url", "stargazers_count", "stargazers_url", "statuses_url", "subscribers_count", "subscribers_url", "subscription_url",
 	"svn_url", "tags_url", "teams_url", "temp_clone_token", "topics", "trees_url", "updated_at", "url", "use_squash_pr_title_as_default",
 	"visibility", "watchers", "watchers_count", "web_commit_signoff_required",
@@ -177,7 +178,7 @@ func (client Client) getRun(ctx context.Context, repositoryName string, id int64
 		return workflowRun{}, err
 	}
 	for name, destination := range map[string]*string{
-		fieldName: &run.Name, "event": &run.Event, "status": &run.Status, "conclusion": &run.Conclusion, "head_sha": &run.HeadSHA, "path": &run.Path,
+		fieldName: &run.Name, "event": &run.Event, "status": &run.Status, "conclusion": &run.Conclusion, "head_branch": &run.HeadBranch, "head_sha": &run.HeadSHA, "path": &run.Path,
 	} {
 		if err := decodeRequired(fields, name, destination); err != nil {
 			return workflowRun{}, err
@@ -272,11 +273,11 @@ func (client Client) getJobsPage(ctx context.Context, repositoryName string, run
 	return page, nil
 }
 
-func (client Client) getPullRequests(ctx context.Context, repositoryName, sha string) ([]pullRequest, error) {
+func (client Client) getPullRequests(ctx context.Context, repositoryName, headOwner, headBranch string) ([]pullRequest, error) {
 	pulls := make([]pullRequest, 0)
 	seen := make(map[int64]struct{})
 	for pageNumber := 1; ; pageNumber++ {
-		page, err := client.getPullRequestsPage(ctx, repositoryName, sha, pageNumber)
+		page, err := client.getPullRequestsPage(ctx, repositoryName, headOwner, headBranch, pageNumber)
 		if err != nil {
 			return nil, err
 		}
@@ -299,9 +300,15 @@ func (client Client) getPullRequests(ctx context.Context, repositoryName, sha st
 	}
 }
 
-func (client Client) getPullRequestsPage(ctx context.Context, repositoryName, sha string, pageNumber int) ([]pullRequest, error) {
-	query := url.Values{"per_page": {strconv.Itoa(pullsPerPage)}, "page": {strconv.Itoa(pageNumber)}}
-	data, err := client.get(ctx, "/repos/"+escapeRepository(repositoryName)+"/commits/"+url.PathEscape(sha)+"/pulls", query)
+func (client Client) getPullRequestsPage(ctx context.Context, repositoryName, headOwner, headBranch string, pageNumber int) ([]pullRequest, error) {
+	if headOwner == "" || headBranch == "" || strings.ContainsAny(headOwner+headBranch, "\r\n") {
+		return nil, errors.New("pull request head owner and branch must not be empty or contain line breaks")
+	}
+	query := url.Values{
+		"head": {headOwner + ":" + headBranch}, "state": {"all"},
+		"per_page": {strconv.Itoa(pullsPerPage)}, "page": {strconv.Itoa(pageNumber)},
+	}
+	data, err := client.get(ctx, "/repos/"+escapeRepository(repositoryName)+"/pulls", query)
 	if err != nil {
 		return nil, err
 	}

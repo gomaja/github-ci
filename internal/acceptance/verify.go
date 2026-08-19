@@ -12,10 +12,14 @@ import (
 	"strings"
 
 	"github.com/gomaja/github-ci/internal/config"
+	"github.com/gomaja/github-ci/internal/pathpolicy"
 	"gopkg.in/yaml.v3"
 )
 
-const consumerConfigPath = ".github/github-ci.yaml"
+const (
+	consumerConfigPath  = ".github/github-ci.yaml"
+	maxGeneratedEntries = 10_000
+)
 
 // Input identifies the candidate and the three external canary runs to verify.
 type Input struct {
@@ -159,8 +163,8 @@ func validateWorkflowRun(run workflowRun, input Input, expected scenario) error 
 	if run.Path != expected.workflowPath {
 		return fmt.Errorf("workflow run path %q does not match %q", run.Path, expected.workflowPath)
 	}
-	if run.RunAttempt <= 0 || !gitSHAPattern.MatchString(run.HeadSHA) {
-		return errors.New("workflow run attempt or head SHA is invalid")
+	if run.RunAttempt <= 0 || run.HeadBranch == "" || strings.ContainsAny(run.HeadBranch, "\r\n") || !gitSHAPattern.MatchString(run.HeadSHA) {
+		return errors.New("workflow run attempt, head branch, or head SHA is invalid")
 	}
 	if run.HeadRepository.Private || !repositoryPattern.MatchString(run.HeadRepository.FullName) {
 		return errors.New("workflow run head repository must be public and valid")
@@ -269,7 +273,7 @@ func validateCanaryConsumer(consumer config.Consumer) error {
 	if settings.RaceParallelism == nil {
 		return errors.New("canary must configure race-parallelism")
 	}
-	if settings.CoveragePackages == nil || len(*settings.CoveragePackages) == 0 {
+	if settings.CoveragePackages == nil {
 		return errors.New("canary must configure coverage-packages")
 	}
 	if len(consumer.GeneratedPaths) == 0 {
@@ -294,16 +298,13 @@ func verifyCanaryModules(ctx context.Context, client Client, repositoryName, ref
 
 func verifyCanaryGeneratedPaths(ctx context.Context, client Client, repositoryName, ref string, generatedPaths []string) error {
 	generatedGo := false
+	entryCount := 0
 	for _, generatedPath := range generatedPaths {
-		entries, err := client.getContent(ctx, repositoryName, generatedPath, ref)
+		found, err := findGeneratedGo(ctx, client, repositoryName, ref, generatedPath, generatedPath, make(map[string]struct{}), &entryCount)
 		if err != nil {
 			return fmt.Errorf("read generated path %q: %w", generatedPath, err)
 		}
-		for _, entry := range entries {
-			if entry.Type == contentTypeFile && strings.HasSuffix(entry.Path, ".go") {
-				generatedGo = true
-			}
-		}
+		generatedGo = generatedGo || found
 	}
 	if !generatedGo {
 		return errors.New("canary generated path must contain a tracked Go source file")
@@ -311,8 +312,56 @@ func verifyCanaryGeneratedPaths(ctx context.Context, client Client, repositoryNa
 	return nil
 }
 
+func findGeneratedGo(ctx context.Context, client Client, repositoryName, ref, root, current string, seen map[string]struct{}, entryCount *int) (bool, error) {
+	if _, exists := seen[current]; exists {
+		return false, fmt.Errorf("generated directory %q was visited more than once", current)
+	}
+	seen[current] = struct{}{}
+	entries, err := client.getContent(ctx, repositoryName, current, ref)
+	if err != nil {
+		return false, err
+	}
+	found := false
+	singleFile := len(entries) == 1 && entries[0].Type == contentTypeFile && entries[0].Path == current
+	for _, entry := range entries {
+		(*entryCount)++
+		if *entryCount > maxGeneratedEntries {
+			return false, fmt.Errorf("generated paths exceed %d entries", maxGeneratedEntries)
+		}
+		if err := pathpolicy.Validate("generated API path", entry.Path); err != nil {
+			return false, err
+		}
+		if entry.Name != path.Base(entry.Path) {
+			return false, fmt.Errorf("generated API path %q has mismatched name %q", entry.Path, entry.Name)
+		}
+		if root != "." && entry.Path != root && !strings.HasPrefix(entry.Path, root+"/") {
+			return false, fmt.Errorf("generated API path %q escapes %q", entry.Path, root)
+		}
+		if !singleFile && path.Dir(entry.Path) != current {
+			return false, fmt.Errorf("generated API path %q is not a direct child of %q", entry.Path, current)
+		}
+		switch entry.Type {
+		case contentTypeFile:
+			found = found || strings.HasSuffix(entry.Path, ".go")
+		case "dir":
+			nested, nestedErr := findGeneratedGo(ctx, client, repositoryName, ref, root, entry.Path, seen, entryCount)
+			if nestedErr != nil {
+				return false, nestedErr
+			}
+			found = found || nested
+		default:
+			return false, fmt.Errorf("generated API path %q has unsupported type %q", entry.Path, entry.Type)
+		}
+	}
+	return found, nil
+}
+
 func verifyForkPullRequest(ctx context.Context, client Client, baseRepository string, run workflowRun) (int64, error) {
-	pulls, err := client.getPullRequests(ctx, baseRepository, run.HeadSHA)
+	headOwner, _, ok := strings.Cut(run.HeadRepository.FullName, "/")
+	if !ok || headOwner == "" {
+		return 0, errors.New("fork run head repository owner is invalid")
+	}
+	pulls, err := client.getPullRequests(ctx, baseRepository, headOwner, run.HeadBranch)
 	if err != nil {
 		return 0, err
 	}

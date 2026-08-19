@@ -192,6 +192,9 @@ func validateRepositoryCallerPolicy(repository Repository, requiredChecks []stri
 	if repository.WorkflowSHA != "" && !workflowSHAPattern.MatchString(repository.WorkflowSHA) {
 		return fmt.Errorf("repository %q workflow-sha must be an immutable 40-character lowercase hexadecimal commit SHA", repository.Name)
 	}
+	if repository.ObservedRequiredChecks != nil && len(repository.ObservedRequiredChecks) == 0 {
+		return fmt.Errorf("repository %q: observed-required-checks must not be empty", repository.Name)
+	}
 	observed := make(map[string]struct{}, len(repository.ObservedRequiredChecks))
 	for _, check := range repository.ObservedRequiredChecks {
 		if err := validateText("observed required check", check); err != nil {

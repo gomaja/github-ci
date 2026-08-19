@@ -263,7 +263,7 @@ func capabilityApplies(capability Capability, shape repositoryShape) bool {
 
 func isGenerated(name string, generated []string) bool {
 	for _, prefix := range generated {
-		if name == prefix || strings.HasPrefix(name, prefix+"/") {
+		if prefix == "." || name == prefix || strings.HasPrefix(name, prefix+"/") {
 			return true
 		}
 	}

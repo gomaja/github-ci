@@ -96,6 +96,13 @@ func decodeValidConsumerV2(t *testing.T) Consumer {
 }
 
 func TestDecodeConsumerV2RejectsInvalidExecutionSettings(t *testing.T) {
+	emptyModules := validConsumerV2
+	modulesStart := strings.Index(emptyModules, "  modules:\n")
+	generatedStart := strings.Index(emptyModules, "generated-paths:")
+	if modulesStart < 0 || generatedStart <= modulesStart {
+		t.Fatal("valid consumer fixture does not contain the expected modules block")
+	}
+	emptyModules = emptyModules[:modulesStart] + "  modules: []\n" + emptyModules[generatedStart:]
 	tests := []struct {
 		name string
 		yaml string
@@ -105,11 +112,13 @@ func TestDecodeConsumerV2RejectsInvalidExecutionSettings(t *testing.T) {
 		{name: "removed services", yaml: validConsumerV2 + "services: [postgresql]\n", want: "field services not found"},
 		{name: "removed generated", yaml: validConsumerV2 + "generated: [internal/generated]\n", want: "field generated not found"},
 		{name: "repository only Go", yaml: strings.Replace(validConsumerV2, "profile: go-library", "profile: repository-only", 1), want: "repository-only profile must not configure Go"},
+		{name: "empty modules", yaml: emptyModules, want: "modules must not be empty"},
 		{name: "duplicate module", yaml: strings.Replace(validConsumerV2, "    - path: tools", "    - path: .", 1), want: "duplicate module"},
 		{name: "duplicate packages", yaml: strings.Replace(validConsumerV2, "packages: [./...]", "packages: [./..., ./...]", 1), want: "duplicate package"},
 		{name: "empty packages", yaml: strings.Replace(validConsumerV2, "packages: [./...]", "packages: []", 1), want: "packages must not be empty"},
 		{name: "duplicate tags", yaml: strings.Replace(validConsumerV2, "build-tags: [sqlite, integration]", "build-tags: [sqlite, sqlite]", 1), want: "duplicate build tag"},
 		{name: "duplicate coverage", yaml: strings.Replace(validConsumerV2, "coverage-packages: [./...]", "coverage-packages: [./..., ./...]", 1), want: "duplicate coverage package"},
+		{name: "null coverage", yaml: strings.Replace(validConsumerV2, "coverage-packages: [./...]", "coverage-packages: null", 1), want: "null"},
 		{name: "unknown module mode", yaml: strings.Replace(validConsumerV2, "module-mode: readonly", "module-mode: cached", 1), want: "unsupported module mode"},
 		{name: "zero timeout", yaml: strings.Replace(validConsumerV2, "test-timeout: 10m", "test-timeout: 0s", 1), want: "test-timeout must be positive"},
 		{name: "negative timeout", yaml: strings.Replace(validConsumerV2, "test-timeout: 10m", "test-timeout: -1s", 1), want: "test-timeout must be positive"},

@@ -27,7 +27,7 @@ lint:
 	$(GOLANGCI_LINT) run --config configs/golangci.yml ./...
 
 gopls:
-	git ls-files -z '*.go' ':!testdata/repositories/**' | xargs -0 -n 1 $(GOPLS) check
+	git ls-files -z '*.go' ':!testdata/repositories/**' | xargs -0 $(GOPLS) check
 
 generate:
 	$(GO) run ./cmd/github-ci generate --root .

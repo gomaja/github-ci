@@ -652,13 +652,21 @@ func TestRepositoryConsumerConfigCoversEveryTrackedModule(t *testing.T) {
 	if err := json.Unmarshal([]byte(stdout), &plan); err != nil {
 		t.Fatalf("decode repository go-plan: %v", err)
 	}
+	missing := map[string]bool{
+		"testdata/repositories/go-canary":       true,
+		"testdata/repositories/go-canary/tools": true,
+	}
 	for _, module := range plan.Modules {
-		if module.Path != "testdata/repositories/go-canary" && module.Path != "testdata/repositories/go-canary/tools" {
+		if !missing[module.Path] {
 			continue
 		}
+		delete(missing, module.Path)
 		if len(module.BuildTags) != 2 || module.BuildTags[0] != "canary_a" || module.BuildTags[1] != "canary_b" {
 			t.Errorf("canary module %q build tags = %#v", module.Path, module.BuildTags)
 		}
+	}
+	if len(missing) != 0 {
+		t.Fatalf("repository Go plan is missing canary modules %#v", missing)
 	}
 }
 

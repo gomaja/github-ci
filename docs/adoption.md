@@ -54,14 +54,15 @@ go:
 
 The supported profiles are `go-strict`, `go-library`, and `repository-only`.
 Modules are discovered from tracked `go.mod` files when `go.modules` is
-omitted. If `go.modules` is present, it must name every tracked module exactly;
-each module entry replaces omitted default fields independently. Package scope,
+omitted. If `go.modules` is present, it must be nonempty and name every tracked
+module exactly; each module entry replaces omitted default fields independently. Package scope,
 module mode, build tags, test timeout, package parallelism, race parallelism,
 and coverage scope are applied through a typed argument plan. Generated paths
 are classification only, and `exceptions` selects the reviewed exception
 manifest. Test timeouts use whole seconds from `1s` through `2700s` or whole
 minutes from `1m` through `45m` so runtime and published-schema validation are
 identical.
+YAML `null` is rejected; omit an optional field or provide an explicit value.
 
 Render caller files with the governance CLI, or start from the templates in
 `templates/callers/generated` and replace the zero SHA with the validated

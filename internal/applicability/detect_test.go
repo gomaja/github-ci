@@ -442,15 +442,17 @@ func TestInspectClassifiesExactFileShapes(t *testing.T) {
 
 func TestIsGeneratedUsesDirectoryBoundaries(t *testing.T) {
 	for _, test := range []struct {
-		name string
-		want bool
+		name      string
+		generated []string
+		want      bool
 	}{
-		{name: "generated", want: true},
-		{name: "generated/file.go", want: true},
-		{name: "generated-other/file.go", want: false},
-		{name: "other/file.go", want: false},
+		{name: "generated", generated: []string{"generated"}, want: true},
+		{name: "generated/file.go", generated: []string{"generated"}, want: true},
+		{name: "generated-other/file.go", generated: []string{"generated"}, want: false},
+		{name: "other/file.go", generated: []string{"generated"}, want: false},
+		{name: "root/file.go", generated: []string{"."}, want: true},
 	} {
-		if got := isGenerated(test.name, []string{"generated"}); got != test.want {
+		if got := isGenerated(test.name, test.generated); got != test.want {
 			t.Errorf("isGenerated(%q) = %t, want %t", test.name, got, test.want)
 		}
 	}

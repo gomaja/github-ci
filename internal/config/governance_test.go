@@ -68,6 +68,7 @@ repositories:
 		{name: "enforced caller without sha", yaml: strings.Replace(valid, "enforce-caller: false", "enforce-caller: true", 1), want: "workflow-sha"},
 		{name: "enforced caller without required check", yaml: strings.Replace(valid, "enforce-caller: false", "enforce-caller: true\n    workflow-sha: 0123456789abcdef0123456789abcdef01234567", 1), want: "observed-required-checks"},
 		{name: "invalid workflow sha", yaml: strings.Replace(valid, "enforce-caller: false", "enforce-caller: true\n    workflow-sha: main\n    observed-required-checks: [github-ci / gate]", 1), want: "immutable 40-character"},
+		{name: "explicit empty observed checks", yaml: strings.Replace(valid, "enforce-caller: false", "enforce-caller: false\n    observed-required-checks: []", 1), want: "observed-required-checks must not be empty"},
 	}
 
 	for _, test := range tests {

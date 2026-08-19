@@ -167,6 +167,35 @@ func TestSchemaTimeoutPatternsMatchRuntimeValidation(t *testing.T) {
 	}
 }
 
+func TestModuleSchemasRejectExplicitEmptyAndExactDuplicates(t *testing.T) {
+	for _, schemaFile := range []string{
+		"../../schemas/consumer.schema.json",
+		"../../schemas/governance.schema.json",
+	} {
+		t.Run(schemaFile, func(t *testing.T) {
+			data, err := os.ReadFile(schemaFile)
+			if err != nil {
+				t.Fatalf("read schema %q: %v", schemaFile, err)
+			}
+			var schema struct {
+				Definitions map[string]struct {
+					Properties map[string]struct {
+						MinItems    int  `json:"minItems"`
+						UniqueItems bool `json:"uniqueItems"`
+					} `json:"properties"`
+				} `json:"$defs"`
+			}
+			if err := json.Unmarshal(data, &schema); err != nil {
+				t.Fatalf("unmarshal schema %q: %v", schemaFile, err)
+			}
+			modules := schema.Definitions["go"].Properties["modules"]
+			if modules.MinItems != 1 || !modules.UniqueItems {
+				t.Fatalf("schema %q modules minItems=%d uniqueItems=%t, want 1 and true", schemaFile, modules.MinItems, modules.UniqueItems)
+			}
+		})
+	}
+}
+
 func schemaTimeoutPatterns(t *testing.T, filename string) map[string]string {
 	t.Helper()
 	data, err := os.ReadFile(filename)

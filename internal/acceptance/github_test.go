@@ -14,7 +14,10 @@ func TestGitHubClientSendsVersionedAuthenticatedRequest(t *testing.T) {
 		if request.Header.Get("Accept") != "application/vnd.github+json" || request.Header.Get("X-GitHub-Api-Version") != "2026-03-10" || request.Header.Get("Authorization") != "Bearer token-value" {
 			t.Errorf("headers = %#v", request.Header)
 		}
-		writeFixtureJSON(writer, map[string]any{"full_name": testCanary, "private": false, "fork": false, "archived": false, "disabled": false, "visibility": "public"})
+		writeFixtureJSON(writer, map[string]any{
+			"full_name": testCanary, "private": false, "fork": false, "archived": false, "disabled": false, "visibility": "public",
+			"organization": map[string]any{"login": "acme"}, "custom_properties": map[string]any{"assurance": "strict"},
+		})
 	}))
 	t.Cleanup(server.Close)
 	client := Client{BaseURL: server.URL, APIVersion: "2026-03-10", Token: "token-value", HTTP: server.Client()}
@@ -52,7 +55,7 @@ func TestGitHubClientRejectsIncompleteOrUnknownPullRequestFields(t *testing.T) {
 			}))
 			t.Cleanup(server.Close)
 			client := Client{BaseURL: server.URL, APIVersion: GitHubAPIVersion, HTTP: server.Client()}
-			if _, err := client.getPullRequests(context.Background(), testCanary, testForkSHA); err == nil || !strings.Contains(err.Error(), test.want) {
+			if _, err := client.getPullRequests(context.Background(), testCanary, "forker", "feature"); err == nil || !strings.Contains(err.Error(), test.want) {
 				t.Fatalf("getPullRequests() error = %v, want %q", err, test.want)
 			}
 		})
@@ -118,6 +121,9 @@ func TestGitHubClientFetchesEveryPullRequestPage(t *testing.T) {
 	requests := 0
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		requests++
+		if request.URL.Path != "/repos/"+testCanary+"/pulls" || request.URL.Query().Get("state") != "all" || request.URL.Query().Get("head") != "forker:feature" {
+			t.Errorf("pull request query = %s?%s", request.URL.Path, request.URL.RawQuery)
+		}
 		if request.URL.Query().Get("per_page") != "100" {
 			t.Errorf("per_page = %q, want 100", request.URL.Query().Get("per_page"))
 		}
@@ -137,7 +143,7 @@ func TestGitHubClientFetchesEveryPullRequestPage(t *testing.T) {
 	}))
 	t.Cleanup(server.Close)
 	client := Client{BaseURL: server.URL, APIVersion: GitHubAPIVersion, HTTP: server.Client()}
-	pulls, err := client.getPullRequests(context.Background(), testCanary, testForkSHA)
+	pulls, err := client.getPullRequests(context.Background(), testCanary, "forker", "feature")
 	if err != nil {
 		t.Fatalf("getPullRequests() error = %v", err)
 	}
@@ -161,7 +167,7 @@ func TestGitHubClientRejectsDuplicatePullRequestAcrossPages(t *testing.T) {
 	}))
 	t.Cleanup(server.Close)
 	client := Client{BaseURL: server.URL, APIVersion: GitHubAPIVersion, HTTP: server.Client()}
-	if _, err := client.getPullRequests(context.Background(), testCanary, testForkSHA); err == nil || !strings.Contains(err.Error(), "duplicate pull request") {
+	if _, err := client.getPullRequests(context.Background(), testCanary, "forker", "feature"); err == nil || !strings.Contains(err.Error(), "duplicate pull request") {
 		t.Fatalf("getPullRequests() error = %v, want duplicate rejection", err)
 	}
 }

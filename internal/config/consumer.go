@@ -150,6 +150,9 @@ func (goConfig Go) validate() error {
 	if err := goConfig.Defaults.validate("Go defaults"); err != nil {
 		return err
 	}
+	if goConfig.Modules != nil && len(goConfig.Modules) == 0 {
+		return errors.New("modules must not be empty when configured")
+	}
 	if len(goConfig.Modules) > maxModules {
 		return fmt.Errorf("modules must not contain more than %d entries", maxModules)
 	}
@@ -276,6 +279,9 @@ func decodeStrictYAML(reader io.Reader, destination any) error {
 		}
 		return fmt.Errorf("decode trailing configuration document: %w", err)
 	}
+	if err := rejectNullYAML(&node); err != nil {
+		return err
+	}
 
 	encoded, err := yaml.Marshal(&node)
 	if err != nil {
@@ -285,6 +291,18 @@ func decodeStrictYAML(reader io.Reader, destination any) error {
 	strictDecoder.KnownFields(true)
 	if err := strictDecoder.Decode(destination); err != nil {
 		return fmt.Errorf("decode configuration: %w", err)
+	}
+	return nil
+}
+
+func rejectNullYAML(node *yaml.Node) error {
+	if node.Tag == "!!null" {
+		return errors.New("configuration must not contain null values")
+	}
+	for _, child := range node.Content {
+		if err := rejectNullYAML(child); err != nil {
+			return err
+		}
 	}
 	return nil
 }

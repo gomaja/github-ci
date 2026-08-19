@@ -63,7 +63,7 @@ run_fuzz_benchmark() {
 	: "${FUZZ_TIME:?}"
 	[[ "$FUZZ_TIME" =~ ^[1-9][0-9]*(s|m)$ ]]
 
-	local index directory argument package target base_count
+	local index directory argument package target base_count list_output target_output
 	local -a list_arguments test_base concrete_packages targets
 	for index in "${!GO_PLAN_MODULE_PATHS[@]}"; do
 		directory=$(module_directory "$index")
@@ -74,10 +74,13 @@ run_fuzz_benchmark() {
 		for argument in "${GO_PLAN_ARGUMENTS[@]:2}"; do
 			list_arguments+=("$argument")
 		done
+		if ! list_output=$(execute_with_plan_environment "$directory" "${list_arguments[@]}"); then
+			return 1
+		fi
 		concrete_packages=()
 		while IFS= read -r package; do
 			[[ -z "$package" ]] || concrete_packages+=("$package")
-		done < <(execute_with_plan_environment "$directory" "${list_arguments[@]}")
+		done <<<"$list_output"
 		((${#concrete_packages[@]} > 0))
 
 		load_go_invocation "$GO_PLAN_PATH" "$index" test
@@ -89,10 +92,13 @@ run_fuzz_benchmark() {
 		done
 
 		for package in "${concrete_packages[@]}"; do
+			if ! target_output=$(execute_with_plan_environment "$directory" "${test_base[@]}" "$package" -list='^Fuzz'); then
+				return 1
+			fi
 			targets=()
 			while IFS= read -r target; do
 				[[ "$target" =~ ^Fuzz[[:alnum:]_]*$ ]] && targets+=("$target")
-			done < <(execute_with_plan_environment "$directory" "${test_base[@]}" "$package" -list='^Fuzz')
+			done <<<"$target_output"
 			for target in "${targets[@]}"; do
 				execute_with_plan_environment "$directory" "${test_base[@]}" "$package" -run='^$' -fuzz="^${target}$" -fuzztime="$FUZZ_TIME"
 			done
