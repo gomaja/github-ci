@@ -631,6 +631,18 @@ func TestPreflightRejectsCheckoutAndProfileMismatches(t *testing.T) {
 	}
 }
 
+func TestRepositoryConsumerConfigCoversEveryTrackedModule(t *testing.T) {
+	repository := filepath.Clean(filepath.Join("..", ".."))
+	policy := filepath.Join(repository, "policies", "tools.yaml")
+	code, _, stderr := runForTest(t, []string{
+		"preflight", "--repository", repository, "--config", ".github/github-ci.yaml",
+		"--policy", policy, "--output", filepath.Join(t.TempDir(), "plan.json"),
+	})
+	if code != exitSuccess {
+		t.Fatalf("repository preflight code = %d, stderr = %q", code, stderr)
+	}
+}
+
 func TestConsumerModulesPropagatesWalkErrors(t *testing.T) {
 	_, err := consumerModules(readDirErrorFS{}, config.Consumer{Profile: config.ProfileRepositoryOnly})
 	if err == nil || !strings.Contains(err.Error(), "fixture read directory") {

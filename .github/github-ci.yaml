@@ -10,6 +10,8 @@ go:
     coverage-packages: [./...]
   modules:
     - path: .
+    - path: testdata/repositories/go-canary
+    - path: testdata/repositories/go-canary/tools
     - path: testdata/repositories/go-generated
     - path: testdata/repositories/go-multi
     - path: testdata/repositories/go-multi/services/api
