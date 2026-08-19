@@ -181,13 +181,13 @@ func assertCompatibilityGateContract(t *testing.T, gate map[string]any) {
 			t.Errorf("compatibility gate profile = %#v", environment["EXPECTED_PROFILE"])
 		}
 		run, _ := step["run"].(string)
-		for _, required := range []string{
-			`[[ "$COMPATIBILITY_RESULT" == skipped ]]`,
-			`[[ "$COMPATIBILITY_RESULT" == success ]]`,
-		} {
-			if !strings.Contains(run, required) {
-				t.Errorf("compatibility gate is missing %q", required)
-			}
+		profileBranch := `if [[ "$EXPECTED_PROFILE" == repository-only ]]; then
+  [[ "$COMPATIBILITY_RESULT" == skipped ]]
+else
+  [[ "$COMPATIBILITY_RESULT" == success ]]
+fi`
+		if !strings.Contains(run, profileBranch) {
+			t.Errorf("compatibility gate profile branch = %q", run)
 		}
 		return
 	}
@@ -523,6 +523,20 @@ func TestCompositeActionsArePinnedAndNonPrivileged(t *testing.T) {
 				t.Errorf("%s writes the %s command file", name, commandFile)
 			}
 		}
+	}
+}
+
+func TestActionlintConfigAllowsCurrentWorkflowIdentityContext(t *testing.T) {
+	data, err := os.ReadFile("../../.github/actionlint.yaml")
+	if err != nil {
+		t.Fatalf("read actionlint config: %v", err)
+	}
+	want := "paths:\n" +
+		"  .github/workflows/**/*.{yml,yaml}:\n" +
+		"    ignore:\n" +
+		"      - 'property \"workflow_(repository|sha)\" is not defined in object type'\n"
+	if string(data) != want {
+		t.Fatalf("actionlint config = %q, want narrow workflow identity exception", data)
 	}
 }
 
