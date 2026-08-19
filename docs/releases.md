@@ -1,9 +1,9 @@
 # Releases
 
-`v1.0.0` is the first supported release. Releases use immutable `vX.Y.Z` tags.
-Consumers pin the tag's exact commit SHA and retain the semantic version only as
-review context. Moving major tags such as `v1` are not part of the strict
-distribution model.
+`v1.0.0` defines the first supported compatibility line. Releases use immutable
+`vX.Y.Z` tags. Consumers pin the tag's exact commit SHA and retain the semantic
+version only as review context. Moving major tags such as `v1` are not part of
+the strict distribution model.
 
 The `github-ci-release` workflow validates an existing tag and produces a
 deterministic source archive, SPDX and CycloneDX SBOMs, a release manifest,

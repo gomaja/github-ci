@@ -32,9 +32,10 @@ go run github.com/gomaja/github-ci/cmd/github-ci-govern@<commit-sha> \
   --output ./rendered
 ```
 
-`v1.0.0` is the first stable release. Resolve its immutable tag to a full commit
-SHA and pin that SHA in every reusable workflow call. Release evidence
-automation validates existing tags but never creates a tag or GitHub release.
+`v1.0.0` defines the first stable compatibility line. For a published release,
+resolve its immutable tag to a full commit SHA and pin that SHA in every
+reusable workflow call. Release evidence automation validates existing tags but
+never creates a tag or GitHub release.
 
 ## Documentation
 
