@@ -37,3 +37,5 @@ repositories:
   - name: sctp-portkill
     profile: repository-only
     enforce-caller: false
+    workflow-sha: 3dc64d2ab02b3d5ce3f2eacacfdc1eec9a9e78f7
+    observed-required-check: gate / gate
