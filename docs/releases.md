@@ -18,6 +18,11 @@ checksums, and GitHub build provenance. It does not create a tag, publish a
 release, or upload release assets. Those are separately authorized operations
 performed only after the tag workflow succeeds.
 
+A manual validation must be dispatched with the immutable tag itself as the
+workflow ref, not from a branch with only the `tag` input populated. The event
+SHA, checked-out tag commit, and self-release reusable-workflow SHA must agree;
+otherwise evidence generation fails before any artifact is accepted.
+
 Before building that evidence, the repository release workflow finds the most
 recent successful `github-ci-release-candidate` run whose `head_sha` is the
 tagged commit. It downloads `github-ci-release-acceptance`, revalidates its

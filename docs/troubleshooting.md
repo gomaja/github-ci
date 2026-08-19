@@ -105,6 +105,11 @@ expired. A candidate run from another commit cannot be reused. Dispatch a new
 candidate run at the exact tag commit if the artifact expired; never move the
 tag to fit an existing run.
 
+For a manual release-evidence run, select the immutable tag as the workflow
+ref as well as entering it in the `tag` input. Dispatching from a branch is
+rejected even when the requested tag exists, because the event would execute a
+different workflow commit.
+
 ## Canary Seed Fails Without Tags
 
 The release canary intentionally references constants defined only under both

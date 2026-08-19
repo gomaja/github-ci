@@ -48,7 +48,7 @@ func Verify(ctx context.Context, client Client, input Input) (Record, error) {
 	if err != nil {
 		return Record{}, err
 	}
-	if repositoryValue.FullName != input.CanaryRepository || repositoryValue.Private || repositoryValue.Visibility != "public" || repositoryValue.Archived || repositoryValue.Disabled {
+	if repositoryValue.FullName != input.CanaryRepository || repositoryValue.Private || repositoryValue.Fork || repositoryValue.Visibility != "public" || repositoryValue.Archived || repositoryValue.Disabled {
 		return Record{}, errors.New("canary repository must be an active public repository")
 	}
 
@@ -168,6 +168,9 @@ func validateWorkflowRun(run workflowRun, input Input, expected scenario) error 
 	if expected.kind == RunFork {
 		if run.HeadRepository.FullName == input.CanaryRepository {
 			return errors.New("fork run head must come from a different repository")
+		}
+		if !run.HeadRepository.Fork {
+			return errors.New("fork run head repository must be a fork")
 		}
 	} else if run.HeadRepository.FullName != input.CanaryRepository {
 		return errors.New("non-fork run head repository does not match the canary")
@@ -315,7 +318,7 @@ func verifyForkPullRequest(ctx context.Context, client Client, baseRepository st
 	}
 	var match int64
 	for _, pull := range pulls {
-		if pull.Number <= 0 || pull.Head.SHA != run.HeadSHA || pull.Head.Repo.FullName != run.HeadRepository.FullName || pull.Head.Repo.Private || pull.Base.Repo.FullName != baseRepository || pull.Base.Repo.Private {
+		if pull.Number <= 0 || pull.Head.SHA != run.HeadSHA || pull.Head.Repo.FullName != run.HeadRepository.FullName || pull.Head.Repo.Private || !pull.Head.Repo.Fork || pull.Base.Repo.FullName != baseRepository || pull.Base.Repo.Private || pull.Base.Repo.Fork {
 			continue
 		}
 		if match != 0 {

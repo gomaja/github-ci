@@ -54,7 +54,6 @@ jobs:
           EVENT_SHA: ${{ github.sha }}
           GH_TOKEN: ${{ github.token }}
           REF_NAME: ${{ github.ref_name }}
-          REF_TYPE: ${{ github.ref_type }}
           REPOSITORY: ${{ github.repository }}
           REQUESTED_TAG: ${{ inputs.tag }}
           SOURCE_DIR: ${{ github.workspace }}/source
@@ -67,9 +66,7 @@ jobs:
           tagged_sha=$(git -C "$SOURCE_DIR" rev-parse "refs/tags/$tag^{commit}")
           source_sha=$(git -C "$SOURCE_DIR" rev-parse HEAD)
           [[ "$source_sha" == "$tagged_sha" ]]
-          if [[ "$REF_TYPE" == "tag" ]]; then
-            [[ "$tagged_sha" == "$EVENT_SHA" ]]
-          fi
+          [[ "$tagged_sha" == "$EVENT_SHA" ]]
           pages="$RUNNER_TEMP/release-candidate-runs.json"
           gh api --method GET --paginate \
             -H "Accept: application/vnd.github+json" \

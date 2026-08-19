@@ -95,6 +95,50 @@ func TestGeneratedWorkflowsBindHelpersToDefiningWorkflow(t *testing.T) {
 	}
 }
 
+func TestStandardAndDeepWorkflowsUploadDistinctArtifacts(t *testing.T) {
+	standard := uploadedArtifactNames(t, "../../.github/workflows/go.yml")
+	deep := uploadedArtifactNames(t, "../../.github/workflows/deep.yml")
+	for name := range standard {
+		if _, exists := deep[name]; exists {
+			t.Errorf("standard and deep workflows both upload artifact %q", name)
+		}
+	}
+}
+
+func uploadedArtifactNames(t *testing.T, name string) map[string]struct{} {
+	t.Helper()
+	data, err := os.ReadFile(name)
+	if err != nil {
+		t.Fatalf("read %s: %v", name, err)
+	}
+	var workflow map[string]any
+	if err := yaml.Unmarshal(data, &workflow); err != nil {
+		t.Fatalf("decode %s: %v", name, err)
+	}
+	names := map[string]struct{}{}
+	for jobName, rawJob := range mapping(t, workflow["jobs"], name+" jobs") {
+		job := mapping(t, rawJob, name+" job "+jobName)
+		steps, _ := job["steps"].([]any)
+		for _, rawStep := range steps {
+			step := mapping(t, rawStep, name+" job "+jobName+" step")
+			uses, _ := step["uses"].(string)
+			if !strings.HasPrefix(uses, "actions/upload-artifact@") {
+				continue
+			}
+			with := mapping(t, step["with"], name+" job "+jobName+" upload.with")
+			artifact, ok := with["name"].(string)
+			if !ok || artifact == "" {
+				t.Fatalf("%s job %s upload has no literal artifact name", name, jobName)
+			}
+			if _, exists := names[artifact]; exists {
+				t.Fatalf("%s uploads duplicate artifact %q", name, artifact)
+			}
+			names[artifact] = struct{}{}
+		}
+	}
+	return names
+}
+
 func assertWorkflowCallContract(t *testing.T, workflow map[string]any) {
 	t.Helper()
 	on := mapping(t, workflow["on"], "on")
@@ -462,7 +506,7 @@ func TestDeepWorkflowContract(t *testing.T) {
 	text := string(data)
 	for _, required := range []string{
 		"preflight:", "portability:", "fuzz-benchmark:", "mutation:", "history-refresh:",
-		"go-plan.json", "github-ci-plan", "scripts/run-deep-go.sh\" portability",
+		"go-plan.json", "github-ci-deep-plan", "scripts/run-deep-go.sh\" portability",
 		"scripts/run-deep-go.sh\" fuzz-benchmark", "scripts/run-deep-go.sh\" mutation-context",
 		"gitleaks git", "go mod edit -json", `go list -m -u -json "${dependencies[@]}"`,
 		"1.26.6", "1.25.13", "ubuntu-latest", "macos-latest", "windows-latest",
@@ -573,15 +617,16 @@ func TestReleaseWorkflowProducesEvidenceWithoutPublishing(t *testing.T) {
 		`ref: ${{ inputs.tag || github.ref }}`,
 		`INCLUDE_CALLERS: ${{ inputs.include-callers }}`,
 		`ACCEPTANCE_REQUIRED: ${{ inputs.acceptance-required }}`,
-		`REF_TYPE: ${{ github.ref_type }}`,
 		`REPOSITORY: ${{ github.repository }}`,
 		`WORKFLOW_REPOSITORY: ${{ job.workflow_repository }}`,
+		`WORKFLOW_SHA: ${{ job.workflow_sha }}`,
 		`source_sha=$(git -C "$SOURCE_DIR" rev-parse HEAD)`,
 		`[[ "$source_sha" == "$tagged_sha" ]]`,
-		`if [[ "$REF_TYPE" == "tag" ]]`,
+		`[[ "$tagged_sha" == "$EVENT_SHA" ]]`,
 		`if [[ "$INCLUDE_CALLERS" == "true" ]]`,
 		`if [[ "$ACCEPTANCE_REQUIRED" == "true" ]]`,
 		`[[ "$REPOSITORY" == "$WORKFLOW_REPOSITORY" ]]`,
+		`[[ "$WORKFLOW_SHA" == "$tagged_sha" ]]`,
 		`verify-acceptance-record --record "$ACCEPTANCE_RECORD" --expected-sha "$tagged_sha"`,
 		`--asset dist/release-acceptance.json`,
 		"github-ci-govern",
@@ -597,7 +642,7 @@ func TestReleaseWorkflowProducesEvidenceWithoutPublishing(t *testing.T) {
 			t.Errorf("release workflow is missing %q", required)
 		}
 	}
-	for _, forbidden := range []string{"gh release", "git tag", "egress-policy: audit"} {
+	for _, forbidden := range []string{"gh release", "git tag", "egress-policy: audit", "REF_TYPE", `if [[ "$REF_TYPE" == "tag" ]]`} {
 		if strings.Contains(text, forbidden) {
 			t.Errorf("release workflow contains forbidden %q", forbidden)
 		}
@@ -623,10 +668,14 @@ func TestRepositoryReleaseCallerIncludesPinnedCallers(t *testing.T) {
 	for _, required := range []string{
 		"actions: read", "acceptance:", "release-candidate.yml", "head_sha", "status=success",
 		"github-ci-release-acceptance", "verify-acceptance-record", "acceptance-required: true", "needs: acceptance",
+		`[[ "$tagged_sha" == "$EVENT_SHA" ]]`,
 	} {
 		if !strings.Contains(text, required) {
 			t.Errorf("repository release caller is missing %q", required)
 		}
+	}
+	if strings.Contains(text, "REF_TYPE") || strings.Contains(text, `if [[ "$REF_TYPE" == "tag" ]]`) {
+		t.Error("repository release caller permits branch-dispatched evidence for a different tag commit")
 	}
 	assertImmutableUses(t, text)
 }

@@ -23,7 +23,8 @@ Schema 2 adds execution controls that schema 1 could not express:
 
 - `packages` selects the exact package patterns for every Go analyzer;
 - `module-mode` is `readonly`, `vendor`, or `mod`;
-- `test-timeout` is a positive duration no greater than 45 minutes;
+- `test-timeout` is whole seconds from `1s` through `2700s` or whole minutes
+  from `1m` through `45m`;
 - `package-parallelism` controls ordinary Go package concurrency;
 - `race-parallelism` controls both `go test -race -p` and `-parallel`; and
 - `coverage-packages` selects `-coverpkg`; an explicit empty array enables

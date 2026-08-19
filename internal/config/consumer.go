@@ -16,9 +16,12 @@ import (
 
 const schemaVersion = 2
 
+const testTimeoutSchemaPattern = `^(?:(?:[1-9]|[1-9][0-9]|[1-9][0-9]{2}|1[0-9]{3}|2[0-6][0-9]{2}|2700)s|(?:[1-9]|[1-3][0-9]|4[0-5])m)$`
+
 var (
-	buildTagPattern = regexp.MustCompile(`^[A-Za-z0-9_.]+$`)
-	packagePattern  = regexp.MustCompile(`^(?:\.|[A-Za-z0-9_][A-Za-z0-9_.-]*)(?:/(?:\.\.\.|[A-Za-z0-9_][A-Za-z0-9_.-]*))*$`)
+	buildTagPattern    = regexp.MustCompile(`^[A-Za-z0-9_.]+$`)
+	packagePattern     = regexp.MustCompile(`^(?:\.|[A-Za-z0-9_][A-Za-z0-9_.-]*)(?:/(?:\.\.\.|[A-Za-z0-9_][A-Za-z0-9_.-]*))*$`)
+	testTimeoutPattern = regexp.MustCompile(testTimeoutSchemaPattern)
 )
 
 const (
@@ -186,6 +189,9 @@ func (settings GoSettings) validate(scope string) error {
 		}
 		if duration > maxTestTimeout {
 			return fmt.Errorf("%s test-timeout must not exceed 45m", scope)
+		}
+		if !testTimeoutPattern.MatchString(*settings.TestTimeout) {
+			return fmt.Errorf("%s test-timeout must use whole seconds up to 2700s or whole minutes up to 45m", scope)
 		}
 	}
 	if settings.PackageParallelism != nil && (*settings.PackageParallelism < 1 || *settings.PackageParallelism > maxPackageParallel) {

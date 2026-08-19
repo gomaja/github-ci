@@ -58,6 +58,12 @@ func TestVerifyRejectsEveryUnprovenCondition(t *testing.T) {
 		{name: "HTTP 500", mutate: func(f *acceptanceFixture) { f.status["/repos/"+testCanary] = http.StatusInternalServerError }, want: "500"},
 		{name: "malformed JSON", mutate: func(f *acceptanceFixture) { f.raw["/repos/"+testCanary] = "{" }, want: "decode"},
 		{name: "unknown JSON field", mutate: func(f *acceptanceFixture) { f.repository["unknown"] = true }, want: "unknown field"},
+		{name: "missing private state", mutate: func(f *acceptanceFixture) { delete(f.repository, "private") }, want: `missing "private"`},
+		{name: "missing fork state", mutate: func(f *acceptanceFixture) { delete(f.repository, "fork") }, want: `missing "fork"`},
+		{name: "missing archived state", mutate: func(f *acceptanceFixture) { delete(f.repository, "archived") }, want: `missing "archived"`},
+		{name: "missing disabled state", mutate: func(f *acceptanceFixture) { delete(f.repository, "disabled") }, want: `missing "disabled"`},
+		{name: "missing visibility state", mutate: func(f *acceptanceFixture) { delete(f.repository, "visibility") }, want: `missing "visibility"`},
+		{name: "forked canary repository", mutate: func(f *acceptanceFixture) { f.repository["fork"] = true }, want: "active public"},
 		{name: "private repository", mutate: func(f *acceptanceFixture) { f.repository["private"] = true }, want: "public"},
 		{name: "archived repository", mutate: func(f *acceptanceFixture) { f.repository["archived"] = true }, want: "active public"},
 		{name: "wrong standard event", mutate: func(f *acceptanceFixture) { f.runs[101]["event"] = "push" }, want: "event"},
@@ -134,6 +140,23 @@ func TestVerifyFetchesEveryJobsPageAndRejectsPaginationGap(t *testing.T) {
 	}
 }
 
+func TestVerifyRejectsAmbiguousForkPullOnLaterPage(t *testing.T) {
+	fixture := newAcceptanceFixture()
+	first := make([]map[string]any, 0, pullsPerPage)
+	for number := 1; number <= pullsPerPage; number++ {
+		pull := pullRequestFixture(int64(number))
+		fixtureObject(pull["head"])["sha"] = strings.Repeat("d", 40)
+		first = append(first, pull)
+	}
+	fixture.pullPages = map[int][]map[string]any{
+		1: first,
+		2: {pullRequestFixture(101), pullRequestFixture(102)},
+	}
+	if _, err := fixture.verify(t); err == nil || !strings.Contains(err.Error(), "multiple matching pull requests") {
+		t.Fatalf("Verify() error = %v, want ambiguous pull rejection", err)
+	}
+}
+
 type acceptanceFixture struct {
 	repository         map[string]any
 	runs               map[int64]map[string]any
@@ -147,11 +170,12 @@ type acceptanceFixture struct {
 	config             string
 	forkConfig         string
 	pullHeadRepository string
+	pullPages          map[int][]map[string]any
 }
 
 func newAcceptanceFixture() *acceptanceFixture {
 	fixture := &acceptanceFixture{
-		repository:         map[string]any{"id": int64(1), "name": "go-canary", "full_name": testCanary, "private": false, "fork": false, "archived": false, "visibility": "public"},
+		repository:         map[string]any{"id": int64(1), "name": "go-canary", "full_name": testCanary, "private": false, "fork": false, "archived": false, "disabled": false, "visibility": "public"},
 		runs:               make(map[int64]map[string]any),
 		jobs:               make(map[int64][]map[string]any),
 		jobPages:           make(map[int64]map[int][]map[string]any),
@@ -193,8 +217,8 @@ func (fixture *acceptanceFixture) run(id int64, name, event, sha, path, headRepo
 	return map[string]any{
 		"id": id, "name": name, "event": event, "status": "completed", "conclusion": "success",
 		"head_sha": sha, "path": path, "run_attempt": 1,
-		"repository":      map[string]any{"full_name": testCanary, "private": false, "fork": false},
-		"head_repository": map[string]any{"full_name": headRepository, "private": false, "fork": headRepository != testCanary},
+		"repository":      map[string]any{"full_name": testCanary, "private": false, "fork": false, "archived": false, "disabled": false},
+		"head_repository": map[string]any{"full_name": headRepository, "private": false, "fork": headRepository != testCanary, "archived": false, "disabled": false},
 	}
 }
 
@@ -248,6 +272,11 @@ func (fixture *acceptanceFixture) ServeHTTP(writer http.ResponseWriter, request 
 		runID, _ := strconv.ParseInt(parts[6], 10, 64)
 		writeFixtureJSON(writer, fixture.runs[runID])
 	case path == "/repos/"+testCanary+"/commits/"+testForkSHA+"/pulls":
+		if fixture.pullPages != nil {
+			page, _ := strconv.Atoi(request.URL.Query().Get("page"))
+			writeFixtureJSON(writer, fixture.pullPages[page])
+			return
+		}
 		writeFixtureJSON(writer, []any{map[string]any{
 			"number": 7, "state": "open",
 			"head": map[string]any{"sha": testForkSHA, "repo": map[string]any{"full_name": fixture.pullHeadRepository, "private": false, "fork": true}},

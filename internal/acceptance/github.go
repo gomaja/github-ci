@@ -22,6 +22,8 @@ const (
 	maxGitHubResponse = 8 << 20
 	jobsPerPage       = 100
 	maxJobs           = 10_000
+	pullsPerPage      = 100
+	maxPullRequests   = 10_000
 	fieldName         = "name"
 	jsonNull          = "null"
 )
@@ -37,6 +39,7 @@ type Client struct {
 type repository struct {
 	FullName   string
 	Private    bool
+	Fork       bool
 	Archived   bool
 	Disabled   bool
 	Visibility string
@@ -122,6 +125,15 @@ var workflowJobFields = fieldSet(
 	"status", "steps", "url", "workflow_name",
 )
 
+var pullRequestFields = fieldSet(
+	"_links", "active_lock_reason", "assignees", "author_association", "auto_merge", "base", "body", "closed_at", "comments_url",
+	"commits_url", "created_at", "diff_url", "draft", "head", "html_url", "id", "issue_url", "labels", "locked", "merged_at",
+	"milestone", "node_id", "number", "patch_url", "requested_reviewers", "requested_teams", "review_comment_url", "review_comments_url",
+	"state", "statuses_url", "title", "updated_at", "url", "user",
+)
+
+var pullBranchFields = fieldSet("label", "ref", "repo", "sha", "user")
+
 var contentFields = fieldSet(
 	"_links", "content", "download_url", "encoding", "git_url", "html_url", fieldName, "path", "sha", "size", "submodule_git_url",
 	"target", "type", "url",
@@ -136,7 +148,19 @@ func (client Client) getRepository(ctx context.Context, name string) (repository
 	if err != nil {
 		return repository{}, fmt.Errorf("decode repository: %w", err)
 	}
-	return decodeRepository(fields)
+	value, err := decodeRepository(fields)
+	if err != nil {
+		return repository{}, err
+	}
+	for name, destination := range map[string]*bool{"archived": &value.Archived, "disabled": &value.Disabled} {
+		if err := decodeRequired(fields, name, destination); err != nil {
+			return repository{}, err
+		}
+	}
+	if err := decodeRequired(fields, "visibility", &value.Visibility); err != nil {
+		return repository{}, err
+	}
+	return value, nil
 }
 
 func (client Client) getRun(ctx context.Context, repositoryName string, id int64) (workflowRun, error) {
@@ -249,7 +273,35 @@ func (client Client) getJobsPage(ctx context.Context, repositoryName string, run
 }
 
 func (client Client) getPullRequests(ctx context.Context, repositoryName, sha string) ([]pullRequest, error) {
-	data, err := client.get(ctx, "/repos/"+escapeRepository(repositoryName)+"/commits/"+url.PathEscape(sha)+"/pulls", nil)
+	pulls := make([]pullRequest, 0)
+	seen := make(map[int64]struct{})
+	for pageNumber := 1; ; pageNumber++ {
+		page, err := client.getPullRequestsPage(ctx, repositoryName, sha, pageNumber)
+		if err != nil {
+			return nil, err
+		}
+		if len(page) > pullsPerPage {
+			return nil, fmt.Errorf("pull request page %d exceeds %d entries", pageNumber, pullsPerPage)
+		}
+		for _, pull := range page {
+			if _, exists := seen[pull.Number]; exists {
+				return nil, fmt.Errorf("duplicate pull request %d across pagination", pull.Number)
+			}
+			seen[pull.Number] = struct{}{}
+			pulls = append(pulls, pull)
+			if len(pulls) > maxPullRequests {
+				return nil, fmt.Errorf("pull request count exceeds %d", maxPullRequests)
+			}
+		}
+		if len(page) < pullsPerPage {
+			return pulls, nil
+		}
+	}
+}
+
+func (client Client) getPullRequestsPage(ctx context.Context, repositoryName, sha string, pageNumber int) ([]pullRequest, error) {
+	query := url.Values{"per_page": {strconv.Itoa(pullsPerPage)}, "page": {strconv.Itoa(pageNumber)}}
+	data, err := client.get(ctx, "/repos/"+escapeRepository(repositoryName)+"/commits/"+url.PathEscape(sha)+"/pulls", query)
 	if err != nil {
 		return nil, err
 	}
@@ -263,38 +315,56 @@ func (client Client) getPullRequests(ctx context.Context, repositoryName, sha st
 	}
 	pulls := make([]pullRequest, 0, len(raw))
 	for _, item := range raw {
-		var wire struct {
-			Number int64  `json:"number"`
-			State  string `json:"state"`
-			Head   struct {
-				SHA  string `json:"sha"`
-				Repo struct {
-					FullName string `json:"full_name"`
-					Private  bool   `json:"private"`
-					Fork     bool   `json:"fork"`
-				} `json:"repo"`
-			} `json:"head"`
-			Base struct {
-				SHA  string `json:"sha"`
-				Repo struct {
-					FullName string `json:"full_name"`
-					Private  bool   `json:"private"`
-					Fork     bool   `json:"fork"`
-				} `json:"repo"`
-			} `json:"base"`
+		pull, decodeErr := decodePullRequest(item)
+		if decodeErr != nil {
+			return nil, decodeErr
 		}
-		if err := json.Unmarshal(item, &wire); err != nil {
-			return nil, fmt.Errorf("decode pull request: %w", err)
-		}
-		var pull pullRequest
-		pull.Number, pull.State = wire.Number, wire.State
-		pull.Head.SHA = wire.Head.SHA
-		pull.Head.Repo = repository{FullName: wire.Head.Repo.FullName, Private: wire.Head.Repo.Private}
-		pull.Base.SHA = wire.Base.SHA
-		pull.Base.Repo = repository{FullName: wire.Base.Repo.FullName, Private: wire.Base.Repo.Private}
 		pulls = append(pulls, pull)
 	}
 	return pulls, nil
+}
+
+func decodePullRequest(data []byte) (pullRequest, error) {
+	fields, err := strictObject(data, pullRequestFields)
+	if err != nil {
+		return pullRequest{}, fmt.Errorf("decode pull request: %w", err)
+	}
+	var pull pullRequest
+	if err := decodeRequired(fields, "number", &pull.Number); err != nil {
+		return pullRequest{}, err
+	}
+	if err := decodeRequired(fields, "state", &pull.State); err != nil {
+		return pullRequest{}, err
+	}
+	for name, destination := range map[string]*struct {
+		SHA  string
+		Repo repository
+	}{"head": &pull.Head, "base": &pull.Base} {
+		raw, exists := fields[name]
+		if !exists || string(raw) == jsonNull {
+			return pullRequest{}, fmt.Errorf("pull request is missing %q", name)
+		}
+		branch, branchErr := strictObject(raw, pullBranchFields)
+		if branchErr != nil {
+			return pullRequest{}, fmt.Errorf("decode pull request %s: %w", name, branchErr)
+		}
+		if err := decodeRequired(branch, "sha", &destination.SHA); err != nil {
+			return pullRequest{}, err
+		}
+		repositoryRaw, exists := branch["repo"]
+		if !exists || string(repositoryRaw) == jsonNull {
+			return pullRequest{}, fmt.Errorf("pull request %s is missing repository", name)
+		}
+		repositoryFieldsValue, repositoryErr := strictObject(repositoryRaw, repositoryFields)
+		if repositoryErr != nil {
+			return pullRequest{}, fmt.Errorf("decode pull request %s repository: %w", name, repositoryErr)
+		}
+		destination.Repo, repositoryErr = decodeRepository(repositoryFieldsValue)
+		if repositoryErr != nil {
+			return pullRequest{}, fmt.Errorf("decode pull request %s repository: %w", name, repositoryErr)
+		}
+	}
+	return pull, nil
 }
 
 func (client Client) getContent(ctx context.Context, repositoryName, name, ref string) ([]contentEntry, error) {
@@ -426,13 +496,9 @@ func decodeRepository(fields map[string]json.RawMessage) (repository, error) {
 			return repository{}, fmt.Errorf("decode %q: %w", "visibility", err)
 		}
 	}
-	for name, destination := range map[string]*bool{"private": &value.Private, "archived": &value.Archived, "disabled": &value.Disabled} {
-		raw, exists := fields[name]
-		if !exists {
-			continue
-		}
-		if err := json.Unmarshal(raw, destination); err != nil {
-			return repository{}, fmt.Errorf("decode %q: %w", name, err)
+	for name, destination := range map[string]*bool{"private": &value.Private, "fork": &value.Fork} {
+		if err := decodeRequired(fields, name, destination); err != nil {
+			return repository{}, err
 		}
 	}
 	return value, nil

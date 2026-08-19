@@ -59,7 +59,9 @@ each module entry replaces omitted default fields independently. Package scope,
 module mode, build tags, test timeout, package parallelism, race parallelism,
 and coverage scope are applied through a typed argument plan. Generated paths
 are classification only, and `exceptions` selects the reviewed exception
-manifest.
+manifest. Test timeouts use whole seconds from `1s` through `2700s` or whole
+minutes from `1m` through `45m` so runtime and published-schema validation are
+identical.
 
 Render caller files with the governance CLI, or start from the templates in
 `templates/callers/generated` and replace the zero SHA with the validated

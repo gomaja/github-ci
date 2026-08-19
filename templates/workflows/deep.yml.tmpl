@@ -73,7 +73,7 @@ jobs:
       - name: Upload validated Go plan
         uses: [%.Action "upload-artifact"%]
         with:
-          name: github-ci-plan
+          name: github-ci-deep-plan
           path: ${{ runner.temp }}/github-ci-plan
           if-no-files-found: error
           retention-days: 7
@@ -123,7 +123,7 @@ jobs:
       - name: Download validated Go plan
         uses: [%.Action "download-artifact"%]
         with:
-          name: github-ci-plan
+          name: github-ci-deep-plan
           path: ${{ runner.temp }}/github-ci-plan
       - name: Build, test, and vet configured modules
         env:
@@ -174,7 +174,7 @@ jobs:
       - name: Download validated Go plan
         uses: [%.Action "download-artifact"%]
         with:
-          name: github-ci-plan
+          name: github-ci-deep-plan
           path: ${{ runner.temp }}/github-ci-plan
       - name: Run every configured fuzz target and benchmark
         env:
@@ -225,7 +225,7 @@ jobs:
       - name: Download validated Go plan
         uses: [%.Action "download-artifact"%]
         with:
-          name: github-ci-plan
+          name: github-ci-deep-plan
           path: ${{ runner.temp }}/github-ci-plan
       - name: Install mutation tool
         env:
@@ -292,7 +292,7 @@ jobs:
       - name: Download validated Go plan
         uses: [%.Action "download-artifact"%]
         with:
-          name: github-ci-plan
+          name: github-ci-deep-plan
           path: ${{ runner.temp }}/github-ci-plan
       - name: Install history scanner
         env:

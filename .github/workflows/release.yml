@@ -93,11 +93,11 @@ jobs:
           GOVERNANCE_CLI: ${{ runner.temp }}/github-ci-bin/github-ci-govern
           INCLUDE_CALLERS: ${{ inputs.include-callers }}
           REF_NAME: ${{ github.ref_name }}
-          REF_TYPE: ${{ github.ref_type }}
           REPOSITORY: ${{ github.repository }}
           REQUESTED_TAG: ${{ inputs.tag }}
           SOURCE_DIR: ${{ github.workspace }}/source
           WORKFLOW_REPOSITORY: ${{ job.workflow_repository }}
+          WORKFLOW_SHA: ${{ job.workflow_sha }}
         shell: bash
         run: |
           set -euo pipefail
@@ -108,14 +108,13 @@ jobs:
           tagged_sha=$(git -C "$SOURCE_DIR" rev-parse "refs/tags/$tag^{commit}")
           source_sha=$(git -C "$SOURCE_DIR" rev-parse HEAD)
           [[ "$source_sha" == "$tagged_sha" ]]
-          if [[ "$REF_TYPE" == "tag" ]]; then
-            [[ "$tagged_sha" == "$EVENT_SHA" ]]
-          fi
+          [[ "$tagged_sha" == "$EVENT_SHA" ]]
           mkdir -p "$SOURCE_DIR/dist"
           git -C "$SOURCE_DIR" archive --format=tar.gz --prefix="${GITHUB_REPOSITORY##*/}-$tag/" -o "$SOURCE_DIR/dist/source-$tag.tar.gz" "$tag"
           acceptance_args=()
           if [[ "$ACCEPTANCE_REQUIRED" == "true" ]]; then
             [[ "$REPOSITORY" == "$WORKFLOW_REPOSITORY" ]]
+            [[ "$WORKFLOW_SHA" == "$tagged_sha" ]]
             [[ -f "$ACCEPTANCE_RECORD" ]]
             "$CLI" verify-acceptance-record --record "$ACCEPTANCE_RECORD" --expected-sha "$tagged_sha"
             cp "$ACCEPTANCE_RECORD" "$SOURCE_DIR/dist/release-acceptance.json"
