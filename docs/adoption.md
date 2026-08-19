@@ -7,8 +7,13 @@ cross-repository canary. Pin all reusable workflow calls to that exact
 40-character SHA. A version comment may describe the commit, but a branch,
 moving major tag, or mutable release tag is not an acceptable reference.
 
-The validated SHA will be recorded here after the first live canary. Until that
-entry exists, this repository is not a supported external CI dependency.
+The validated workflow SHA is
+`3dc64d2ab02b3d5ce3f2eacacfdc1eec9a9e78f7`. It completed the
+[standard gate](https://github.com/gomaja/github-ci/actions/runs/32243207234),
+[deep assurance](https://github.com/gomaja/github-ci/actions/runs/32243204063),
+and a real [cross-repository canary](https://github.com/gomaja/sctp-portkill/pull/3)
+whose [run](https://github.com/gomaja/sctp-portkill/actions/runs/32243265290)
+observed the aggregate check as `gate / gate`.
 
 ## Consumer Configuration
 
