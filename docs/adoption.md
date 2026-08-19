@@ -30,6 +30,10 @@ commit is the only future adoption target, and only after the standard, deep,
 external Go consumer, and untrusted-fork acceptance checks all pass at that
 same commit.
 
+Repositories with schema-1 configuration must follow the complete
+[v1.1 migration guide](migration-v1.1.md). Unknown and removed fields fail
+strict parsing; there is no compatibility translation.
+
 ## Consumer Configuration
 
 Create `.github/github-ci.yaml`:
@@ -103,6 +107,14 @@ credentials available to them. If external fork contributions must pass the
 main Go gate, provide a credential-free dependency path such as reviewed
 vendoring; never switch to `pull_request_target` to execute fork code with a
 secret.
+
+The copyable seed in `testdata/repositories/go-canary` is the minimum release
+acceptance topology: two tracked modules, two simultaneous build tags,
+committed generated Go, explicit package and coverage scopes, distinct module
+modes, and explicit timeout and concurrency controls. The public canary must
+add standard and deep callers pinned to the exact candidate SHA; a local copy
+of the seed is test evidence, not a substitute for the public and
+untrusted-fork runs.
 
 ## Updating
 

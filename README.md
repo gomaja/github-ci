@@ -44,6 +44,7 @@ deletes, or publishes a tag or GitHub Release.
 ## Documentation
 
 - [Adoption](docs/adoption.md)
+- [Migration from v1.0.0](docs/migration-v1.1.md)
 - [Policy and scanner inventory](docs/policy.md)
 - [Governance](docs/governance.md)
 - [Security model](docs/security-model.md)

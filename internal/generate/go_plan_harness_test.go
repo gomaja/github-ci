@@ -13,8 +13,198 @@ import (
 	"testing"
 
 	"github.com/gomaja/github-ci/internal/config"
+	"github.com/gomaja/github-ci/internal/evidence"
+	"github.com/gomaja/github-ci/internal/exceptions"
+	"github.com/gomaja/github-ci/internal/gate"
 	"github.com/gomaja/github-ci/internal/goexecution"
 )
+
+func TestSchema2CanaryHarness(t *testing.T) {
+	root := repositoryRoot(t)
+	temporary := t.TempDir()
+	source := filepath.Join(temporary, "source")
+	fixture := filepath.Join(root, "testdata", "repositories", "go-canary")
+	if err := os.CopyFS(source, os.DirFS(fixture)); err != nil {
+		t.Fatalf("copy canary fixture: %v", err)
+	}
+	for _, arguments := range [][]string{
+		{"init", "-b", "main"},
+		{"config", "user.name", "gomaja"},
+		{"config", "user.email", "marwanjdid@gmail.com"},
+		{"add", "."},
+		{"commit", "-m", "test: initialize schema 2 canary"},
+	} {
+		runCommand(t, source, nil, "git", arguments...)
+	}
+	runCommand(t, source, nil, "bash", "scripts/check-generated.sh")
+	assertCanaryRequiresBothTags(t, source)
+	runCommand(t, source, nil, "go", "test", "-tags=canary_a,canary_b", "./...")
+	runCommand(t, filepath.Join(source, "tools"), nil, "go", "test", "-tags=canary_a,canary_b", "./...")
+
+	cli := filepath.Join(temporary, "github-ci")
+	runCommand(t, root, nil, "go", "build", "-o", cli, "./cmd/github-ci")
+	planPath := filepath.Join(temporary, "plan.json")
+	runCommand(t, root, nil, cli, "preflight", "--repository", source, "--config", ".github/github-ci.yaml", "--policy", filepath.Join(root, "policies", "tools.yaml"), "--output", planPath)
+	goPlanPath := filepath.Join(temporary, "go-plan.json")
+	writeCommandOutput(t, source, goPlanPath, cli, "go-plan", "--repository", source, "--config", ".github/github-ci.yaml")
+	goPlan := readGoExecutionPlan(t, goPlanPath)
+	assertSchema2CanaryPlan(t, goPlan)
+
+	fakeBin := filepath.Join(temporary, "bin")
+	capture := filepath.Join(temporary, "capture")
+	writeFakeGoTools(t, fakeBin)
+	if err := os.MkdirAll(capture, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, group := range []string{"formatting", "core", "tests", "analysis"} {
+		output := filepath.Join(temporary, group)
+		environment := append(goHarnessEnvironment(t, cli, source, root, planPath, goPlanPath, output), "CAPTURE_DIR="+capture)
+		environment = replacePath(environment, fakeBin+string(os.PathListSeparator)+os.Getenv("PATH"))
+		runCommand(t, root, environment, "bash", filepath.Join(root, "scripts", "run-go-group.sh"), group)
+	}
+	runCommand(t, root, []string{
+		"CAPTURE_DIR=" + capture,
+		"CENTRAL_DIR=" + root,
+		"GO_PLAN_PATH=" + goPlanPath,
+		"PATH=" + fakeBin + string(os.PathListSeparator) + os.Getenv("PATH"),
+		"SOURCE_DIR=" + source,
+	}, "bash", filepath.Join(root, "scripts", "run-deep-go.sh"), "portability")
+
+	for _, module := range goPlan.Modules {
+		assertCapturedInvocation(t, capture, "go", module.Invocations[goexecution.ToolBuild], nil)
+		assertCapturedInvocation(t, capture, "go", module.Invocations[goexecution.ToolTest], func(arguments []string) []string {
+			if len(arguments) == 0 || !strings.HasPrefix(arguments[len(arguments)-1], "-coverprofile=") {
+				return nil
+			}
+			return arguments[:len(arguments)-1]
+		})
+		assertCapturedInvocation(t, capture, "go", module.Invocations[goexecution.ToolRace], nil)
+	}
+	assertFocusedGoEvidencePasses(t, planPath, temporary)
+}
+
+func assertCanaryRequiresBothTags(t *testing.T, source string) {
+	t.Helper()
+	for _, directory := range []string{source, filepath.Join(source, "tools")} {
+		for _, tags := range []string{"", "canary_a", "canary_b"} {
+			arguments := []string{"test"}
+			if tags != "" {
+				arguments = append(arguments, "-tags="+tags)
+			}
+			arguments = append(arguments, "./...")
+			command := exec.CommandContext(t.Context(), "go", arguments...)
+			command.Dir = directory
+			if err := command.Run(); err == nil {
+				t.Fatalf("canary unexpectedly compiled in %s with tags %q", directory, tags)
+			}
+		}
+	}
+}
+
+func assertSchema2CanaryPlan(t *testing.T, plan goexecution.Plan) {
+	t.Helper()
+	if len(plan.Modules) != 2 || plan.Modules[0].Path != "." || plan.Modules[1].Path != "tools" {
+		t.Fatalf("canary modules = %#v, want root and tools", plan.Modules)
+	}
+	root := plan.Modules[0]
+	if !reflect.DeepEqual(root.Packages, []string{".", "./generated"}) || root.ModuleMode != config.ModuleModeReadonly ||
+		!reflect.DeepEqual(root.BuildTags, []string{"canary_a", "canary_b"}) || root.TestTimeout != "12m" ||
+		root.PackageParallelism != 3 || root.RaceParallelism != 1 || !reflect.DeepEqual(root.CoveragePackages, []string{"."}) {
+		t.Fatalf("root canary plan = %#v", root)
+	}
+	tools := plan.Modules[1]
+	if !reflect.DeepEqual(tools.Packages, []string{"."}) || tools.ModuleMode != config.ModuleModeMod ||
+		!reflect.DeepEqual(tools.BuildTags, []string{"canary_a", "canary_b"}) || tools.TestTimeout != "7m" ||
+		tools.PackageParallelism != 2 || tools.RaceParallelism != 1 || tools.CoveragePackages == nil || len(tools.CoveragePackages) != 0 {
+		t.Fatalf("tools canary plan = %#v", tools)
+	}
+}
+
+func assertFocusedGoEvidencePasses(t *testing.T, planPath, artifacts string) {
+	t.Helper()
+	data, err := os.ReadFile(planPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var plan evidence.Plan
+	if err := json.Unmarshal(data, &plan); err != nil {
+		t.Fatal(err)
+	}
+	recordPaths, err := filepath.Glob(filepath.Join(artifacts, "*", "records", "*.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	expectedByID := make(map[string]evidence.Expected, len(plan.Expected))
+	for _, expected := range plan.Expected {
+		expectedByID[expected.Identity()] = expected
+	}
+	records := make([]evidence.Record, 0, len(recordPaths))
+	for _, name := range recordPaths {
+		file, openErr := os.Open(name)
+		if openErr != nil {
+			t.Fatal(openErr)
+		}
+		record, readErr := evidence.Read(file)
+		closeErr := file.Close()
+		if readErr != nil || closeErr != nil {
+			t.Fatalf("read %s: %v; close: %v", name, readErr, closeErr)
+		}
+		if _, exists := expectedByID[record.Identity()]; !exists {
+			t.Fatalf("record %q is not expected", record.Identity())
+		}
+		records = append(records, record)
+	}
+	if len(records) != 11 {
+		t.Fatalf("Go evidence record count = %d, want 11", len(records))
+	}
+	selected := make(map[string]struct{}, len(records))
+	for _, record := range records {
+		selected[record.Identity()] = struct{}{}
+	}
+	focused := plan
+	focused.Expected = nil
+	for _, expected := range plan.Expected {
+		if _, exists := selected[expected.Identity()]; exists {
+			focused.Expected = append(focused.Expected, expected)
+		}
+	}
+	digest, err := focused.Digest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	contexts := make([]gate.RecordContext, 0, len(records))
+	for _, record := range records {
+		expected := expectedByID[record.Identity()]
+		context := gate.RecordContext{
+			Tool: record.Tool, CommandID: record.CommandID, SubjectSHA: record.SubjectSHA,
+			PlanSHA256: digest, TreeSHA256: focused.TreeSHA256, DetectorVersion: focused.DetectorVersion,
+			PolicySHA256: focused.PolicySHA256, Execution: gate.ExecutionCompleted,
+		}
+		if record.Applicability == evidence.Applicable {
+			context.Report = &gate.ReportEvidence{SHA256: record.ReportSHA256, ParserVersion: expected.ParserVersion}
+		}
+		contexts = append(contexts, context)
+	}
+	result := gate.Evaluate(gate.Input{
+		Plan: focused, Records: records, Context: contexts, Exceptions: exceptions.Set{},
+		ObservedSubjectSHA: focused.SubjectSHA, ObservedTreeSHA256: focused.TreeSHA256,
+		ObservedPolicySHA256: focused.PolicySHA256, ObservedPlanSHA256: digest, EvaluationDate: "2026-08-19",
+	})
+	if !result.Pass {
+		t.Fatalf("focused Go evidence gate = %#v", result)
+	}
+}
+
+func replacePath(environment []string, value string) []string {
+	result := append([]string{}, environment...)
+	for index := range result {
+		if strings.HasPrefix(result[index], "PATH=") {
+			result[index] = "PATH=" + value
+			return result
+		}
+	}
+	return append(result, "PATH="+value)
+}
 
 func TestGoPlanRejectsArgumentInjectionBeforeExecution(t *testing.T) {
 	root := repositoryRoot(t)
@@ -259,12 +449,15 @@ case "$tool" in
       if [[ "$argument" == -list=* ]]; then printf 'FuzzBare\n'; fi
     done
     ;;
+  staticcheck)
+    if [[ "${1:-}" == -version ]]; then printf 'staticcheck fixture\n'; fi
+    ;;
   golangci-lint)
     output=''
     while (($#)); do
       if [[ "$1" == --output.json.path ]]; then output=$2; shift 2; else shift; fi
     done
-    if [[ -n "$output" ]]; then mkdir -p "$(dirname "$output")"; printf '{"Issues":[],"Report":{}}\n' >"$output"; fi
+    if [[ -n "$output" ]]; then mkdir -p "$(dirname "$output")"; printf '{"Issues":[],"Report":{"Linters":[]}}\n' >"$output"; fi
     ;;
   govulncheck)
     printf '{"config":{"protocol_version":"v1.0.0","scanner_name":"govulncheck"}}\n'
@@ -296,7 +489,7 @@ case "$tool" in
     ;;
 esac
 `
-	for _, tool := range []string{"go", "gopls", "staticcheck", "golangci-lint", "govulncheck", "gotestsum"} {
+	for _, tool := range []string{"go", "gofmt", "goimports", "gopls", "staticcheck", "golangci-lint", "govulncheck", "gotestsum"} {
 		name := filepath.Join(directory, tool)
 		if err := os.WriteFile(name, []byte(script), 0o755); err != nil {
 			t.Fatalf("write fake %s: %v", tool, err)

@@ -89,3 +89,27 @@ condition remains intact. A fork cannot receive the token. Do not use
 `pull_request_target` to run untrusted code with credentials; use a reviewed
 vendored or otherwise credential-free path if fork builds must resolve the
 private dependency.
+
+## Release Acceptance Fails
+
+Start with the `github-ci-release-candidate / gate` job. A green external run
+is insufficient when its aggregate gate is missing, the caller uses a mutable
+or stale reference, the config differs between runs, pagination is incomplete,
+or the pull request does not come from another public repository. Re-run the
+external canary at the same consumer commit after correcting the evidence; do
+not edit an acceptance record.
+
+For tag evidence, confirm that a successful release-candidate run exists at the
+tag's peeled commit and that its `github-ci-release-acceptance` artifact has not
+expired. A candidate run from another commit cannot be reused. Dispatch a new
+candidate run at the exact tag commit if the artifact expired; never move the
+tag to fit an existing run.
+
+## Canary Seed Fails Without Tags
+
+The release canary intentionally references constants defined only under both
+`canary_a` and `canary_b`. Untagged compilation should fail. If the reusable
+workflow fails the same way, inspect the generated Go plan and confirm both tags
+are present in every build, test, vet, gopls, Staticcheck, golangci-lint, and
+govulncheck invocation. Run `scripts/check-generated.sh` separately to validate
+committed generated source freshness.

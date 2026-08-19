@@ -18,13 +18,28 @@ checksums, and GitHub build provenance. It does not create a tag, publish a
 release, or upload release assets. Those are separately authorized operations
 performed only after the tag workflow succeeds.
 
-The release evidence includes a default strict consumer configuration and
-standard, deep, and release caller workflows pinned to the tagged commit. It
-also includes the source archive, SPDX and CycloneDX SBOMs, release manifest,
-and `SHA256SUMS`; GitHub records build provenance for every evidence file.
+Before building that evidence, the repository release workflow finds the most
+recent successful `github-ci-release-candidate` run whose `head_sha` is the
+tagged commit. It downloads `github-ci-release-acceptance`, revalidates its
+canonical JSON and candidate SHA without network trust, and uploads it into the
+current run. A missing, expired, malformed, noncanonical, or different-commit
+record fails release evidence.
+
+The release evidence includes the validated acceptance record, a default
+strict consumer configuration, and standard, deep, and release caller
+workflows pinned to the tagged commit. It also includes the source archive,
+SPDX and CycloneDX SBOMs, release manifest, and `SHA256SUMS`; GitHub records
+build provenance for every evidence file.
 
 The v1.1.0 release keeps the historical v1.0.0 tag and release unchanged. It is
 allowed to break the unadopted v1.0.0 API by explicit project decision; future
 incompatible changes to workflow inputs, configuration or evidence schemas,
 job names, required checks, permissions, or policy behavior require a new major
 version and a reviewed consumer update.
+
+The manually dispatched release-candidate workflow never creates a tag or
+release. Its final gate requires this repository's local standard and deep
+reusable workflows plus verified external standard, deep, and cross-repository
+fork runs. Run IDs are API identities, not assertions: the verifier fetches all
+job pages, checks exact aggregate jobs, reads callers and schema-2 config at
+immutable run heads, and proves tracked modules and generated Go source.
