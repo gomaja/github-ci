@@ -21,6 +21,10 @@ go run ./cmd/github-ci-govern apply \
 go run ./cmd/github-ci-govern verify --manifest governance/gomaja.yaml
 ```
 
+Use `--repository <name>` with `audit`, `plan`, `apply`, or `verify` for a
+staged rollout. The selected name must exist in the manifest, and both the plan
+identity and apply-time drift check are restricted to that repository.
+
 The plan ID covers the desired operations and observed state. Apply requires
 the exact ID, rebuilds the remaining plan before every mutation, and stops on
 concurrent drift. Release and tag creation are not governance operations.

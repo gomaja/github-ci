@@ -24,6 +24,11 @@ func TestDefaultCatalogIsValidAndComplete(t *testing.T) {
 			t.Errorf("DefaultCatalog() missing tool %q", tool)
 		}
 	}
+	for _, entry := range catalog {
+		if entry.Tool == "scorecard" && entry.ParserVersion != "scorecard-sarif/v1" {
+			t.Errorf("Scorecard parser = %q, want scorecard-sarif/v1", entry.ParserVersion)
+		}
+	}
 
 	wantIdentities := []string{
 		"actionlint/actionlint/workflows",

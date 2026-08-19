@@ -16,6 +16,22 @@ type sarifLog struct {
 }
 
 func countSARIF(data []byte) (int, error) {
+	return countSARIFWithPolicy(data, nil)
+}
+
+type sarifResultPolicy struct {
+	requiredDriver string
+	blocks         func(json.RawMessage) (bool, error)
+}
+
+func countScorecardSARIF(data []byte) (int, error) {
+	return countSARIFWithPolicy(data, &sarifResultPolicy{
+		requiredDriver: "Scorecard",
+		blocks:         scorecardResultBlocks,
+	})
+}
+
+func countSARIFWithPolicy(data []byte, policy *sarifResultPolicy) (int, error) {
 	var log sarifLog
 	if err := decodeStrictJSON(data, &log); err != nil {
 		return 0, err
@@ -27,13 +43,44 @@ func countSARIF(data []byte) (int, error) {
 	identities := make(map[string]struct{})
 	findings := 0
 	for runIndex, rawRun := range *log.Runs {
-		count, err := countSARIFRun(rawRun, runIndex, identities)
+		count, err := countSARIFRun(rawRun, runIndex, identities, policy)
 		if err != nil {
 			return 0, err
 		}
 		findings += count
 	}
 	return findings, nil
+}
+
+func scorecardResultBlocks(raw json.RawMessage) (bool, error) {
+	var result struct {
+		RuleID string `json:"ruleId,omitempty"`
+		Level  string `json:"level,omitempty"`
+	}
+	if err := json.Unmarshal(raw, &result); err != nil {
+		return false, err
+	}
+	if !isScorecardGovernanceIndicator(result.RuleID) {
+		return true, nil
+	}
+	// OASIS SARIF 2.1.0 + Errata 01 §3.27.10: an explicit error remains blocking.
+	switch result.Level {
+	case "", "none", "note", sarifLevelWarning:
+		return false, nil
+	case sarifLevelError:
+		return true, nil
+	default:
+		return false, fmt.Errorf("unsupported level %q", result.Level)
+	}
+}
+
+func isScorecardGovernanceIndicator(ruleID string) bool {
+	switch ruleID {
+	case "CIIBestPracticesID", "CodeReviewID", "MaintainedID":
+		return true
+	default:
+		return false
+	}
 }
 
 func validateSARIFLog(log sarifLog) error {
@@ -57,7 +104,7 @@ func validateSARIFLog(log sarifLog) error {
 	return nil
 }
 
-func countSARIFRun(raw json.RawMessage, runIndex int, identities map[string]struct{}) (int, error) {
+func countSARIFRun(raw json.RawMessage, runIndex int, identities map[string]struct{}, policy *sarifResultPolicy) (int, error) {
 	var run map[string]json.RawMessage
 	if err := json.Unmarshal(raw, &run); err != nil {
 		return 0, fmt.Errorf("decode SARIF run %d: %w", runIndex, err)
@@ -73,6 +120,9 @@ func countSARIFRun(raw json.RawMessage, runIndex int, identities map[string]stru
 	if err != nil {
 		return 0, fmt.Errorf("SARIF run %d tool: %w", runIndex, err)
 	}
+	if policy != nil && resolver.driver.name != policy.requiredDriver {
+		return 0, fmt.Errorf("SARIF run %d driver %q is not %s", runIndex, resolver.driver.name, policy.requiredDriver)
+	}
 	// OASIS SARIF 2.1.0 + Errata 01 §3.14.2: do not silently omit external report data.
 	if _, exists := run["externalPropertyFileReferences"]; exists {
 		return 0, fmt.Errorf("SARIF run %d externalPropertyFileReferences are unsupported", runIndex)
@@ -83,10 +133,10 @@ func countSARIFRun(raw json.RawMessage, runIndex int, identities map[string]stru
 			return 0, fmt.Errorf("SARIF run %d: %w", runIndex, err)
 		}
 	}
-	return countSARIFResults(run["results"], runIndex, identities)
+	return countSARIFResults(run["results"], runIndex, identities, policy)
 }
 
-func countSARIFResults(raw json.RawMessage, runIndex int, identities map[string]struct{}) (int, error) {
+func countSARIFResults(raw json.RawMessage, runIndex int, identities map[string]struct{}, policy *sarifResultPolicy) (int, error) {
 	if raw == nil {
 		return 0, nil
 	}
@@ -97,12 +147,24 @@ func countSARIFResults(raw json.RawMessage, runIndex int, identities map[string]
 	if results == nil {
 		return 0, fmt.Errorf("SARIF run %d results must be an array", runIndex)
 	}
+	findings := 0
 	for resultIndex, rawResult := range results {
 		if err := indexSARIFResult(rawResult, runIndex, resultIndex, identities); err != nil {
 			return 0, err
 		}
+		blocks := true
+		if policy != nil {
+			var err error
+			blocks, err = policy.blocks(rawResult)
+			if err != nil {
+				return 0, fmt.Errorf("classify SARIF run %d result %d: %w", runIndex, resultIndex, err)
+			}
+		}
+		if blocks {
+			findings++
+		}
 	}
-	return len(results), nil
+	return findings, nil
 }
 
 func indexSARIFResult(raw json.RawMessage, runIndex, resultIndex int, identities map[string]struct{}) error {

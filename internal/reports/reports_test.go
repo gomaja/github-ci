@@ -16,6 +16,7 @@ func TestCountNativeReports(t *testing.T) {
 		findings int
 	}{
 		{tool: "sarif", fixture: "sarif.json"},
+		{tool: "scorecard-sarif", fixture: "scorecard-sarif.json"},
 		{tool: "sarif", fixture: "sarif-levels.json", findings: 4},
 		{tool: "golangci-lint", fixture: "golangci-lint.json", findings: 1},
 		{tool: "govulncheck", fixture: "govulncheck.json", findings: 1},
@@ -62,20 +63,21 @@ func TestCountCheckovAcceptsEmptyResourceSummary(t *testing.T) {
 
 func TestEveryParserAcceptsCleanFixture(t *testing.T) {
 	fixtures := map[string]string{
-		"sarif":         "sarif.json",
-		"golangci-lint": "golangci-lint.json",
-		"govulncheck":   "govulncheck.json",
-		"staticcheck":   "staticcheck.jsonl",
-		"shellcheck":    "shellcheck.json",
-		"gitleaks":      "gitleaks.json",
-		"osv-scanner":   "osv-scanner.json",
-		"trivy":         "trivy.json",
-		"grype":         "grype.json",
-		"semgrep":       "semgrep.json",
-		"checkov":       "checkov.json",
-		"actionlint":    "actionlint.json",
-		"spdx":          "spdx.json",
-		"license":       "license.json",
+		"sarif":           "sarif.json",
+		"scorecard-sarif": "scorecard-sarif.json",
+		"golangci-lint":   "golangci-lint.json",
+		"govulncheck":     "govulncheck.json",
+		"staticcheck":     "staticcheck.jsonl",
+		"shellcheck":      "shellcheck.json",
+		"gitleaks":        "gitleaks.json",
+		"osv-scanner":     "osv-scanner.json",
+		"trivy":           "trivy.json",
+		"grype":           "grype.json",
+		"semgrep":         "semgrep.json",
+		"checkov":         "checkov.json",
+		"actionlint":      "actionlint.json",
+		"spdx":            "spdx.json",
+		"license":         "license.json",
 	}
 	for tool, fixture := range fixtures {
 		t.Run(tool, func(t *testing.T) {
@@ -314,6 +316,50 @@ func TestCountProducerDoesNotHideCodeQLErrorsOrOtherMessageDefects(t *testing.T)
 				t.Fatalf("CountProducer() error = %v, want substring %q", err, test.want)
 			}
 		})
+	}
+}
+
+func TestCountScorecardSARIFKeepsGovernanceIndicatorsNonBlocking(t *testing.T) {
+	report := `{"version":"2.1.0","runs":[{"tool":{"driver":{"name":"Scorecard"}},"results":[` +
+		`{"ruleId":"CodeReviewID","message":{"text":"historical approvals"}},` +
+		`{"ruleId":"MaintainedID","message":{"text":"repository age"}},` +
+		`{"ruleId":"CIIBestPracticesID","message":{"text":"external attestation"}},` +
+		`{"ruleId":"SecurityPolicyID","message":{"text":"missing reporting link"}}]}]}`
+
+	result, err := Count("scorecard-sarif", strings.NewReader(report))
+	if err != nil {
+		t.Fatalf("Count() error = %v", err)
+	}
+	if result.Findings != 1 {
+		t.Fatalf("Count() findings = %d, want 1 actionable finding", result.Findings)
+	}
+	strict, err := Count("sarif", strings.NewReader(report))
+	if err != nil {
+		t.Fatalf("strict Count() error = %v", err)
+	}
+	if strict.Findings != 4 {
+		t.Fatalf("strict Count() findings = %d, want all 4 observations", strict.Findings)
+	}
+}
+
+func TestCountScorecardSARIFRejectsWrongDriverAndKeepsErrorIndicatorsBlocking(t *testing.T) {
+	wrongDriver := `{"version":"2.1.0","runs":[{"tool":{"driver":{"name":"other"}},"results":[]}]}`
+	if _, err := Count("scorecard-sarif", strings.NewReader(wrongDriver)); err == nil || !strings.Contains(err.Error(), "Scorecard") {
+		t.Fatalf("wrong driver error = %v, want Scorecard rejection", err)
+	}
+
+	errorIndicator := `{"version":"2.1.0","runs":[{"tool":{"driver":{"name":"Scorecard"}},"results":[{"ruleId":"MaintainedID","level":"error","message":{"text":"scanner failure"}}]}]}`
+	result, err := Count("scorecard-sarif", strings.NewReader(errorIndicator))
+	if err != nil {
+		t.Fatalf("Count() error = %v", err)
+	}
+	if result.Findings != 1 {
+		t.Fatalf("Count() findings = %d, want error-level indicator to block", result.Findings)
+	}
+
+	invalidLevel := `{"version":"2.1.0","runs":[{"tool":{"driver":{"name":"Scorecard"}},"results":[{"ruleId":"MaintainedID","level":"invalid","message":{"text":"invalid level"}}]}]}`
+	if _, err := Count("scorecard-sarif", strings.NewReader(invalidLevel)); err == nil || !strings.Contains(err.Error(), "unsupported level") {
+		t.Fatalf("invalid level error = %v, want rejection", err)
 	}
 }
 
@@ -556,7 +602,7 @@ func reportFixture(t fixtureReader, class, name string) []byte {
 }
 
 func supportedTools() []string {
-	return []string{"sarif", "golangci-lint", "govulncheck", "staticcheck", "shellcheck", "gitleaks", "osv-scanner", "trivy", "grype", "semgrep", "checkov"}
+	return []string{"sarif", "scorecard-sarif", "golangci-lint", "govulncheck", "staticcheck", "shellcheck", "gitleaks", "osv-scanner", "trivy", "grype", "semgrep", "checkov"}
 }
 
 type repeatingReader byte

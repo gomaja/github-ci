@@ -12,6 +12,7 @@ import (
 const MaxInputBytes = 64 << 20
 
 const sarifTool = "sarif"
+const scorecardSARIFTool = "scorecard-sarif"
 
 // Result is a successfully parsed native report summary.
 type Result struct {
@@ -58,24 +59,25 @@ func countReportData(tool string, data []byte) (int, error) {
 }
 
 var parsers = map[string]func([]byte) (int, error){
-	"command-status": countCommandStatus,
-	"path-list":      countPathList,
-	"junit":          countJUnit,
-	"gopls":          countGopls,
-	"markdownlint":   countJSONArray,
-	"yamllint":       countYamllint,
-	sarifTool:        countSARIF,
-	"golangci-lint":  countGolangCILint,
-	"govulncheck":    countGovulncheck,
-	"staticcheck":    countStaticcheck,
-	"shellcheck":     countJSONArray,
-	"gitleaks":       countJSONArray,
-	"osv-scanner":    countOSVScanner,
-	"trivy":          countTrivy,
-	"grype":          countGrype,
-	"semgrep":        countSemgrep,
-	"checkov":        countCheckov,
-	"actionlint":     countActionlint,
+	"command-status":   countCommandStatus,
+	"path-list":        countPathList,
+	"junit":            countJUnit,
+	"gopls":            countGopls,
+	"markdownlint":     countJSONArray,
+	"yamllint":         countYamllint,
+	sarifTool:          countSARIF,
+	scorecardSARIFTool: countScorecardSARIF,
+	"golangci-lint":    countGolangCILint,
+	"govulncheck":      countGovulncheck,
+	"staticcheck":      countStaticcheck,
+	"shellcheck":       countJSONArray,
+	"gitleaks":         countJSONArray,
+	"osv-scanner":      countOSVScanner,
+	"trivy":            countTrivy,
+	"grype":            countGrype,
+	"semgrep":          countSemgrep,
+	"checkov":          countCheckov,
+	"actionlint":       countActionlint,
 	"spdx": func(data []byte) (int, error) {
 		return 0, validateSPDX(data)
 	},
@@ -84,6 +86,7 @@ var parsers = map[string]func([]byte) (int, error){
 
 var parserTools = map[string]string{
 	"sarif/v1":              sarifTool,
+	"scorecard-sarif/v1":    scorecardSARIFTool,
 	"command-status/v1":     "command-status",
 	"path-list/v1":          "path-list",
 	"gotestsum-junit/v1":    "junit",

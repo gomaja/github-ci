@@ -349,20 +349,21 @@ func cleanEvidenceSet(t *testing.T, plan evidence.Plan, directory string) (gateM
 func cleanNativeReport(t *testing.T, tool string) string {
 	t.Helper()
 	fixtures := map[string]string{
-		"sarif":         "sarif.json",
-		"golangci-lint": "golangci-lint.json",
-		"govulncheck":   "govulncheck.json",
-		"staticcheck":   "staticcheck.jsonl",
-		"shellcheck":    "shellcheck.json",
-		"gitleaks":      "gitleaks.json",
-		"osv-scanner":   "osv-scanner.json",
-		"trivy":         "trivy.json",
-		"grype":         "grype.json",
-		"semgrep":       "semgrep.json",
-		"checkov":       "checkov.json",
-		"actionlint":    "actionlint.json",
-		"spdx":          "spdx.json",
-		"license":       "license.json",
+		"sarif":           "sarif.json",
+		"scorecard-sarif": "scorecard-sarif.json",
+		"golangci-lint":   "golangci-lint.json",
+		"govulncheck":     "govulncheck.json",
+		"staticcheck":     "staticcheck.jsonl",
+		"shellcheck":      "shellcheck.json",
+		"gitleaks":        "gitleaks.json",
+		"osv-scanner":     "osv-scanner.json",
+		"trivy":           "trivy.json",
+		"grype":           "grype.json",
+		"semgrep":         "semgrep.json",
+		"checkov":         "checkov.json",
+		"actionlint":      "actionlint.json",
+		"spdx":            "spdx.json",
+		"license":         "license.json",
 	}
 	if fixture, ok := fixtures[tool]; ok {
 		data, err := os.ReadFile(filepath.Join("..", "..", "testdata", "reports", "clean", fixture))

@@ -61,6 +61,7 @@ func TestCountPolicyRunnerReportsRejectMalformedInput(t *testing.T) {
 func TestParserToolBindsCatalogIdentity(t *testing.T) {
 	tests := map[string]string{
 		"sarif/v1":              "sarif",
+		"scorecard-sarif/v1":    "scorecard-sarif",
 		"command-status/v1":     "command-status",
 		"path-list/v1":          "path-list",
 		"gotestsum-junit/v1":    "junit",

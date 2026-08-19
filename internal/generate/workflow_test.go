@@ -146,6 +146,21 @@ func assertBootstrapNetworkAccess(t *testing.T, jobs map[string]any) {
 
 func assertScannerRuntimeContracts(t *testing.T, jobs map[string]any) {
 	t.Helper()
+	analysis := mapping(t, jobs["analysis"], "analysis")
+	analysisSteps := sequence(t, analysis["steps"], "analysis steps")
+	analysisAllowlist := ""
+	for _, rawStep := range analysisSteps {
+		step := mapping(t, rawStep, "analysis step")
+		uses, _ := step["uses"].(string)
+		if strings.HasPrefix(uses, "step-security/harden-runner@") {
+			with := mapping(t, step["with"], "analysis Harden Runner inputs")
+			analysisAllowlist, _ = with["allowed-endpoints"].(string)
+		}
+	}
+	if !strings.Contains(analysisAllowlist, "vuln.go.dev:443") {
+		t.Error("analysis job does not allow the govulncheck vulnerability database")
+	}
+
 	for _, name := range []string{"security", "repository"} {
 		job := mapping(t, jobs[name], name)
 		steps := sequence(t, job["steps"], name+" steps")

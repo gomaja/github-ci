@@ -21,7 +21,7 @@ capability is absent. A workflow cannot mark its own scanner not applicable.
 | Source security | Gitleaks, Semgrep, Trivy filesystem scanning |
 | Dependencies | GitHub dependency review, module integrity, update automation |
 | Supply chain | Syft SPDX SBOM, Grype, go-licenses, apidiff |
-| Workflows | Actionlint, Zizmor, OpenSSF Scorecard, immutable action references |
+| Workflows | Actionlint, Zizmor, OpenSSF Scorecard actionable findings, immutable action references |
 | Repository files | Hadolint, Bash syntax, ShellCheck, shfmt, Yamllint, Markdownlint, JSON parsing |
 | Infrastructure | Checkov for Terraform and other supported infrastructure files |
 | Integrity | generated-file drift, repository hygiene, complete evidence aggregation |

@@ -12,7 +12,10 @@ import (
 // OASIS SARIF 2.1.0 + Errata 01 §3.5.3 and the normative schema define GUID syntax.
 var sarifGUIDPattern = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$`)
 
-const sarifLevelWarning = "warning"
+const (
+	sarifLevelError   = "error"
+	sarifLevelWarning = "warning"
+)
 
 type sarifDescriptorKind int
 
@@ -260,7 +263,7 @@ func (resolver *sarifNotificationResolver) rejectErrorNotifications(invocation m
 		if err != nil {
 			return err
 		}
-		if level == "error" {
+		if level == sarifLevelError {
 			return fmt.Errorf("%s[%d] has effective level error", property, index)
 		}
 	}
@@ -624,7 +627,7 @@ func sarifLevelProperty(object map[string]json.RawMessage) (string, bool, error)
 		return "", false, nil
 	}
 	switch level {
-	case "none", "note", sarifLevelWarning, "error":
+	case "none", "note", sarifLevelWarning, sarifLevelError:
 		return level, true, nil
 	default:
 		return "", true, fmt.Errorf("unsupported level %q", level)

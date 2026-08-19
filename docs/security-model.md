@@ -11,6 +11,22 @@ External native reports are copied into the evidence artifact before parsing.
 Producer compatibility handling never replaces this raw copy or changes the
 digest bound into the evidence record.
 
+OpenSSF Scorecard is evaluated through the dedicated `scorecard-sarif/v1`
+policy. The complete native SARIF remains in evidence, while three repository
+governance indicators do not count as blocking code or configuration findings:
+
+- `CodeReviewID` measures approvals on historical changesets; current review
+  enforcement is controlled independently by the managed repository ruleset.
+- `MaintainedID` cannot pass for a repository younger than 90 days, and the
+  [Scorecard check documentation](https://github.com/ossf/scorecard/blob/main/docs/checks.md#maintained)
+  defines no project remediation for a low score.
+- `CIIBestPracticesID` measures an external, self-attested badge rather than a
+  source, dependency, workflow, or repository-setting defect.
+
+All other Scorecard rules are blocking. An error-level result remains blocking
+even when it uses one of these three rule identifiers. This classification is
+part of the versioned parser policy, not an evidence exception.
+
 ## Trust Boundaries
 
 Consumer source and pull-request content are untrusted. Parsers reject unknown

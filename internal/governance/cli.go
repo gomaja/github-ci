@@ -42,10 +42,16 @@ func runAuditCLI(ctx context.Context, name string, args []string, stdout, stderr
 	flags := newGovernanceFlags(name, stderr)
 	manifestPath := flags.String("manifest", "governance/gomaja.yaml", "governance manifest")
 	baseURL := flags.String("base-url", defaultBaseURL, "GitHub API base URL")
+	repository := flags.String("repository", "", "govern one repository")
 	if err := flags.Parse(args); err != nil {
 		return 2
 	}
 	manifest, err := readManifest(*manifestPath)
+	if err != nil {
+		writeCLIError(stderr, err)
+		return 2
+	}
+	manifest, err = scopeGovernance(manifest, *repository)
 	if err != nil {
 		writeCLIError(stderr, err)
 		return 2
@@ -70,10 +76,16 @@ func runPlanCLI(ctx context.Context, args []string, stdout, stderr io.Writer) in
 	manifestPath := flags.String("manifest", "governance/gomaja.yaml", "governance manifest")
 	baseURL := flags.String("base-url", defaultBaseURL, "GitHub API base URL")
 	output := flags.String("output", "", "plan output path; omit to use stdout")
+	repository := flags.String("repository", "", "govern one repository")
 	if err := flags.Parse(args); err != nil {
 		return 2
 	}
 	manifest, err := readManifest(*manifestPath)
+	if err != nil {
+		writeCLIError(stderr, err)
+		return 2
+	}
+	manifest, err = scopeGovernance(manifest, *repository)
 	if err != nil {
 		writeCLIError(stderr, err)
 		return 2
@@ -108,6 +120,7 @@ func runApplyCLI(ctx context.Context, args []string, stdout, stderr io.Writer) i
 	baseURL := flags.String("base-url", defaultBaseURL, "GitHub API base URL")
 	planPath := flags.String("plan", "", "approved plan path")
 	confirm := flags.String("confirm", "", "exact approved plan id")
+	repository := flags.String("repository", "", "govern one repository")
 	if err := flags.Parse(args); err != nil {
 		return 2
 	}
@@ -116,6 +129,11 @@ func runApplyCLI(ctx context.Context, args []string, stdout, stderr io.Writer) i
 		return 2
 	}
 	manifest, err := readManifest(*manifestPath)
+	if err != nil {
+		writeCLIError(stderr, err)
+		return 2
+	}
+	manifest, err = scopeGovernance(manifest, *repository)
 	if err != nil {
 		writeCLIError(stderr, err)
 		return 2
@@ -175,6 +193,19 @@ func newAPIClient(baseURL, apiVersion string) Client {
 		token = os.Getenv("GH_TOKEN")
 	}
 	return Client{BaseURL: baseURL, Token: token, APIVersion: apiVersion}
+}
+
+func scopeGovernance(manifest config.Governance, repository string) (config.Governance, error) {
+	if repository == "" {
+		return manifest, nil
+	}
+	for _, candidate := range manifest.Repositories {
+		if candidate.Name == repository {
+			manifest.Repositories = []config.Repository{candidate}
+			return manifest, nil
+		}
+	}
+	return config.Governance{}, fmt.Errorf("repository %q is not present in the governance manifest", repository)
 }
 
 func readManifest(name string) (config.Governance, error) {

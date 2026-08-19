@@ -6,6 +6,9 @@ import (
 )
 
 func FuzzCountSARIF(f *testing.F) { fuzzReport(f, "sarif", "sarif.json", "sarif.json") }
+func FuzzCountScorecardSARIF(f *testing.F) {
+	fuzzReport(f, "scorecard-sarif", "scorecard-sarif.json", "scorecard-sarif.json")
+}
 func FuzzCountGolangCILint(f *testing.F) {
 	fuzzReport(f, "golangci-lint", "golangci-lint.json", "golangci-lint.json")
 }

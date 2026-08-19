@@ -15,9 +15,10 @@ import (
 type Capability string
 
 const (
-	parserCommandStatus = "command-status/v1"
-	parserPathList      = "path-list/v1"
-	parserSARIF         = "sarif/v1"
+	parserCommandStatus  = "command-status/v1"
+	parserPathList       = "path-list/v1"
+	parserSARIF          = "sarif/v1"
+	parserScorecardSARIF = "scorecard-sarif/v1"
 )
 
 const (
@@ -106,7 +107,7 @@ var defaultCatalog = Catalog{
 	{Tool: "markdownlint", CommandID: "markdownlint/documents", ParserVersion: parserPathList, Capability: CapabilityMarkdown, ReasonCode: ReasonNoMarkdown, Profiles: allProfiles()},
 	{Tool: "osv-scanner", CommandID: "osv-scanner/dependencies", ParserVersion: "osv-json/v1", Capability: CapabilityGo, ReasonCode: ReasonNoGoModule, Profiles: goProfiles()},
 	{Tool: "repository", CommandID: "repository/hygiene", ParserVersion: parserPathList, Capability: CapabilityAlways, Profiles: allProfiles()},
-	{Tool: "scorecard", CommandID: "scorecard/repository", ParserVersion: parserSARIF, Capability: CapabilityAlways, Profiles: allProfiles()},
+	{Tool: "scorecard", CommandID: "scorecard/repository", ParserVersion: parserScorecardSARIF, Capability: CapabilityAlways, Profiles: allProfiles()},
 	{Tool: "semgrep", CommandID: "semgrep/source", ParserVersion: "semgrep-json/v1", Capability: CapabilityAlways, Profiles: allProfiles()},
 	{Tool: "shellcheck", CommandID: "shellcheck/scripts", ParserVersion: "shellcheck-json/v1", Capability: CapabilityShell, ReasonCode: ReasonNoShellFiles, Profiles: allProfiles()},
 	{Tool: "shfmt", CommandID: "shfmt/scripts", ParserVersion: parserPathList, Capability: CapabilityShell, ReasonCode: ReasonNoShellFiles, Profiles: allProfiles()},
