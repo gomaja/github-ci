@@ -197,6 +197,15 @@ func TestIsShellRecognizesSupportedShebangRegardlessOfMode(t *testing.T) {
 		{name: "env split combined option", file: trackedFile{data: []byte("#!/usr/bin/env -vS bash -e\n")}, want: true},
 		{name: "env split combined attached", file: trackedFile{data: []byte("#!/usr/bin/env -vSbash -e\n")}, want: true},
 		{name: "env split assignment", file: trackedFile{data: []byte("#!/usr/bin/env -S MODE=strict bash -e\n")}, want: true},
+		{name: "env ordinary quoted command", file: trackedFile{data: []byte("#!/usr/bin/env 'bash'\n")}},
+		{name: "env command before split option", file: trackedFile{data: []byte("#!/usr/bin/env python -S bash\n")}},
+		{name: "env end options before split option", file: trackedFile{data: []byte("#!/usr/bin/env -- python -S bash\n")}},
+		{name: "env assignment before split option", file: trackedFile{data: []byte("#!/usr/bin/env MODE=strict -S bash\n")}},
+		{name: "env unknown option before split option", file: trackedFile{data: []byte("#!/usr/bin/env --unknown -S bash\n")}},
+		{name: "env invalid short bundle before split option", file: trackedFile{data: []byte("#!/usr/bin/env -xSbash\n")}},
+		{name: "env option before split option", file: trackedFile{data: []byte("#!/usr/bin/env -u PATH -S bash\n")}, want: true},
+		{name: "env end options before shell", file: trackedFile{data: []byte("#!/usr/bin/env -- bash\n")}, want: true},
+		{name: "env option shaped command after end options", file: trackedFile{data: []byte("#!/usr/bin/env -- --unset PATH bash\n")}},
 		{name: "env unset short", file: trackedFile{data: []byte("#!/usr/bin/env -u PATH bash\n")}, want: true},
 		{name: "env unset attached S name", file: trackedFile{data: []byte("#!/usr/bin/env -uSHELL bash\n")}, want: true},
 		{name: "env unset long", file: trackedFile{data: []byte("#!/usr/bin/env --unset PATH bash\n")}, want: true},
@@ -213,6 +222,7 @@ func TestIsShellRecognizesSupportedShebangRegardlessOfMode(t *testing.T) {
 		{name: "env split attached non-shell", file: trackedFile{data: []byte("#!/usr/bin/env --split-string=python -I\n")}},
 		{name: "direct prefix collision", file: trackedFile{data: []byte("#!/bin/bashful\n")}},
 		{name: "env prefix collision", file: trackedFile{data: []byte("#!/usr/bin/env bashful\n")}},
+		{name: "relative comment interpreter", file: trackedFile{data: []byte("#!#/env -S")}},
 		{name: "unrecognized", file: trackedFile{mode: 0o755, data: []byte("#!/usr/bin/env fish\n")}},
 	}
 	for _, test := range tests {
@@ -255,6 +265,92 @@ func TestSplitEnvString(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestExpandEnvSplitStringHonorsOptionPrefix(t *testing.T) {
+	tests := []struct {
+		name  string
+		input []string
+		want  []string
+		split bool
+	}{
+		{name: "empty", input: nil, want: nil},
+		{name: "detached", input: []string{"-S", "bash", "-e"}, want: []string{"bash", "-e"}, split: true},
+		{name: "short attached", input: []string{"-Sbash", "-e"}, want: []string{"bash", "-e"}, split: true},
+		{name: "long attached", input: []string{"--split-string=bash", "-e"}, want: []string{"bash", "-e"}, split: true},
+		{name: "empty long attached", input: []string{"--split-string="}, split: true},
+		{name: "detached value option", input: []string{"-u", "PATH", "-S", "bash"}, want: []string{"bash"}, split: true},
+		{name: "attached value option", input: []string{"--unset=PATH", "-S", "bash"}, want: []string{"bash"}, split: true},
+		{name: "missing option value", input: []string{"-u"}, want: []string{"-u"}},
+		{name: "end options", input: []string{"--", "-S", "bash"}, want: []string{"--", "-S", "bash"}},
+		{name: "assignment", input: []string{"MODE=strict", "-S", "bash"}, want: []string{"MODE=strict", "-S", "bash"}},
+		{name: "command", input: []string{"python", "-S", "bash"}, want: []string{"python", "-S", "bash"}},
+		{name: "invalid short bundle", input: []string{"-xSbash"}, want: []string{"-xSbash"}},
+		{name: "valid short bundle", input: []string{"-ivSbash"}, want: []string{"bash"}, split: true},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			got, split := expandEnvSplitString(test.input)
+			if split != test.split || !slices.Equal(got, test.want) {
+				t.Fatalf("expandEnvSplitString() = %#v, %t; want %#v, %t", got, split, test.want, test.split)
+			}
+		})
+	}
+}
+
+func TestEnvCommandArgumentsHandlesEmptyLexerOutput(t *testing.T) {
+	if got := envCommandArguments(nil); got != nil {
+		t.Fatalf("envCommandArguments(nil) = %#v", got)
+	}
+	if got := envCommandArguments([]string{"env", "-S", "bash"}); !slices.Equal(got, []string{"-S", "bash"}) {
+		t.Fatalf("envCommandArguments() = %#v", got)
+	}
+}
+
+func TestEnvOptionClassifiers(t *testing.T) {
+	if !isEnvEndOptions("--") || isEnvEndOptions("-") || isEnvEndOptions("---") {
+		t.Error("isEnvEndOptions does not recognize only the exact end marker")
+	}
+	for _, argument := range []string{"-uPATH", "-C/tmp", "--unset=PATH", "--chdir=/tmp"} {
+		if !isEnvOptionWithAttachedValue(argument) {
+			t.Errorf("isEnvOptionWithAttachedValue(%q) = false", argument)
+		}
+	}
+	for _, argument := range []string{"", "-u", "-C", "--unset", "--chdir"} {
+		if isEnvOptionWithAttachedValue(argument) {
+			t.Errorf("isEnvOptionWithAttachedValue(%q) = true", argument)
+		}
+	}
+	for _, argument := range []string{
+		"-", "-iv", "--block-signal=PIPE", "--default-signal=PIPE", "--ignore-signal=PIPE",
+	} {
+		if !isEnvOptionWithoutValue(argument) {
+			t.Errorf("isEnvOptionWithoutValue(%q) = false", argument)
+		}
+	}
+	for _, argument := range []string{"", "iv", "-x", "--unknown"} {
+		if isEnvOptionWithoutValue(argument) {
+			t.Errorf("isEnvOptionWithoutValue(%q) = true", argument)
+		}
+	}
+}
+
+func FuzzIsShellFile(f *testing.F) {
+	for _, seed := range [][]byte{
+		[]byte("#!/bin/sh\n"),
+		[]byte("#!/usr/bin/env bash\n"),
+		[]byte("#!/usr/bin/env -S 'bash' -e\n"),
+		[]byte("#!/usr/bin/env 'bash'\n"),
+		[]byte("#!/usr/bin/env python -S bash\n"),
+		[]byte("#!/usr/bin/env -S 'bash\n"),
+		[]byte("#!#/env -S"),
+		{0, 1, 2, '\n'},
+	} {
+		f.Add(seed)
+	}
+	f.Fuzz(func(_ *testing.T, data []byte) {
+		_ = IsShellFile("script", data)
+	})
 }
 
 func TestReadTrackedFilesEnforcesExactByteLimits(t *testing.T) {

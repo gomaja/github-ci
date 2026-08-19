@@ -286,51 +286,83 @@ func IsShellFile(name string, data []byte) bool {
 	if len(fields) == 0 {
 		return false
 	}
+	if !path.IsAbs(fields[0]) {
+		return false
+	}
 	if isSupportedShellInterpreter(fields[0]) {
 		return true
 	}
 	if path.Base(fields[0]) != "env" {
 		return false
 	}
+	arguments := fields[1:]
+	_, usesSplitString := expandEnvSplitString(arguments)
+	if !usesSplitString {
+		return envSelectsSupportedShell(arguments)
+	}
 	arguments, valid := splitEnvString(raw)
-	if !valid || len(arguments) == 0 {
+	if !valid {
 		return false
 	}
-	return envSelectsSupportedShell(expandEnvSplitString(arguments[1:]))
+	arguments, usesSplitString = expandEnvSplitString(envCommandArguments(arguments))
+	return usesSplitString && envSelectsSupportedShell(arguments)
 }
 
-func expandEnvSplitString(arguments []string) []string {
-	for index, argument := range arguments {
+func envCommandArguments(arguments []string) []string {
+	if len(arguments) == 0 {
+		return nil
+	}
+	return arguments[1:]
+}
+
+func expandEnvSplitString(arguments []string) ([]string, bool) {
+	for len(arguments) != 0 {
+		argument := arguments[0]
 		if isDetachedEnvSplitOption(argument) {
-			return arguments[index:][1:]
+			return arguments[1:], true
 		}
 		switch {
 		case strings.HasPrefix(argument, "--split-string="):
 			value := strings.TrimPrefix(argument, "--split-string=")
 			if value == "" {
-				return nil
+				return nil, true
 			}
-			return append([]string{value}, arguments[index:][1:]...)
+			return append([]string{value}, arguments[1:]...), true
 		case strings.HasPrefix(argument, "-S"):
-			return append([]string{argument[2:]}, arguments[index:][1:]...)
-		case strings.HasPrefix(argument, "--"):
-			continue
+			return append([]string{argument[2:]}, arguments[1:]...), true
+		case isEnvEndOptions(argument):
+			return arguments, false
+		case isEnvOptionWithDetachedValue(argument):
+			if len(arguments) == 1 {
+				return arguments, false
+			}
+			arguments = arguments[2:]
+		case isEnvOptionWithAttachedValue(argument), isEnvOptionWithoutValue(argument):
+			arguments = arguments[1:]
+		case strings.ContainsRune(argument, '='):
+			return arguments, false
 		case strings.HasPrefix(argument, "-"):
 			flags, value, found := strings.Cut(argument[1:], "S")
 			if !found || !isEnvFlagBundle(flags) {
-				continue
+				return arguments, false
 			}
 			if value == "" {
-				return arguments[index:][1:]
+				return arguments[1:], true
 			}
-			return append([]string{value}, arguments[index:][1:]...)
+			return append([]string{value}, arguments[1:]...), true
+		default:
+			return arguments, false
 		}
 	}
-	return arguments
+	return arguments, false
 }
 
 func isDetachedEnvSplitOption(argument string) bool {
 	return argument == "-S" || argument == "--split-string"
+}
+
+func isEnvEndOptions(argument string) bool {
+	return argument == "--"
 }
 
 func isEnvFlagBundle(flags string) bool {
@@ -342,11 +374,40 @@ func isEnvFlagBundle(flags string) bool {
 	return true
 }
 
+func isEnvOptionWithDetachedValue(argument string) bool {
+	switch argument {
+	case "-u", "--unset", "-C", "--chdir":
+		return true
+	default:
+		return false
+	}
+}
+
+func isEnvOptionWithAttachedValue(argument string) bool {
+	return ((strings.HasPrefix(argument, "-u") || strings.HasPrefix(argument, "-C")) && len(argument) > 2) ||
+		strings.HasPrefix(argument, "--unset=") || strings.HasPrefix(argument, "--chdir=")
+}
+
+func isEnvOptionWithoutValue(argument string) bool {
+	switch argument {
+	case "-", "-i", "-0", "-v", "--ignore-environment", "--null", "--debug",
+		"--block-signal", "--default-signal", "--ignore-signal", "--list-signal-handling":
+		return true
+	default:
+		return strings.HasPrefix(argument, "--block-signal=") ||
+			strings.HasPrefix(argument, "--default-signal=") ||
+			strings.HasPrefix(argument, "--ignore-signal=") ||
+			(strings.HasPrefix(argument, "-") && isEnvFlagBundle(argument[1:]))
+	}
+}
+
 // splitEnvString lexes the GNU Coreutils env -S quoting and escape rules.
 func splitEnvString(input string) ([]string, bool) {
 	state := envStringState{}
-	for index := 0; index < len(input); index++ {
-		character := input[index]
+	remaining := []byte(input)
+	for len(remaining) != 0 {
+		character := remaining[0]
+		remaining = remaining[1:]
 		if state.quote == 0 && isEnvSpace(character) {
 			state.flush()
 			continue
@@ -361,11 +422,11 @@ func splitEnvString(input string) ([]string, bool) {
 			state.write(character)
 			continue
 		}
-		if index+1 == len(input) {
+		if len(remaining) == 0 {
 			return nil, false
 		}
-		next := input[index+1]
-		index++
+		next := remaining[0]
+		remaining = remaining[1:]
 		stop, valid := state.consumeEscape(next)
 		if !valid {
 			return nil, false
@@ -464,20 +525,30 @@ func isEnvSpace(character byte) bool {
 func envSelectsSupportedShell(arguments []string) bool {
 	for len(arguments) != 0 {
 		argument := arguments[0]
-		arguments = arguments[1:]
-		switch argument {
-		case "-u", "--unset", "-C", "--chdir":
-			if len(arguments) == 0 {
+		switch {
+		case isEnvEndOptions(argument):
+			return envCommandSelectsSupportedShell(arguments[1:])
+		case isEnvOptionWithDetachedValue(argument):
+			if len(arguments) == 1 {
 				return false
 			}
+			arguments = arguments[2:]
+		case isEnvOptionWithAttachedValue(argument), isEnvOptionWithoutValue(argument):
 			arguments = arguments[1:]
+		case strings.HasPrefix(argument, "-"):
+			return false
+		default:
+			return envCommandSelectsSupportedShell(arguments)
 		}
-		if strings.HasPrefix(argument, "-") || strings.ContainsRune(argument, '=') {
-			continue
-		}
-		return isSupportedShellInterpreter(argument)
 	}
 	return false
+}
+
+func envCommandSelectsSupportedShell(arguments []string) bool {
+	for len(arguments) != 0 && strings.ContainsRune(arguments[0], '=') {
+		arguments = arguments[1:]
+	}
+	return len(arguments) != 0 && isSupportedShellInterpreter(arguments[0])
 }
 
 func isSupportedShellInterpreter(interpreter string) bool {
