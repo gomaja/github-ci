@@ -143,6 +143,23 @@ func TestRepositoryScannerScriptsFailClosed(t *testing.T) {
 	}
 }
 
+func TestScannerInstallerVerifiesGremlinsModuleVersion(t *testing.T) {
+	t.Parallel()
+	root := repositoryRoot(t)
+	data, err := os.ReadFile(filepath.Join(root, "scripts", "install-scanners.sh"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(data)
+	if !strings.Contains(text, `go version -m "$BIN_DIR/gremlins"`) ||
+		!strings.Contains(text, `github.com/go-gremlins/gremlins\tv0.6.0`) {
+		t.Error("scanner installer does not verify the pinned Gremlins module version")
+	}
+	if strings.Contains(text, `"$BIN_DIR/gremlins" --version`) {
+		t.Error("scanner installer relies on the unversioned source-build Gremlins CLI string")
+	}
+}
+
 func TestExternalReportsAreArchivedBeforeParsing(t *testing.T) {
 	t.Parallel()
 	root := repositoryRoot(t)
