@@ -478,7 +478,33 @@ func TestReleaseWorkflowProducesEvidenceWithoutPublishing(t *testing.T) {
 		t.Fatalf("read release workflow: %v", err)
 	}
 	text := string(data)
-	for _, required := range []string{"release-manifest.json", "SHA256SUMS", "sbom.spdx.json", "sbom.cdx.json", "attest-build-provenance"} {
+	for _, required := range []string{
+		"release-manifest.json",
+		"SHA256SUMS",
+		"sbom.spdx.json",
+		"sbom.cdx.json",
+		"attest-build-provenance",
+		"include-callers:",
+		"default: false",
+		`ref: ${{ inputs.tag || github.ref }}`,
+		`INCLUDE_CALLERS: ${{ inputs.include-callers }}`,
+		`REF_TYPE: ${{ github.ref_type }}`,
+		`REPOSITORY: ${{ github.repository }}`,
+		`WORKFLOW_REPOSITORY: ${{ job.workflow_repository }}`,
+		`source_sha=$(git -C "$SOURCE_DIR" rev-parse HEAD)`,
+		`[[ "$source_sha" == "$tagged_sha" ]]`,
+		`if [[ "$REF_TYPE" == "tag" ]]`,
+		`if [[ "$INCLUDE_CALLERS" == "true" ]]`,
+		`[[ "$REPOSITORY" == "$WORKFLOW_REPOSITORY" ]]`,
+		"github-ci-govern",
+		"render-callers",
+		`--workflow-sha "$tagged_sha"`,
+		`--subject-sha "$tagged_sha"`,
+		"--asset dist/github-ci.yaml",
+		"--asset dist/github-ci.yml",
+		"--asset dist/github-ci-deep.yml",
+		"--asset dist/github-ci-release.yml",
+	} {
 		if !strings.Contains(text, required) {
 			t.Errorf("release workflow is missing %q", required)
 		}
@@ -488,7 +514,23 @@ func TestReleaseWorkflowProducesEvidenceWithoutPublishing(t *testing.T) {
 			t.Errorf("release workflow contains forbidden %q", forbidden)
 		}
 	}
+	if strings.Contains(text, `--workflow-sha "$EVENT_SHA"`) {
+		t.Error("release workflow pins callers to the consumer commit instead of its own workflow commit")
+	}
+	if strings.Contains(text, `--subject-sha "$EVENT_SHA"`) {
+		t.Error("release workflow binds manually dispatched evidence to the dispatch branch instead of the requested tag")
+	}
 	assertImmutableUses(t, text)
+}
+
+func TestRepositoryReleaseCallerIncludesPinnedCallers(t *testing.T) {
+	data, err := os.ReadFile("../../.github/workflows/release-evidence.yml")
+	if err != nil {
+		t.Fatalf("read repository release caller: %v", err)
+	}
+	if !strings.Contains(string(data), "include-callers: true") {
+		t.Error("repository release caller does not include SHA-pinned caller assets")
+	}
 }
 
 func TestGeneratedCallerHasRequiredEvents(t *testing.T) {
@@ -504,6 +546,25 @@ func TestGeneratedCallerHasRequiredEvents(t *testing.T) {
 	}
 	if strings.Contains(text, "paths:") {
 		t.Error("required caller contains a workflow-level path filter")
+	}
+}
+
+func TestGeneratedReleaseCallerForwardsManualTag(t *testing.T) {
+	data, err := os.ReadFile("../../templates/callers/generated/github-ci-release.yml")
+	if err != nil {
+		t.Fatalf("read release caller: %v", err)
+	}
+	text := string(data)
+	for _, required := range []string{
+		"inputs:",
+		"tag:",
+		"required: true",
+		"type: string",
+		`tag: ${{ inputs.tag }}`,
+	} {
+		if !strings.Contains(text, required) {
+			t.Errorf("release caller is missing %q", required)
+		}
 	}
 }
 

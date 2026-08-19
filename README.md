@@ -5,11 +5,6 @@ mixed-source repositories. Every applicable analyzer is blocking. A pull
 request passes only when the aggregate gate receives complete, valid evidence
 and reports zero findings.
 
-The project is owned by the `gomaja` personal account. Public reusable
-workflows can be called by gomaja repositories, organizations, and unrelated
-public repositories; consumers do not need access to gomaja credentials or a
-shared organization.
-
 ## Assurance
 
 The standard workflow combines correctness, race and compatibility testing,
@@ -37,9 +32,10 @@ go run github.com/gomaja/github-ci/cmd/github-ci-govern@<commit-sha> \
   --output ./rendered
 ```
 
-The repository has not published a semantic-version release yet. Use only the
-live-validated commit recorded in [adoption](docs/adoption.md). Release evidence
-automation validates existing tags but never creates a tag or GitHub release.
+`v1.0.0` defines the first stable compatibility line. For a published release,
+resolve its immutable tag to a full commit SHA and pin that SHA in every
+reusable workflow call. Release evidence automation validates existing tags but
+never creates a tag or GitHub release.
 
 ## Documentation
 

@@ -126,6 +126,11 @@ on:
   push:
     tags: ["v*"]
   workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing immutable semantic-version tag to validate.
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -137,6 +142,8 @@ jobs:
       id-token: write  # Provenance attestation requires an OIDC identity.
       attestations: write  # The called workflow records build provenance.
     uses: gomaja/github-ci/.github/workflows/release.yml@%s
+    with:
+      tag: ${{ inputs.tag }}
 `, sha, sha)
 }
 

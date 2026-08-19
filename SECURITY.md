@@ -22,8 +22,8 @@ for security-process questions that contain no vulnerability or exploit details.
 
 ## Supported Versions
 
-Until the first stable release, only the current `main` branch is supported.
-After `v1.0.0`, the latest stable minor release will receive security fixes.
+Stable releases beginning with `v1.0.0` are supported. The latest stable minor
+release receives security fixes.
 
 ## Supply Chain
 

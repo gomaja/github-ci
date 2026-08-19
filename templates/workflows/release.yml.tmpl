@@ -8,6 +8,10 @@ on:
         required: false
         default: "[%.Policy.GoVersions.Current%]"
         type: string
+      include-callers:
+        required: false
+        default: false
+        type: boolean
       tag:
         required: false
         default: ""
@@ -49,6 +53,7 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
           path: source
+          ref: ${{ inputs.tag || github.ref }}
       - name: Check out workflow helpers
         uses: [%.Action "checkout"%]
         with:
@@ -69,11 +74,17 @@ jobs:
         run: bash "$CENTRAL_DIR/scripts/install-scanners.sh" supply-chain
       - name: Validate tag and build deterministic evidence
         env:
+          CENTRAL_DIR: ${{ github.workspace }}/github-ci
           CLI: ${{ runner.temp }}/github-ci-bin/github-ci
           EVENT_SHA: ${{ github.sha }}
+          GOVERNANCE_CLI: ${{ runner.temp }}/github-ci-bin/github-ci-govern
+          INCLUDE_CALLERS: ${{ inputs.include-callers }}
           REF_NAME: ${{ github.ref_name }}
+          REF_TYPE: ${{ github.ref_type }}
+          REPOSITORY: ${{ github.repository }}
           REQUESTED_TAG: ${{ inputs.tag }}
           SOURCE_DIR: ${{ github.workspace }}/source
+          WORKFLOW_REPOSITORY: ${{ job.workflow_repository }}
         shell: bash
         run: |
           set -euo pipefail
@@ -82,13 +93,42 @@ jobs:
           [[ -n "$tag" ]] || tag="$REF_NAME"
           [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
           tagged_sha=$(git -C "$SOURCE_DIR" rev-parse "refs/tags/$tag^{commit}")
-          [[ "$tagged_sha" == "$EVENT_SHA" ]]
+          source_sha=$(git -C "$SOURCE_DIR" rev-parse HEAD)
+          [[ "$source_sha" == "$tagged_sha" ]]
+          if [[ "$REF_TYPE" == "tag" ]]; then
+            [[ "$tagged_sha" == "$EVENT_SHA" ]]
+          fi
           mkdir -p "$SOURCE_DIR/dist"
           git -C "$SOURCE_DIR" archive --format=tar.gz --prefix="${GITHUB_REPOSITORY##*/}-$tag/" -o "$SOURCE_DIR/dist/source-$tag.tar.gz" "$tag"
+          caller_args=()
+          if [[ "$INCLUDE_CALLERS" == "true" ]]; then
+            [[ "$REPOSITORY" == "$WORKFLOW_REPOSITORY" ]]
+            (cd "$SOURCE_DIR" && go build -trimpath -o "$GOVERNANCE_CLI" ./cmd/github-ci-govern)
+            caller_output="$RUNNER_TEMP/release-callers"
+            "$GOVERNANCE_CLI" render-callers \
+              --manifest "$SOURCE_DIR/governance/gomaja.yaml" \
+              --repository github-ci \
+              --workflow-sha "$tagged_sha" \
+              --output "$caller_output"
+            caller_root="$caller_output/gomaja/github-ci/.github"
+            cp "$caller_root/github-ci.yaml" "$SOURCE_DIR/dist/github-ci.yaml"
+            cp "$caller_root/workflows/github-ci.yml" "$SOURCE_DIR/dist/github-ci.yml"
+            cp "$caller_root/workflows/github-ci-deep.yml" "$SOURCE_DIR/dist/github-ci-deep.yml"
+            cp "$caller_root/workflows/github-ci-release.yml" "$SOURCE_DIR/dist/github-ci-release.yml"
+            caller_args=(
+              --asset dist/github-ci.yaml
+              --asset dist/github-ci.yml
+              --asset dist/github-ci-deep.yml
+              --asset dist/github-ci-release.yml
+            )
+          fi
           syft "dir:$SOURCE_DIR" --quiet --output "spdx-json=$SOURCE_DIR/dist/sbom.spdx.json" --output "cyclonedx-json=$SOURCE_DIR/dist/sbom.cdx.json"
-          source_date=$(git -C "$SOURCE_DIR" show -s --format=%cI "$EVENT_SHA")
-          "$CLI" release-evidence --root "$SOURCE_DIR" --subject-sha "$EVENT_SHA" --source-date "$source_date" \
-            --asset "dist/source-$tag.tar.gz" --asset dist/sbom.spdx.json --asset dist/sbom.cdx.json \
+          source_date=$(git -C "$SOURCE_DIR" show -s --format=%cI "$tagged_sha")
+          "$CLI" release-evidence --root "$SOURCE_DIR" --subject-sha "$tagged_sha" --source-date "$source_date" \
+            --asset "dist/source-$tag.tar.gz" \
+            --asset dist/sbom.spdx.json \
+            --asset dist/sbom.cdx.json \
+            "${caller_args[@]}" \
             --manifest "$SOURCE_DIR/dist/release-manifest.json" --checksums "$SOURCE_DIR/dist/SHA256SUMS"
           "$CLI" verify-release-evidence --root "$SOURCE_DIR" --manifest "$SOURCE_DIR/dist/release-manifest.json" --checksums "$SOURCE_DIR/dist/SHA256SUMS"
       - name: Attest release evidence

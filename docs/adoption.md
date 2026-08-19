@@ -7,7 +7,15 @@ cross-repository canary. Pin all reusable workflow calls to that exact
 40-character SHA. A version comment may describe the commit, but a branch,
 moving major tag, or mutable release tag is not an acceptable reference.
 
-The validated workflow SHA is
+For a published release, fetch its tag and resolve the peeled commit before
+rendering callers:
+
+```bash
+git fetch origin tag v1.0.0
+git rev-parse 'v1.0.0^{commit}'
+```
+
+The pre-release canary workflow SHA was
 `3dc64d2ab02b3d5ce3f2eacacfdc1eec9a9e78f7`. It completed the
 [standard gate](https://github.com/gomaja/github-ci/actions/runs/32243207234),
 [deep assurance](https://github.com/gomaja/github-ci/actions/runs/32243204063),
