@@ -9,7 +9,7 @@ import (
 
 var unsafeShellCommands = []*regexp.Regexp{
 	regexp.MustCompile(`(?m)(^|[[:space:];|&()])eval(?:[[:space:]'"$\\]|$)`),
-	regexp.MustCompile(`(?m)(^|[[:space:];|&()])(?:[[:alnum:]_.-]*/)*bash[[:space:]]+-c(?:[[:space:]'"]|$)`),
+	regexp.MustCompile(`(?m)(^|[[:space:];|&()])["']?(?:[[:alnum:]_.-]*/)*["']?bash["']?[[:space:]]+-c(?:[[:space:]'"]|$)`),
 }
 
 func TestGoPlanShellUsesQuotedArraysWithoutEvaluation(t *testing.T) {
@@ -53,6 +53,8 @@ func TestUnsafeShellCommandPatternsCoverEquivalentSpellings(t *testing.T) {
 		"/bin/bash -c command",
 		`bash -c"command"`,
 		`./tools/bash -c'command'`,
+		`"/bin/bash" -c command`,
+		`'./tools/bash' -c command`,
 	} {
 		matched := false
 		for _, pattern := range unsafeShellCommands {
