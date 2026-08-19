@@ -78,6 +78,13 @@ func TestCountTrivyRejectsNullResults(t *testing.T) {
 	}
 }
 
+func TestCountTrivyRejectsUnknownResultFields(t *testing.T) {
+	_, err := Count("trivy", strings.NewReader(`{"SchemaVersion":2,"Results":[{"Target":".","Unsupported":true}]}`))
+	if err == nil || !strings.Contains(err.Error(), "unknown field") {
+		t.Fatalf("Count() error = %v, want unknown result field error", err)
+	}
+}
+
 func TestCountCheckovRejectsMalformedAndEmptyArrays(t *testing.T) {
 	for _, test := range []struct {
 		name string

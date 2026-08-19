@@ -306,7 +306,7 @@ func countTrivy(data []byte) (int, error) {
 		return 0, errors.New("trivy Results must be an array when present")
 	}
 	var results []trivyResult
-	if err := json.Unmarshal(report.Results, &results); err != nil {
+	if err := decodeStrictJSON(report.Results, &results); err != nil {
 		return 0, fmt.Errorf("decode trivy Results: %w", err)
 	}
 	if results == nil {
