@@ -105,9 +105,14 @@ jobs:
           while IFS= read -r module; do
             directory="$SOURCE_DIR"
             [[ "$module" == "." ]] || directory="$SOURCE_DIR/$module"
-            while IFS= read -r target; do
-              [[ -z "$target" ]] || (cd "$directory" && go test ./... -run '^$' -fuzz "^${target}$" -fuzztime "$FUZZ_TIME")
-            done < <(cd "$directory" && go test ./... -list '^Fuzz' | grep '^Fuzz' || true)
+            packages=$(cd "$directory" && go list ./...)
+            while IFS= read -r package; do
+              targets=$(cd "$directory" && go test "$package" -list '^Fuzz')
+              while IFS= read -r target; do
+                [[ "$target" =~ ^Fuzz[[:alnum:]_]*$ ]] || continue
+                (cd "$directory" && go test "$package" -run '^$' -fuzz "^${target}$" -fuzztime "$FUZZ_TIME")
+              done <<< "$targets"
+            done <<< "$packages"
             (cd "$directory" && go test ./... -run '^$' -bench . -benchtime=1s)
           done < <("$CLI" modules --repository "$SOURCE_DIR" --config "$CONFIG_PATH" | jq -r '.modules[]')
 
@@ -224,7 +229,19 @@ jobs:
           while IFS= read -r module; do
             directory="$SOURCE_DIR"
             [[ "$module" == "." ]] || directory="$SOURCE_DIR/$module"
-            updates=$(cd "$directory" && go list -m -u -json all | jq -s '[.[] | select(.Update != null)] | length')
+            updates=$(
+              cd "$directory"
+              module_file=$(go mod edit -json)
+              dependencies=()
+              while IFS= read -r dependency; do
+                [[ -z "$dependency" ]] || dependencies+=("$dependency")
+              done < <(jq -r '.Require[]?.Path' <<< "$module_file")
+              if (( ${#dependencies[@]} == 0 )); then
+                printf '0\n'
+              else
+                go list -m -u -json "${dependencies[@]}" | jq -s '[.[] | select(.Update != null)] | length'
+              fi
+            )
             [[ "$updates" == 0 ]]
           done < <("$CLI" modules --repository "$SOURCE_DIR" --config "$CONFIG_PATH" | jq -r '.modules[]')
           if grep -qx 'module github.com/gomaja/github-ci' "$SOURCE_DIR/go.mod"; then

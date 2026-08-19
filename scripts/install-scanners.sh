@@ -124,7 +124,7 @@ install_deep() {
 		sha256:551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb tar.gz gitleaks
 	GOBIN="$BIN_DIR" go install github.com/go-gremlins/gremlins/cmd/gremlins@v0.6.0
 	"$BIN_DIR/gitleaks" version 2>&1 | grep -F '8.30.1'
-	"$BIN_DIR/gremlins" --version 2>&1 | grep -F '0.6.0'
+	go version -m "$BIN_DIR/gremlins" | grep -F $'mod\tgithub.com/go-gremlins/gremlins\tv0.6.0'
 }
 
 case "$group" in

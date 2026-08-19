@@ -146,33 +146,18 @@ func assertBootstrapNetworkAccess(t *testing.T, jobs map[string]any) {
 
 func assertScannerRuntimeContracts(t *testing.T, jobs map[string]any) {
 	t.Helper()
-	analysis := mapping(t, jobs["analysis"], "analysis")
-	analysisSteps := sequence(t, analysis["steps"], "analysis steps")
-	analysisAllowlist := ""
-	for _, rawStep := range analysisSteps {
-		step := mapping(t, rawStep, "analysis step")
-		uses, _ := step["uses"].(string)
-		if strings.HasPrefix(uses, "step-security/harden-runner@") {
-			with := mapping(t, step["with"], "analysis Harden Runner inputs")
-			analysisAllowlist, _ = with["allowed-endpoints"].(string)
-		}
+	dependencyReviewAllowlist := hardenRunnerAllowlist(t, jobs, "dependency-review")
+	if !strings.Contains(dependencyReviewAllowlist, "api.deps.dev:443") {
+		t.Error("dependency-review job does not allow its dependency metadata endpoint")
 	}
+
+	analysisAllowlist := hardenRunnerAllowlist(t, jobs, "analysis")
 	if !strings.Contains(analysisAllowlist, "vuln.go.dev:443") {
 		t.Error("analysis job does not allow the govulncheck vulnerability database")
 	}
 
 	for _, name := range []string{"security", "repository"} {
-		job := mapping(t, jobs[name], name)
-		steps := sequence(t, job["steps"], name+" steps")
-		allowlist := ""
-		for _, rawStep := range steps {
-			step := mapping(t, rawStep, name+" step")
-			uses, _ := step["uses"].(string)
-			if strings.HasPrefix(uses, "step-security/harden-runner@") {
-				with := mapping(t, step["with"], name+" Harden Runner inputs")
-				allowlist, _ = with["allowed-endpoints"].(string)
-			}
-		}
+		allowlist := hardenRunnerAllowlist(t, jobs, name)
 		if !strings.Contains(allowlist, "production.cloudfront.docker.com:443") {
 			t.Errorf("job %q does not allow Docker's image delivery endpoint", name)
 		}
@@ -199,15 +184,11 @@ func assertScannerRuntimeContracts(t *testing.T, jobs map[string]any) {
 
 	scorecard := mapping(t, jobs["scorecard"], "scorecard")
 	scorecardSteps := sequence(t, scorecard["steps"], "scorecard steps")
-	allowlist := ""
+	allowlist := hardenRunnerAllowlist(t, jobs, "scorecard")
 	foundRelativeReport := false
 	for _, rawStep := range scorecardSteps {
 		step := mapping(t, rawStep, "scorecard step")
 		uses, _ := step["uses"].(string)
-		if strings.HasPrefix(uses, "step-security/harden-runner@") {
-			with := mapping(t, step["with"], "scorecard Harden Runner inputs")
-			allowlist, _ = with["allowed-endpoints"].(string)
-		}
 		if strings.HasPrefix(uses, "ossf/scorecard-action@") {
 			with := mapping(t, step["with"], "scorecard inputs")
 			foundRelativeReport = with["results_file"] == "scorecard.sarif"
@@ -224,6 +205,24 @@ func assertScannerRuntimeContracts(t *testing.T, jobs map[string]any) {
 	if !foundRelativeReport {
 		t.Error("Scorecard does not use a container-portable relative result path")
 	}
+}
+
+func hardenRunnerAllowlist(t *testing.T, jobs map[string]any, name string) string {
+	t.Helper()
+	job := mapping(t, jobs[name], name)
+	steps := sequence(t, job["steps"], name+" steps")
+	for _, rawStep := range steps {
+		step := mapping(t, rawStep, name+" step")
+		uses, _ := step["uses"].(string)
+		if !strings.HasPrefix(uses, "step-security/harden-runner@") {
+			continue
+		}
+		with := mapping(t, step["with"], name+" Harden Runner inputs")
+		allowlist, _ := with["allowed-endpoints"].(string)
+		return allowlist
+	}
+	t.Fatalf("job %q has no Harden Runner step", name)
+	return ""
 }
 
 func assertWorkflowTextContracts(t *testing.T, text string) {
@@ -350,7 +349,8 @@ func TestDeepWorkflowContract(t *testing.T) {
 	text := string(data)
 	for _, required := range []string{
 		"portability:", "fuzz-benchmark:", "mutation:", "history-refresh:", "services:",
-		"gremlins unleash", "gitleaks git", "go list -m -u", "-bench .", "-fuzz",
+		"gremlins unleash", "gitleaks git", "go mod edit -json", `go list -m -u -json "${dependencies[@]}"`,
+		"go list ./...", "go test \"$package\"", `^Fuzz[[:alnum:]_]*$`, "-bench .", "-fuzz",
 		"postgres:18.1@sha256:", "redis:8.6.1@sha256:",
 	} {
 		if !strings.Contains(text, required) {
@@ -359,6 +359,15 @@ func TestDeepWorkflowContract(t *testing.T) {
 	}
 	if strings.Contains(text, "egress-policy: audit") {
 		t.Error("deep workflow contains audit-only egress")
+	}
+	if strings.Contains(text, "go test ./... -run '^$' -fuzz") {
+		t.Error("deep workflow attempts to fuzz multiple packages in one go test invocation")
+	}
+	if strings.Contains(text, `^Fuzz[[:alnum:]_]+$`) {
+		t.Error("deep workflow skips the valid bare Fuzz target name")
+	}
+	if strings.Contains(text, "go list -m -u -json all") {
+		t.Error("deep workflow requires updates for transitive modules outside the root go.mod")
 	}
 	assertImmutableUses(t, text)
 }
