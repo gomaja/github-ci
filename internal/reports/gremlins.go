@@ -15,6 +15,37 @@ import (
 
 const maxGremlinsJSONDepth = 32
 
+var gremlinsPropertyNames = [...]string{
+	"go_module",
+	"files",
+	"test_efficacy",
+	"mutations_coverage",
+	"mutants_total",
+	"mutants_killed",
+	"mutants_lived",
+	"mutants_not_viable",
+	"mutants_not_covered",
+	"elapsed_time",
+	"mutator_statistics",
+	"file_name",
+	"mutations",
+	"type",
+	"status",
+	"line",
+	"column",
+	"arithmetic_base",
+	"conditionals_negation",
+	"conditionals_boundary",
+	"increment_decrement",
+	"invert_assignments",
+	"invert_bitwise",
+	"invert_bitwise_assignments",
+	"invert_logical",
+	"invert_loop_ctrl",
+	"invert_negatives",
+	"remove_self_assignments",
+}
+
 type gremlinsReport struct {
 	GoModule          *string             `json:"go_module"`
 	Files             *[]gremlinsFile     `json:"files"`
@@ -199,11 +230,12 @@ func validateGremlinsMutations(filename string, mutations []gremlinsMutation, st
 		column   int
 	}
 	seen := make(map[mutationIdentity]struct{}, len(mutations))
+	supportedTypes := gremlinsStatisticNames()
 	for index, mutation := range mutations {
 		if mutation.Type == nil {
 			return fmt.Errorf("file %q mutation %d type is required", filename, index)
 		}
-		if _, supported := gremlinsStatisticNames()[*mutation.Type]; !supported {
+		if _, supported := supportedTypes[*mutation.Type]; !supported {
 			return fmt.Errorf("file %q mutation %d has unsupported mutation type %q", filename, index, *mutation.Type)
 		}
 		if mutation.Status == nil {
@@ -233,14 +265,14 @@ func validateGremlinsSummary(report gremlinsReport, statuses map[string]int) err
 	if *report.MutantsKilled != statuses["KILLED"] {
 		return errors.New("mutants_killed does not match mutation statuses")
 	}
-	if *report.MutantsLived != 0 || *report.MutantsLived != statuses["LIVED"] {
-		return errors.New("mutants_lived does not match mutation statuses or is nonzero")
+	if *report.MutantsLived != 0 {
+		return errors.New("mutants_lived must be zero")
 	}
 	if *report.MutantsNotViable != statuses["NOT VIABLE"] {
 		return errors.New("mutants_not_viable does not match mutation statuses")
 	}
-	if *report.MutantsNotCovered != 0 || *report.MutantsNotCovered != statuses["NOT COVERED"] {
-		return errors.New("mutants_not_covered does not match mutation statuses or is nonzero")
+	if *report.MutantsNotCovered != 0 {
+		return errors.New("mutants_not_covered must be zero")
 	}
 	if *report.MutantsKilled == 0 {
 		return errors.New("mutants_killed must be positive")
@@ -333,6 +365,9 @@ func walkGremlinsJSONValue(decoder *json.Decoder, depth int) error {
 				return fmt.Errorf("duplicate JSON key %q", key)
 			}
 			seen[folded] = struct{}{}
+			if err := validateGremlinsPropertyName(key); err != nil {
+				return err
+			}
 			if err := walkGremlinsJSONValue(decoder, depth+1); err != nil {
 				return err
 			}
@@ -348,6 +383,19 @@ func walkGremlinsJSONValue(decoder *json.Decoder, depth int) error {
 	default:
 		return fmt.Errorf("unexpected JSON delimiter %q", delimiter)
 	}
+}
+
+func validateGremlinsPropertyName(key string) error {
+	for _, canonical := range gremlinsPropertyNames {
+		if !strings.EqualFold(key, canonical) {
+			continue
+		}
+		if key != canonical {
+			return fmt.Errorf("JSON key %q does not match canonical property name %q", key, canonical)
+		}
+		return nil
+	}
+	return nil
 }
 
 func requireGremlinsDelimiter(decoder *json.Decoder, want json.Delim) error {

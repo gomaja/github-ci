@@ -144,9 +144,20 @@ func countAggregate(tool string, data []byte) (int, error) {
 		if err != nil {
 			return 0, fmt.Errorf("report %d: %w", index, err)
 		}
-		findings += count
+		findings, err = addFindingCounts(findings, count)
+		if err != nil {
+			return 0, err
+		}
 	}
 	return findings, nil
+}
+
+func addFindingCounts(total, count int) (int, error) {
+	result, ok := addNonnegativeCounts(total, count)
+	if !ok {
+		return 0, errors.New("aggregate finding count overflow")
+	}
+	return result, nil
 }
 
 func moduleFollows(previous, current string) bool {

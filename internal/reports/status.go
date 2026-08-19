@@ -95,7 +95,11 @@ func countJUnit(data []byte) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	if failures+errorsCount > tests {
+	findings, ok := addNonnegativeCounts(failures, errorsCount)
+	if !ok {
+		return 0, errors.New("JUnit failures and errors overflow")
+	}
+	if findings > tests {
 		return 0, errors.New("JUnit failures and errors exceed tests")
 	}
 	for index, suite := range suites.Suites {
@@ -111,11 +115,25 @@ func countJUnit(data []byte) (int, error) {
 		if suiteErr != nil {
 			return 0, suiteErr
 		}
-		if suiteFailures+suiteErrors > suiteTests {
+		suiteFindings, suiteOK := addNonnegativeCounts(suiteFailures, suiteErrors)
+		if !suiteOK {
+			return 0, fmt.Errorf("testsuite %d failures and errors overflow", index)
+		}
+		if suiteFindings > suiteTests {
 			return 0, fmt.Errorf("testsuite %d failures and errors exceed tests", index)
 		}
 	}
-	return failures + errorsCount, nil
+	return findings, nil
+}
+
+func addNonnegativeCounts(left, right int) (int, bool) {
+	if left < 0 || right < 0 {
+		return 0, false
+	}
+	if right > int(^uint(0)>>1)-left {
+		return 0, false
+	}
+	return left + right, true
 }
 
 func requiredNonnegative(field, value string) (int, error) {

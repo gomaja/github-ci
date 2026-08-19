@@ -2,6 +2,7 @@ package reports
 
 import (
 	"bytes"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -152,6 +153,46 @@ func TestAggregateLimitIncludesTrailingNewline(t *testing.T) {
 	}
 }
 
+func TestAddFindingCountsRejectsOnlyOverflow(t *testing.T) {
+	maxInt := int(^uint(0) >> 1)
+	got, err := addFindingCounts(maxInt-1, 1)
+	if err != nil || got != maxInt {
+		t.Fatalf("addFindingCounts(max-1, 1) = %d, %v; want %d, nil", got, err, maxInt)
+	}
+	if _, err := addFindingCounts(maxInt, 1); err == nil || err.Error() != "aggregate finding count overflow" {
+		t.Fatalf("addFindingCounts(max, 1) error = %v", err)
+	}
+	for _, input := range [][2]int{{-1, 0}, {0, -1}} {
+		if _, err := addFindingCounts(input[0], input[1]); err == nil || err.Error() != "aggregate finding count overflow" {
+			t.Fatalf("addFindingCounts(%d, %d) error = %v", input[0], input[1], err)
+		}
+	}
+}
+
+func TestCountAggregateRejectsNegativeCancellationFromJUnitOverflow(t *testing.T) {
+	maxInt := int(^uint(0) >> 1)
+	reports := []NamedReport{
+		{Module: "a", Data: []byte(`<testsuites tests="1" failures="1"></testsuites>`)},
+		{Module: "b", Data: []byte(`<testsuites tests="1" failures="1"></testsuites>`)},
+		{Module: "c", Data: fmt.Appendf(nil, `<testsuites tests="%d" failures="%d" errors="%d"></testsuites>`, maxInt, maxInt, maxInt)},
+	}
+	document := aggregateDocument{SchemaVersion: aggregateSchemaVersion, ParserTool: "junit"}
+	for _, report := range reports {
+		document.Reports = append(document.Reports, aggregateWire{
+			Module: report.Module, SHA256: reportDigest(report.Data),
+			Payload: base64.StdEncoding.EncodeToString(report.Data),
+		})
+	}
+	aggregate, err := json.Marshal(document)
+	if err != nil {
+		t.Fatalf("marshal aggregate: %v", err)
+	}
+	result, err := Count("junit", bytes.NewReader(aggregate))
+	if err == nil || !strings.Contains(err.Error(), "JUnit failures and errors overflow") {
+		t.Fatalf("Count() = %#v, %v; want JUnit overflow rejection", result, err)
+	}
+}
+
 func TestCountAggregateRequiresStrictModuleOrder(t *testing.T) {
 	for _, test := range []struct {
 		name    string
@@ -240,6 +281,7 @@ func TestCountJUnitAdditionAndZeroBoundaries(t *testing.T) {
 		{name: "zero tests", report: `<testsuites tests="0"></testsuites>`},
 		{name: "root combined failures", report: `<testsuites tests="1" failures="1" errors="1"></testsuites>`, wantErr: "JUnit failures and errors exceed tests"},
 		{name: "suite combined failures", report: `<testsuites tests="1"><testsuite tests="1" failures="1" errors="1"></testsuite></testsuites>`, wantErr: "testsuite 0 failures and errors exceed tests"},
+		{name: "suite overflow", report: fmt.Sprintf(`<testsuites tests="0"><testsuite tests="%d" failures="%d" errors="%d"></testsuite></testsuites>`, int(^uint(0)>>1), int(^uint(0)>>1), int(^uint(0)>>1)), wantErr: "testsuite 0 failures and errors overflow"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			_, err := countJUnit([]byte(test.report))
