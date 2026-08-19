@@ -668,6 +668,10 @@ func TestRepositoryReleaseCallerIncludesPinnedCallers(t *testing.T) {
 	for _, required := range []string{
 		"actions: read", "acceptance:", "release-candidate.yml", "head_sha", "status=success",
 		"github-ci-release-acceptance", "verify-acceptance-record", "acceptance-required: true", "needs: acceptance",
+		`WORKFLOW_REPOSITORY: ${{ job.workflow_repository }}`,
+		`WORKFLOW_SHA: ${{ job.workflow_sha }}`,
+		`[[ "$REPOSITORY" == "$WORKFLOW_REPOSITORY" ]]`,
+		`[[ "$WORKFLOW_SHA" == "$tagged_sha" ]]`,
 		`[[ "$tagged_sha" == "$EVENT_SHA" ]]`,
 	} {
 		if !strings.Contains(text, required) {
