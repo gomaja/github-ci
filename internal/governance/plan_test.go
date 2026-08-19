@@ -55,6 +55,32 @@ func TestBuildAndApplyPlanConverges(t *testing.T) {
 	}
 }
 
+func TestApplyAcceptsPersistedPlan(t *testing.T) {
+	t.Parallel()
+	github := newFakeGitHub()
+	server := httptest.NewServer(github)
+	t.Cleanup(server.Close)
+	client := Client{BaseURL: server.URL, Token: "token", APIVersion: "2026-03-10", HTTP: server.Client()}
+	manifest := testGovernance()
+
+	plan, err := BuildPlan(context.Background(), client, manifest)
+	if err != nil {
+		t.Fatalf("BuildPlan() error = %v", err)
+	}
+	data, err := json.MarshalIndent(plan, "", "  ")
+	if err != nil {
+		t.Fatalf("json.MarshalIndent() error = %v", err)
+	}
+	var persisted Plan
+	if err := json.Unmarshal(data, &persisted); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v", err)
+	}
+
+	if err := Apply(context.Background(), client, manifest, persisted, persisted.ID); err != nil {
+		t.Fatalf("Apply() persisted plan error = %v", err)
+	}
+}
+
 func TestApplyRejectsConcurrentDrift(t *testing.T) {
 	t.Parallel()
 	github := newFakeGitHub()

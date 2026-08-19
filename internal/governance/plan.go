@@ -1,6 +1,7 @@
 package governance
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -507,7 +508,19 @@ func supportedMutation(method string) bool {
 
 func operationsEqual(left, right Operation) bool {
 	return left.Repository == right.Repository && left.Kind == right.Kind && left.Method == right.Method &&
-		left.Path == right.Path && string(left.Body) == string(right.Body)
+		left.Path == right.Path && equalJSONBody(left.Body, right.Body)
+}
+
+func equalJSONBody(left, right json.RawMessage) bool {
+	if len(left) == 0 || len(right) == 0 {
+		return len(left) == len(right)
+	}
+	var leftCompact bytes.Buffer
+	var rightCompact bytes.Buffer
+	if json.Compact(&leftCompact, left) != nil || json.Compact(&rightCompact, right) != nil {
+		return false
+	}
+	return bytes.Equal(leftCompact.Bytes(), rightCompact.Bytes())
 }
 
 func operationSummary(operations []Operation) string {
