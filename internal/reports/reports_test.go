@@ -271,6 +271,52 @@ func TestCountSARIFValidatesNotificationMessages(t *testing.T) {
 	}
 }
 
+func TestCountProducerRepairsOnlyCodeQLEmptyDiagnosticText(t *testing.T) {
+	report := `{"version":"2.1.0","runs":[{"tool":{"driver":{"name":"CodeQL"}},"invocations":[{"executionSuccessful":true,"toolExecutionNotifications":[{"level":"warning","message":{"text":""}}]}],"results":[]}]}`
+
+	if _, err := Count("sarif", strings.NewReader(report)); err == nil || !strings.Contains(err.Error(), "text") {
+		t.Fatalf("strict Count() error = %v, want empty text rejection", err)
+	}
+	if _, err := CountProducer("other", "sarif", strings.NewReader(report)); err == nil || !strings.Contains(err.Error(), "text") {
+		t.Fatalf("other producer error = %v, want empty text rejection", err)
+	}
+	result, err := CountProducer("codeql", "sarif", strings.NewReader(report))
+	if err != nil {
+		t.Fatalf("CodeQL CountProducer() error = %v", err)
+	}
+	if result.Findings != 0 {
+		t.Fatalf("CodeQL CountProducer() findings = %d, want 0", result.Findings)
+	}
+}
+
+func TestCountProducerDoesNotHideCodeQLErrorsOrOtherMessageDefects(t *testing.T) {
+	tests := []struct {
+		name   string
+		report string
+		want   string
+	}{
+		{
+			name:   "error notification",
+			report: `{"version":"2.1.0","runs":[{"tool":{"driver":{"name":"CodeQL"}},"invocations":[{"executionSuccessful":true,"toolExecutionNotifications":[{"level":"error","message":{"text":""}}]}],"results":[]}]}`,
+			want:   "effective level error",
+		},
+		{
+			name:   "wrong message type",
+			report: `{"version":"2.1.0","runs":[{"tool":{"driver":{"name":"CodeQL"}},"invocations":[{"executionSuccessful":true,"toolExecutionNotifications":[{"level":"warning","message":{"text":1}}]}],"results":[]}]}`,
+			want:   "nonempty string",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			_, err := CountProducer("codeql", "sarif", strings.NewReader(test.report))
+			if err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("CountProducer() error = %v, want substring %q", err, test.want)
+			}
+		})
+	}
+}
+
 func TestCountSARIFRejectsNotificationMessageTypesAndKeys(t *testing.T) {
 	tests := []struct {
 		name    string

@@ -52,7 +52,7 @@ jobs:
             pypi.org:443
             auth.docker.io:443
             registry-1.docker.io:443
-            production.cloudflare.docker.com:443
+            production.cloudfront.docker.com:443
             ghcr.io:443
             pkg-containers.githubusercontent.com:443
             api.osv.dev:443
@@ -123,7 +123,7 @@ jobs:
             pypi.org:443
             auth.docker.io:443
             registry-1.docker.io:443
-            production.cloudflare.docker.com:443
+            production.cloudfront.docker.com:443
             ghcr.io:443
             pkg-containers.githubusercontent.com:443
             api.osv.dev:443
@@ -196,7 +196,7 @@ jobs:
             pypi.org:443
             auth.docker.io:443
             registry-1.docker.io:443
-            production.cloudflare.docker.com:443
+            production.cloudfront.docker.com:443
             ghcr.io:443
             pkg-containers.githubusercontent.com:443
             api.osv.dev:443
@@ -269,7 +269,7 @@ jobs:
             pypi.org:443
             auth.docker.io:443
             registry-1.docker.io:443
-            production.cloudflare.docker.com:443
+            production.cloudfront.docker.com:443
             ghcr.io:443
             pkg-containers.githubusercontent.com:443
             api.osv.dev:443
@@ -342,7 +342,7 @@ jobs:
             pypi.org:443
             auth.docker.io:443
             registry-1.docker.io:443
-            production.cloudflare.docker.com:443
+            production.cloudfront.docker.com:443
             ghcr.io:443
             pkg-containers.githubusercontent.com:443
             api.osv.dev:443
@@ -419,7 +419,7 @@ jobs:
             pypi.org:443
             auth.docker.io:443
             registry-1.docker.io:443
-            production.cloudflare.docker.com:443
+            production.cloudfront.docker.com:443
             ghcr.io:443
             pkg-containers.githubusercontent.com:443
             api.osv.dev:443
@@ -586,6 +586,10 @@ jobs:
             github.com:443
             *.github.com:443
             *.githubusercontent.com:443
+            go.dev:443
+            proxy.golang.org:443
+            sum.golang.org:443
+            storage.googleapis.com:443
       - name: Check out workflow helpers
         uses: [%.Action "checkout"%]
         with:
@@ -673,7 +677,7 @@ jobs:
             pkg-containers.githubusercontent.com:443
             auth.docker.io:443
             registry-1.docker.io:443
-            production.cloudflare.docker.com:443
+            production.cloudfront.docker.com:443
       - name: Check out consumer
         uses: [%.Action "checkout"%]
         with:
@@ -819,7 +823,7 @@ jobs:
             pypi.org:443
             auth.docker.io:443
             registry-1.docker.io:443
-            production.cloudflare.docker.com:443
+            production.cloudfront.docker.com:443
       - name: Check out consumer
         uses: [%.Action "checkout"%]
         with:
@@ -843,6 +847,10 @@ jobs:
         with:
           name: github-ci-plan
           path: ${{ runner.temp }}/github-ci-plan
+      - name: Set up scanner Python
+        uses: [%.Action "setup-python"%]
+        with:
+          python-version: "3.11"
       - name: Install repository scanners
         env:
           BIN_DIR: ${{ runner.temp }}/github-ci-bin
@@ -893,6 +901,10 @@ jobs:
             github.com:443
             *.github.com:443
             *.githubusercontent.com:443
+            go.dev:443
+            proxy.golang.org:443
+            sum.golang.org:443
+            storage.googleapis.com:443
       - name: Check out consumer
         uses: [%.Action "checkout"%]
         with:
@@ -967,7 +979,7 @@ jobs:
             pypi.org:443
             auth.docker.io:443
             registry-1.docker.io:443
-            production.cloudflare.docker.com:443
+            production.cloudfront.docker.com:443
             ghcr.io:443
             pkg-containers.githubusercontent.com:443
             api.osv.dev:443
@@ -1053,7 +1065,7 @@ jobs:
             pypi.org:443
             auth.docker.io:443
             registry-1.docker.io:443
-            production.cloudflare.docker.com:443
+            production.cloudfront.docker.com:443
             ghcr.io:443
             pkg-containers.githubusercontent.com:443
             api.osv.dev:443

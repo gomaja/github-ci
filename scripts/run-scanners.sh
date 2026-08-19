@@ -120,6 +120,7 @@ run_trivy() {
 	report=$(report_path trivy trivy/filesystem)
 	set +e
 	trivy fs --cache-dir "${RUNNER_TEMP:-/tmp}/github-ci-trivy" --format json --output "$report" --exit-code 1 --scanners vuln,misconfig,secret \
+		--skip-version-check --disable-telemetry \
 		--no-progress "$SOURCE_DIR"
 	status=$?
 	set -e

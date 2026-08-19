@@ -41,6 +41,16 @@ Compare the failed host with the explicit Harden Runner endpoint list. Verify
 the upstream source and checksum before changing policy. Do not switch egress to
 audit mode or replace an immutable pin with a mutable URL.
 
+## CodeQL Empty Diagnostic Messages
+
+CodeQL 4.37.7 can emit an empty diagnostic `message.text`, although
+[OASIS SARIF 2.1.0 plus Errata 01](https://docs.oasis-open.org/sarif/sarif/v2.1.0/errata01/os/sarif-v2.1.0-errata01-os-complete.html)
+section 3.11.8 requires a non-empty string when that property is present. The
+evidence recorder archives the original SARIF and the producer-aware parser
+replaces only this empty CodeQL diagnostic text in memory. The generic SARIF
+parser remains strict, and an error-level diagnostic still fails the run.
+Inspect the archived native report when this compatibility path is involved.
+
 ## Governance Drift
 
 Generate a new plan from live state. Never reuse an old plan ID after any

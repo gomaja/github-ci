@@ -131,10 +131,26 @@ func TestRepositoryScannerScriptsFailClosed(t *testing.T) {
 	for _, required := range []string{
 		"set -euo pipefail",
 		"osv-scanner scan source --recursive --no-ignore",
+		"--skip-version-check --disable-telemetry",
 		"--network none --cap-drop ALL --security-opt no-new-privileges --read-only",
 	} {
 		if !strings.Contains(text, required) {
 			t.Errorf("scanner runner is missing fail-closed contract %q", required)
+		}
+	}
+}
+
+func TestExternalReportsAreArchivedBeforeParsing(t *testing.T) {
+	t.Parallel()
+	root := repositoryRoot(t)
+	data, err := os.ReadFile(filepath.Join(root, "scripts", "record-external.sh"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(data)
+	for _, required := range []string{"archive=", "install -m 0600", "REPORT_PATH=$archive"} {
+		if !strings.Contains(text, required) {
+			t.Errorf("external report recorder is missing raw archive contract %q", required)
 		}
 	}
 }

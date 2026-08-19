@@ -7,6 +7,10 @@ workflow implementation, native reports, normalized evidence, release assets,
 and repository settings. A green job without complete validated evidence is not
 accepted as a successful gate.
 
+External native reports are copied into the evidence artifact before parsing.
+Producer compatibility handling never replaces this raw copy or changes the
+digest bound into the evidence record.
+
 ## Trust Boundaries
 
 Consumer source and pull-request content are untrusted. Parsers reject unknown

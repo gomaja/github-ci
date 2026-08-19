@@ -92,6 +92,34 @@ func TestRunParseExitCodes(t *testing.T) {
 	}
 }
 
+func TestBuildRecordKeepsRawCodeQLReportDigest(t *testing.T) {
+	report := []byte(`{"version":"2.1.0","runs":[{"tool":{"driver":{"name":"CodeQL"}},"invocations":[{"executionSuccessful":true,"toolExecutionNotifications":[{"level":"warning","message":{"text":""}}]}],"results":[]}]}`)
+	reportPath := filepath.Join(t.TempDir(), "codeql.sarif")
+	if err := os.WriteFile(reportPath, report, 0o600); err != nil {
+		t.Fatalf("write CodeQL report: %v", err)
+	}
+	plan := evidence.Plan{
+		PolicySHA256: testDigest([]byte("policy")),
+		SubjectSHA:   "0123456789abcdef0123456789abcdef01234567",
+		Expected: []evidence.Expected{{
+			Tool: "codeql", CommandID: "codeql/go", ParserVersion: "sarif/v1",
+			Applicability: evidence.Applicable,
+		}},
+	}
+	record, err := buildRecord(plan, recordOptions{
+		tool: "codeql", commandID: "codeql/go", toolVersion: "4.37.7", reportPath: reportPath,
+	})
+	if err != nil {
+		t.Fatalf("buildRecord() error = %v", err)
+	}
+	if record.ReportSHA256 != testDigest(report) {
+		t.Fatalf("report digest = %q, want raw digest %q", record.ReportSHA256, testDigest(report))
+	}
+	if record.Outcome != evidence.OutcomePass || record.FindingCount != 0 {
+		t.Fatalf("record = %#v, want clean pass", record)
+	}
+}
+
 func TestRunHonorsCancelledContext(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()

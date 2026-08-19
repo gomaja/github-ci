@@ -11,6 +11,8 @@ import (
 // MaxInputBytes is the hard limit for every native report parser.
 const MaxInputBytes = 64 << 20
 
+const sarifTool = "sarif"
+
 // Result is a successfully parsed native report summary.
 type Result struct {
 	Findings int `json:"findings"`
@@ -18,6 +20,16 @@ type Result struct {
 
 // Count parses one bounded native report and counts all findings.
 func Count(tool string, reader io.Reader) (Result, error) {
+	return countWithCompatibility("", tool, reader)
+}
+
+// CountProducer parses a report with a narrowly scoped producer compatibility
+// repair before applying the same strict native parser used by Count.
+func CountProducer(producer, tool string, reader io.Reader) (Result, error) {
+	return countWithCompatibility(producer, tool, reader)
+}
+
+func countWithCompatibility(producer, tool string, reader io.Reader) (Result, error) {
 	if reader == nil {
 		return Result{}, errors.New("report reader is nil")
 	}
@@ -27,6 +39,9 @@ func Count(tool string, reader io.Reader) (Result, error) {
 	data, err := readBounded(reader)
 	if err != nil {
 		return Result{}, err
+	}
+	if producer == "codeql" && tool == sarifTool {
+		data = normalizeCodeQLEmptyNotificationText(data)
 	}
 	findings, err := countReportData(tool, data)
 	if err != nil {
@@ -49,7 +64,7 @@ var parsers = map[string]func([]byte) (int, error){
 	"gopls":          countGopls,
 	"markdownlint":   countJSONArray,
 	"yamllint":       countYamllint,
-	"sarif":          countSARIF,
+	sarifTool:        countSARIF,
 	"golangci-lint":  countGolangCILint,
 	"govulncheck":    countGovulncheck,
 	"staticcheck":    countStaticcheck,
@@ -68,7 +83,7 @@ var parsers = map[string]func([]byte) (int, error){
 }
 
 var parserTools = map[string]string{
-	"sarif/v1":              "sarif",
+	"sarif/v1":              sarifTool,
 	"command-status/v1":     "command-status",
 	"path-list/v1":          "path-list",
 	"gotestsum-junit/v1":    "junit",

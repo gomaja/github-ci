@@ -31,6 +31,11 @@ fi
 	printf 'native report is missing: %s\n' "$REPORT_PATH" >&2
 	exit 2
 }
+archive="$reports/$name.native"
+if [[ "$REPORT_PATH" != "$archive" ]]; then
+	install -m 0600 "$REPORT_PATH" "$archive"
+fi
+REPORT_PATH=$archive
 
 set +e
 "$GITHUB_CI_CLI" record --plan "$PLAN_PATH" --tool "$TOOL" --command-id "$COMMAND_ID" \

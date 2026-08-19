@@ -588,7 +588,7 @@ func buildApplicableRecord(record evidence.Record, expected evidence.Expected, o
 	if err != nil {
 		return evidence.Record{}, fmt.Errorf("read native report: %w", err)
 	}
-	parsed, err := reports.Count(requiredParser, bytes.NewReader(data))
+	parsed, err := reports.CountProducer(options.tool, requiredParser, bytes.NewReader(data))
 	if err != nil {
 		return evidence.Record{}, err
 	}
@@ -793,7 +793,7 @@ func observeProducerReport(directory string, producer producerWire, expected evi
 		finding := producerFinding(producer, "parser-mismatch", "producer parser does not match the plan")
 		return nil, nil, &finding
 	}
-	parsed, err := reports.Count(parserTool, bytes.NewReader(data))
+	parsed, err := reports.CountProducer(producer.Tool, parserTool, bytes.NewReader(data))
 	if err != nil {
 		finding := producerFinding(producer, "malformed-report", "native report could not be parsed")
 		return nil, nil, &finding

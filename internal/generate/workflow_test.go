@@ -24,6 +24,8 @@ func TestGoWorkflowContract(t *testing.T) {
 	jobs := assertWorkflowJobs(t, workflow)
 	assertWorkflowJobContracts(t, jobs)
 	assertWorkflowExecutionContracts(t, jobs)
+	assertBootstrapNetworkAccess(t, jobs)
+	assertScannerRuntimeContracts(t, jobs)
 	assertWorkflowTextContracts(t, string(data))
 }
 
@@ -112,6 +114,72 @@ func assertWorkflowExecutionContracts(t *testing.T, jobs map[string]any) {
 	codeqlPermissions := mapping(t, codeql["permissions"], "codeql.permissions")
 	if codeqlPermissions["contents"] != "read" || codeqlPermissions["security-events"] != "write" {
 		t.Errorf("CodeQL permissions = %#v", codeqlPermissions)
+	}
+}
+
+func assertBootstrapNetworkAccess(t *testing.T, jobs map[string]any) {
+	t.Helper()
+	for name, raw := range jobs {
+		job := mapping(t, raw, "job "+name)
+		steps := sequence(t, job["steps"], "job "+name+" steps")
+		usesBootstrap := false
+		allowlist := ""
+		for _, rawStep := range steps {
+			step := mapping(t, rawStep, "job "+name+" step")
+			uses, _ := step["uses"].(string)
+			usesBootstrap = usesBootstrap || uses == "./github-ci/actions/bootstrap"
+			if strings.HasPrefix(uses, "step-security/harden-runner@") {
+				with := mapping(t, step["with"], "job "+name+" Harden Runner inputs")
+				allowlist, _ = with["allowed-endpoints"].(string)
+			}
+		}
+		if !usesBootstrap {
+			continue
+		}
+		for _, endpoint := range []string{"go.dev:443", "proxy.golang.org:443", "sum.golang.org:443", "storage.googleapis.com:443"} {
+			if !strings.Contains(allowlist, endpoint) {
+				t.Errorf("job %q bootstraps Go without allowing %s", name, endpoint)
+			}
+		}
+	}
+}
+
+func assertScannerRuntimeContracts(t *testing.T, jobs map[string]any) {
+	t.Helper()
+	for _, name := range []string{"security", "repository"} {
+		job := mapping(t, jobs[name], name)
+		steps := sequence(t, job["steps"], name+" steps")
+		allowlist := ""
+		for _, rawStep := range steps {
+			step := mapping(t, rawStep, name+" step")
+			uses, _ := step["uses"].(string)
+			if strings.HasPrefix(uses, "step-security/harden-runner@") {
+				with := mapping(t, step["with"], name+" Harden Runner inputs")
+				allowlist, _ = with["allowed-endpoints"].(string)
+			}
+		}
+		if !strings.Contains(allowlist, "production.cloudfront.docker.com:443") {
+			t.Errorf("job %q does not allow Docker's image delivery endpoint", name)
+		}
+		if strings.Contains(allowlist, "production.cloudflare.docker.com:443") {
+			t.Errorf("job %q allows the invalid Docker delivery endpoint", name)
+		}
+	}
+
+	repository := mapping(t, jobs["repository"], "repository")
+	steps := sequence(t, repository["steps"], "repository steps")
+	foundPython := false
+	for _, rawStep := range steps {
+		step := mapping(t, rawStep, "repository step")
+		uses, _ := step["uses"].(string)
+		if !strings.HasPrefix(uses, "actions/setup-python@") {
+			continue
+		}
+		with := mapping(t, step["with"], "setup-python inputs")
+		foundPython = with["python-version"] == "3.11"
+	}
+	if !foundPython {
+		t.Error("repository scanners do not pin Python 3.11 for locked wheels")
 	}
 }
 
