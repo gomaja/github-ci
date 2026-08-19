@@ -26,7 +26,9 @@ func TestGoCommandHarnessCleanRepository(t *testing.T) {
 	cli := filepath.Join(artifacts, "github-ci")
 	runCommand(t, root, nil, "go", "build", "-o", cli, "./cmd/github-ci")
 	plan := filepath.Join(artifacts, "plan.json")
-	runCommand(t, root, nil, cli, "preflight", "--repository", consumer, "--config", ".github/github-ci.yaml", "--profile", "go-strict", "--policy", filepath.Join(root, "policies", "tools.yaml"), "--output", plan)
+	runCommand(t, root, nil, cli, "preflight", "--repository", consumer, "--config", ".github/github-ci.yaml", "--policy", filepath.Join(root, "policies", "tools.yaml"), "--output", plan)
+	goPlan := filepath.Join(artifacts, "go-plan.json")
+	writeCommandOutput(t, consumer, goPlan, cli, "go-plan", "--repository", consumer, "--config", ".github/github-ci.yaml")
 
 	path := os.Getenv("PATH")
 	if home, homeErr := os.UserHomeDir(); homeErr == nil {
@@ -36,6 +38,7 @@ func TestGoCommandHarnessCleanRepository(t *testing.T) {
 		output := filepath.Join(artifacts, group)
 		environment := []string{
 			"GITHUB_CI_CLI=" + cli,
+			"GO_PLAN_PATH=" + goPlan,
 			"SOURCE_DIR=" + consumer,
 			"CENTRAL_DIR=" + root,
 			"PLAN_PATH=" + plan,
@@ -138,9 +141,11 @@ func TestDeliberateRace(t *testing.T) {
 			cli := filepath.Join(artifacts, "github-ci")
 			runCommand(t, root, nil, "go", "build", "-o", cli, "./cmd/github-ci")
 			plan := filepath.Join(artifacts, "plan.json")
-			runCommand(t, root, nil, cli, "preflight", "--repository", consumer, "--config", ".github/github-ci.yaml", "--profile", "go-strict", "--policy", filepath.Join(root, "policies", "tools.yaml"), "--output", plan)
+			runCommand(t, root, nil, cli, "preflight", "--repository", consumer, "--config", ".github/github-ci.yaml", "--policy", filepath.Join(root, "policies", "tools.yaml"), "--output", plan)
+			goPlan := filepath.Join(artifacts, "go-plan.json")
+			writeCommandOutput(t, consumer, goPlan, cli, "go-plan", "--repository", consumer, "--config", ".github/github-ci.yaml")
 			output := filepath.Join(artifacts, test.group)
-			runCommand(t, root, goHarnessEnvironment(t, cli, consumer, root, plan, output), "bash", filepath.Join(root, "scripts", "run-go-group.sh"), test.group)
+			runCommand(t, root, goHarnessEnvironment(t, cli, consumer, root, plan, goPlan, output), "bash", filepath.Join(root, "scripts", "run-go-group.sh"), test.group)
 			name := strings.ReplaceAll(test.tool+"--"+test.commandID, "/", "--") + ".json"
 			file, err := os.Open(filepath.Join(output, "records", name))
 			if err != nil {
@@ -239,7 +244,7 @@ func repositoryRoot(t *testing.T) string {
 	return root
 }
 
-func goHarnessEnvironment(t *testing.T, cli, consumer, root, plan, output string) []string {
+func goHarnessEnvironment(t *testing.T, cli, consumer, root, plan, goPlan, output string) []string {
 	t.Helper()
 	path := os.Getenv("PATH")
 	if home, err := os.UserHomeDir(); err == nil {
@@ -247,12 +252,26 @@ func goHarnessEnvironment(t *testing.T, cli, consumer, root, plan, output string
 	}
 	return []string{
 		"GITHUB_CI_CLI=" + cli,
+		"GO_PLAN_PATH=" + goPlan,
 		"SOURCE_DIR=" + consumer,
 		"CENTRAL_DIR=" + root,
 		"PLAN_PATH=" + plan,
 		"CONFIG_PATH=.github/github-ci.yaml",
 		"OUTPUT_DIR=" + output,
 		"PATH=" + path,
+	}
+}
+
+func writeCommandOutput(t *testing.T, directory, output, name string, arguments ...string) {
+	t.Helper()
+	command := exec.CommandContext(t.Context(), name, arguments...)
+	command.Dir = directory
+	data, err := command.Output()
+	if err != nil {
+		t.Fatalf("%s %s: %v", name, strings.Join(arguments, " "), err)
+	}
+	if err := os.WriteFile(output, data, 0o600); err != nil {
+		t.Fatalf("write command output: %v", err)
 	}
 }
 

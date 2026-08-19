@@ -639,7 +639,7 @@ func TestModulesApplicabilityAndAggregateCommands(t *testing.T) {
 		t.Fatalf("preflight code = %d, stderr = %q", code, stderr)
 	}
 	code, stdout, stderr := runForTest(t, []string{"modules", "--repository", repository, "--config", ".github/github-ci.yaml"})
-	if code != 0 || stdout != `{"modules":[]}`+"\n" {
+	if code != 0 || stdout != `{"profile":"repository-only","modules":[]}`+"\n" {
 		t.Fatalf("modules code = %d, stdout = %q, stderr = %q", code, stdout, stderr)
 	}
 	code, _, stderr = runForTest(t, []string{"applicable", "--plan", planPath, "--tool", "shellcheck", "--command-id", "shellcheck/scripts"})

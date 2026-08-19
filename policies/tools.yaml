@@ -61,7 +61,7 @@ tools:
     source: https://proxy.golang.org/golang.org/x/exp/@v/v0.0.0-20260813180055-c1d0aacb2297.zip
     checksum: h1:YXnL44eJ77R+ji4/ooy8UsXIhz+lbi2Qgdlc8iRN0gY=
     parser: path-list/v1
-    profiles: [go-strict, go-library]
+    profiles: [go-library]
     acquisition: go-module
     version-command: go version -m "$(command -v apidiff)"
   - id: checkov

@@ -48,7 +48,7 @@ func TestInvocationForAppliesEveryModuleControl(t *testing.T) {
 		{
 			tool: ToolStaticcheck,
 			want: Invocation{Environment: []string{"GOFLAGS=-mod=vendor", "GOMAXPROCS=3"}, Arguments: []string{
-				"staticcheck", "-tags=sqlite,integration", "./cmd/...", "./internal/...",
+				"staticcheck", "-f=json", "-tags=sqlite,integration", "./cmd/...", "./internal/...",
 			}},
 		},
 		{
@@ -61,7 +61,7 @@ func TestInvocationForAppliesEveryModuleControl(t *testing.T) {
 		{
 			tool: ToolGovulncheck,
 			want: Invocation{Environment: []string{"GOFLAGS=-mod=vendor", "GOMAXPROCS=3"}, Arguments: []string{
-				"govulncheck", "-tags", "sqlite,integration", "./cmd/...", "./internal/...",
+				"govulncheck", "-json", "-tags", "sqlite,integration", "./cmd/...", "./internal/...",
 			}},
 		},
 	}

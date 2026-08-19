@@ -82,7 +82,7 @@ type Catalog []Entry
 
 var defaultCatalog = Catalog{
 	{Tool: "actionlint", CommandID: "actionlint/workflows", ParserVersion: "actionlint-json/v1", Capability: CapabilityWorkflow, ReasonCode: ReasonNoWorkflows, Profiles: allProfiles()},
-	{Tool: "apidiff", CommandID: "apidiff/public-api", ParserVersion: parserPathList, Capability: CapabilityGo, ReasonCode: ReasonNoGoModule, Profiles: goProfiles()},
+	{Tool: "apidiff", CommandID: "apidiff/public-api", ParserVersion: parserPathList, Capability: CapabilityGo, ReasonCode: ReasonNoGoModule, Profiles: []config.Profile{config.ProfileGoLibrary}},
 	{Tool: "bash", CommandID: "bash/scripts", ParserVersion: parserPathList, Capability: CapabilityShell, ReasonCode: ReasonNoShellFiles, Profiles: allProfiles()},
 	{Tool: "checkov", CommandID: "checkov/infrastructure", ParserVersion: "checkov-json/v1", Capability: CapabilityTerraform, ReasonCode: ReasonNoTerraform, Profiles: allProfiles()},
 	{Tool: "codeql", CommandID: "codeql/actions", ParserVersion: parserSARIF, Capability: CapabilityWorkflow, ReasonCode: ReasonNoWorkflows, Profiles: allProfiles()},

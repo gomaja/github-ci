@@ -98,7 +98,7 @@ func InvocationFor(module ModulePlan, tool Tool) (Invocation, error) {
 			Arguments:   []string{"gopls", "check"},
 		}, nil
 	case ToolStaticcheck:
-		arguments := []string{"staticcheck"}
+		arguments := []string{"staticcheck", "-f=json"}
 		arguments = appendTags(arguments, tags, "-tags=")
 		return Invocation{
 			Environment: toolEnvironment(mode, module.PackageParallelism),
@@ -112,7 +112,7 @@ func InvocationFor(module ModulePlan, tool Tool) (Invocation, error) {
 		arguments = appendTags(arguments, tags, "--build-tags", "")
 		return invocation(arguments, packages), nil
 	case ToolGovulncheck:
-		arguments := []string{"govulncheck"}
+		arguments := []string{"govulncheck", "-json"}
 		arguments = appendTags(arguments, tags, "-tags", "")
 		return Invocation{
 			Environment: toolEnvironment(mode, module.PackageParallelism),

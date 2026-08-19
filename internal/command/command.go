@@ -380,8 +380,9 @@ func runModules(ctx context.Context, args []string, stdout, stderr io.Writer) in
 		return exitError
 	}
 	if err := writeJSON(stdout, struct {
-		Modules []string `json:"modules"`
-	}{Modules: modules}); err != nil {
+		Profile config.Profile `json:"profile"`
+		Modules []string       `json:"modules"`
+	}{Profile: consumer.Profile, Modules: modules}); err != nil {
 		writeError(stderr, err)
 		return exitError
 	}

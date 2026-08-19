@@ -4,25 +4,10 @@ name: reusable-go
 on:
   workflow_call:
     inputs:
-      profile:
-        description: Fixed assurance profile.
-        required: false
-        default: go-strict
-        type: string
       config-path:
         description: Repository-relative consumer configuration.
         required: false
         default: .github/github-ci.yaml
-        type: string
-      go-version:
-        description: Current supported Go version.
-        required: false
-        default: "[%.Policy.GoVersions.Current%]"
-        type: string
-      previous-go-version:
-        description: Previous supported Go version.
-        required: false
-        default: "[%.Policy.GoVersions.Previous%]"
         type: string
 
 permissions:
@@ -31,6 +16,9 @@ permissions:
 jobs:
   preflight:
     name: preflight
+    outputs:
+      profile: ${{ steps.consumer.outputs.profile }}
+      has-go: ${{ steps.consumer.outputs.has-go }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -76,13 +64,14 @@ jobs:
         id: bootstrap
         uses: ./github-ci/actions/bootstrap
         with:
-          go-version: ${{ inputs.go-version }}
+          go-version: [% .Policy.GoVersions.Current %]
           install-tools: "false"
-      - name: Build applicability plan
+      - name: Build validated execution plans
+        id: consumer
         env:
           CLI: ${{ runner.temp }}/github-ci-bin/github-ci
           CONFIG_PATH: ${{ inputs.config-path }}
-          EXPECTED_PROFILE: ${{ inputs.profile }}
+          GO_PLAN_PATH: ${{ runner.temp }}/github-ci-plan/go-plan.json
           POLICY_PATH: ${{ github.workspace }}/github-ci/policies/tools.yaml
           SOURCE_DIR: ${{ github.workspace }}/source
           SUBJECT_SHA: ${{ github.sha }}
@@ -90,7 +79,16 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          "$CLI" preflight --repository "$SOURCE_DIR" --config "$CONFIG_PATH" --profile "$EXPECTED_PROFILE" --policy "$POLICY_PATH" --subject-sha "$SUBJECT_SHA" --output "$PLAN_PATH"
+          "$CLI" preflight --repository "$SOURCE_DIR" --config "$CONFIG_PATH" --policy "$POLICY_PATH" --subject-sha "$SUBJECT_SHA" --output "$PLAN_PATH"
+          metadata=$("$CLI" modules --repository "$SOURCE_DIR" --config "$CONFIG_PATH")
+          profile=$(jq -er '.profile' <<<"$metadata")
+          module_count=$(jq -er '.modules | length' <<<"$metadata")
+          has_go=false
+          if ((module_count > 0)); then
+            has_go=true
+            "$CLI" go-plan --repository "$SOURCE_DIR" --config "$CONFIG_PATH" >"$GO_PLAN_PATH"
+          fi
+          printf 'profile=%s\nhas-go=%s\n' "$profile" "$has_go" >>"$GITHUB_OUTPUT"
       - name: Upload applicability plan
         uses: [%.Action "upload-artifact"%]
         with:
@@ -102,7 +100,7 @@ jobs:
   formatting:
     name: formatting
     needs: preflight
-    if: ${{ inputs.profile != 'repository-only' }}
+    if: ${{ needs.preflight.outputs.has-go == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -148,7 +146,7 @@ jobs:
         id: bootstrap
         uses: ./github-ci/actions/bootstrap
         with:
-          go-version: ${{ inputs.go-version }}
+          go-version: [% .Policy.GoVersions.Current %]
       - name: Download applicability plan
         uses: [%.Action "download-artifact"%]
         with:
@@ -159,6 +157,7 @@ jobs:
           CENTRAL_DIR: ${{ github.workspace }}/github-ci
           CONFIG_PATH: ${{ inputs.config-path }}
           GITHUB_CI_CLI: ${{ runner.temp }}/github-ci-bin/github-ci
+          GO_PLAN_PATH: ${{ runner.temp }}/github-ci-plan/go-plan.json
           OUTPUT_DIR: ${{ runner.temp }}/github-ci-evidence
           PLAN_PATH: ${{ runner.temp }}/github-ci-plan/plan.json
           SOURCE_DIR: ${{ github.workspace }}/source
@@ -176,7 +175,7 @@ jobs:
   core:
     name: core correctness
     needs: preflight
-    if: ${{ inputs.profile != 'repository-only' }}
+    if: ${{ needs.preflight.outputs.has-go == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
@@ -222,7 +221,7 @@ jobs:
         id: bootstrap
         uses: ./github-ci/actions/bootstrap
         with:
-          go-version: ${{ inputs.go-version }}
+          go-version: [% .Policy.GoVersions.Current %]
       - name: Download applicability plan
         uses: [%.Action "download-artifact"%]
         with:
@@ -233,6 +232,7 @@ jobs:
           CENTRAL_DIR: ${{ github.workspace }}/github-ci
           CONFIG_PATH: ${{ inputs.config-path }}
           GITHUB_CI_CLI: ${{ runner.temp }}/github-ci-bin/github-ci
+          GO_PLAN_PATH: ${{ runner.temp }}/github-ci-plan/go-plan.json
           OUTPUT_DIR: ${{ runner.temp }}/github-ci-evidence
           PLAN_PATH: ${{ runner.temp }}/github-ci-plan/plan.json
           SOURCE_DIR: ${{ github.workspace }}/source
@@ -250,7 +250,7 @@ jobs:
   tests:
     name: tests and race
     needs: preflight
-    if: ${{ inputs.profile != 'repository-only' }}
+    if: ${{ needs.preflight.outputs.has-go == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
@@ -296,7 +296,7 @@ jobs:
         id: bootstrap
         uses: ./github-ci/actions/bootstrap
         with:
-          go-version: ${{ inputs.go-version }}
+          go-version: [% .Policy.GoVersions.Current %]
       - name: Download applicability plan
         uses: [%.Action "download-artifact"%]
         with:
@@ -307,6 +307,7 @@ jobs:
           CENTRAL_DIR: ${{ github.workspace }}/github-ci
           CONFIG_PATH: ${{ inputs.config-path }}
           GITHUB_CI_CLI: ${{ runner.temp }}/github-ci-bin/github-ci
+          GO_PLAN_PATH: ${{ runner.temp }}/github-ci-plan/go-plan.json
           OUTPUT_DIR: ${{ runner.temp }}/github-ci-evidence
           PLAN_PATH: ${{ runner.temp }}/github-ci-plan/plan.json
           SOURCE_DIR: ${{ github.workspace }}/source
@@ -324,7 +325,7 @@ jobs:
   analysis:
     name: static analysis
     needs: preflight
-    if: ${{ inputs.profile != 'repository-only' }}
+    if: ${{ needs.preflight.outputs.has-go == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
@@ -371,7 +372,7 @@ jobs:
         id: bootstrap
         uses: ./github-ci/actions/bootstrap
         with:
-          go-version: ${{ inputs.go-version }}
+          go-version: [% .Policy.GoVersions.Current %]
       - name: Download applicability plan
         uses: [%.Action "download-artifact"%]
         with:
@@ -382,6 +383,7 @@ jobs:
           CENTRAL_DIR: ${{ github.workspace }}/github-ci
           CONFIG_PATH: ${{ inputs.config-path }}
           GITHUB_CI_CLI: ${{ runner.temp }}/github-ci-bin/github-ci
+          GO_PLAN_PATH: ${{ runner.temp }}/github-ci-plan/go-plan.json
           OUTPUT_DIR: ${{ runner.temp }}/github-ci-evidence
           PLAN_PATH: ${{ runner.temp }}/github-ci-plan/plan.json
           SOURCE_DIR: ${{ github.workspace }}/source
@@ -399,11 +401,11 @@ jobs:
   compatibility:
     name: Go ${{ matrix.go-version }}
     needs: preflight
-    if: ${{ inputs.profile != 'repository-only' }}
+    if: ${{ needs.preflight.outputs.has-go == 'true' }}
     strategy:
       fail-fast: false
       matrix:
-        go-version: ["${{ inputs.go-version }}", "${{ inputs.previous-go-version }}"]
+        go-version: ["[% .Policy.GoVersions.Current %]", "[% .Policy.GoVersions.Previous %]"]
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
@@ -451,23 +453,22 @@ jobs:
         with:
           go-version: ${{ matrix.go-version }}
           install-tools: "false"
+      - name: Download execution plans
+        uses: [%.Action "download-artifact"%]
+        with:
+          name: github-ci-plan
+          path: ${{ runner.temp }}/github-ci-plan
       - name: Build and test every module
         env:
-          CLI: ${{ runner.temp }}/github-ci-bin/github-ci
+          CENTRAL_DIR: ${{ github.workspace }}/github-ci
           CONFIG_PATH: ${{ inputs.config-path }}
+          GITHUB_CI_CLI: ${{ runner.temp }}/github-ci-bin/github-ci
+          GO_PLAN_PATH: ${{ runner.temp }}/github-ci-plan/go-plan.json
+          OUTPUT_DIR: ${{ runner.temp }}/github-ci-compatibility
+          PLAN_PATH: ${{ runner.temp }}/github-ci-plan/plan.json
           SOURCE_DIR: ${{ github.workspace }}/source
         shell: bash
-        run: |
-          set -euo pipefail
-          modules=()
-          while IFS= read -r module; do
-            modules+=("$module")
-          done < <("$CLI" modules --repository "$SOURCE_DIR" --config "$CONFIG_PATH" | jq -r '.modules[]')
-          for module in "${modules[@]}"; do
-            directory="$SOURCE_DIR"
-            [[ "$module" == "." ]] || directory="$SOURCE_DIR/$module"
-            (cd "$directory" && go build ./... && go test ./... -count=1)
-          done
+        run: bash "$CENTRAL_DIR/scripts/run-go-group.sh" compatibility
 
   codeql:
     name: CodeQL ${{ matrix.language }}
@@ -518,7 +519,7 @@ jobs:
       - name: Bootstrap policy CLI
         uses: ./github-ci/actions/bootstrap
         with:
-          go-version: ${{ inputs.go-version }}
+          go-version: [% .Policy.GoVersions.Current %]
           install-tools: "false"
       - name: Download applicability plan
         uses: [%.Action "download-artifact"%]
@@ -526,7 +527,7 @@ jobs:
           name: github-ci-plan
           path: ${{ runner.temp }}/github-ci-plan
       - name: Initialize CodeQL
-        if: ${{ matrix.language != 'go' || inputs.profile != 'repository-only' }}
+        if: ${{ matrix.language != 'go' || needs.preflight.outputs.has-go == 'true' }}
         uses: [%.Action "codeql-init"%]
         with:
           languages: ${{ matrix.language }}
@@ -534,28 +535,26 @@ jobs:
           source-root: source
           queries: security-extended,security-and-quality
       - name: Build Go modules
-        if: ${{ matrix.language == 'go' && inputs.profile != 'repository-only' }}
+        if: ${{ matrix.language == 'go' && needs.preflight.outputs.has-go == 'true' }}
         env:
-          CLI: ${{ runner.temp }}/github-ci-bin/github-ci
+          CENTRAL_DIR: ${{ github.workspace }}/github-ci
           CONFIG_PATH: ${{ inputs.config-path }}
+          GITHUB_CI_CLI: ${{ runner.temp }}/github-ci-bin/github-ci
+          GO_PLAN_PATH: ${{ runner.temp }}/github-ci-plan/go-plan.json
+          OUTPUT_DIR: ${{ runner.temp }}/github-ci-codeql-build
+          PLAN_PATH: ${{ runner.temp }}/github-ci-plan/plan.json
           SOURCE_DIR: ${{ github.workspace }}/source
         shell: bash
-        run: |
-          set -euo pipefail
-          while IFS= read -r module; do
-            directory="$SOURCE_DIR"
-            [[ "$module" == "." ]] || directory="$SOURCE_DIR/$module"
-            (cd "$directory" && go build ./...)
-          done < <("$CLI" modules --repository "$SOURCE_DIR" --config "$CONFIG_PATH" | jq -r '.modules[]')
+        run: bash "$CENTRAL_DIR/scripts/run-go-group.sh" codeql-build
       - name: Analyze CodeQL database
-        if: ${{ matrix.language != 'go' || inputs.profile != 'repository-only' }}
+        if: ${{ matrix.language != 'go' || needs.preflight.outputs.has-go == 'true' }}
         uses: [%.Action "codeql-analyze"%]
         with:
           checkout_path: source
           output: ${{ runner.temp }}/github-ci-codeql
           upload: always
       - name: Record CodeQL evidence
-        if: ${{ always() && (matrix.language != 'go' || inputs.profile != 'repository-only') }}
+        if: ${{ always() && (matrix.language != 'go' || needs.preflight.outputs.has-go == 'true') }}
         env:
           CENTRAL_DIR: ${{ github.workspace }}/github-ci
           COMMAND_ID: ${{ matrix.command-id }}
@@ -568,7 +567,7 @@ jobs:
         shell: bash
         run: bash "$CENTRAL_DIR/scripts/record-external.sh"
       - name: Upload CodeQL evidence
-        if: ${{ always() && (matrix.language != 'go' || inputs.profile != 'repository-only') }}
+        if: ${{ always() && (matrix.language != 'go' || needs.preflight.outputs.has-go == 'true') }}
         uses: [%.Action "upload-artifact"%]
         with:
           name: github-ci-codeql-${{ matrix.language }}-evidence
@@ -607,7 +606,7 @@ jobs:
       - name: Bootstrap policy CLI
         uses: ./github-ci/actions/bootstrap
         with:
-          go-version: ${{ inputs.go-version }}
+          go-version: [% .Policy.GoVersions.Current %]
           install-tools: "false"
       - name: Download applicability plan
         uses: [%.Action "download-artifact"%]
@@ -701,7 +700,7 @@ jobs:
       - name: Bootstrap policy CLI
         uses: ./github-ci/actions/bootstrap
         with:
-          go-version: ${{ inputs.go-version }}
+          go-version: [% .Policy.GoVersions.Current %]
           install-tools: "false"
       - name: Download applicability plan
         uses: [%.Action "download-artifact"%]
@@ -773,7 +772,7 @@ jobs:
       - name: Bootstrap policy CLI
         uses: ./github-ci/actions/bootstrap
         with:
-          go-version: ${{ inputs.go-version }}
+          go-version: [% .Policy.GoVersions.Current %]
           install-tools: "false"
       - name: Download applicability plan
         uses: [%.Action "download-artifact"%]
@@ -847,7 +846,7 @@ jobs:
       - name: Bootstrap policy CLI
         uses: ./github-ci/actions/bootstrap
         with:
-          go-version: ${{ inputs.go-version }}
+          go-version: [% .Policy.GoVersions.Current %]
           install-tools: "false"
       - name: Download applicability plan
         uses: [%.Action "download-artifact"%]
@@ -930,7 +929,7 @@ jobs:
       - name: Bootstrap policy CLI
         uses: ./github-ci/actions/bootstrap
         with:
-          go-version: ${{ inputs.go-version }}
+          go-version: [% .Policy.GoVersions.Current %]
           install-tools: "false"
       - name: Download applicability plan
         uses: [%.Action "download-artifact"%]
@@ -1009,7 +1008,7 @@ jobs:
         id: bootstrap
         uses: ./github-ci/actions/bootstrap
         with:
-          go-version: ${{ inputs.go-version }}
+          go-version: [% .Policy.GoVersions.Current %]
           install-tools: "false"
       - name: Download applicability plan
         if: ${{ always() }}
@@ -1054,7 +1053,7 @@ jobs:
   gate:
     name: gate
     if: ${{ always() }}
-    needs: [evidence, compatibility]
+    needs: [preflight, evidence, compatibility]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -1100,7 +1099,7 @@ jobs:
         id: bootstrap
         uses: ./github-ci/actions/bootstrap
         with:
-          go-version: ${{ inputs.go-version }}
+          go-version: [% .Policy.GoVersions.Current %]
           install-tools: "false"
       - name: Download evidence bundle
         uses: [%.Action "download-artifact"%]
@@ -1137,12 +1136,14 @@ jobs:
       - name: Enforce aggregate result
         env:
           COMPATIBILITY_RESULT: ${{ needs.compatibility.result }}
-          EXPECTED_PROFILE: ${{ inputs.profile }}
+          EXPECTED_PROFILE: ${{ needs.preflight.outputs.profile }}
+          HAS_GO: ${{ needs.preflight.outputs.has-go }}
           STATUS_PATH: ${{ runner.temp }}/github-ci-result/status
         shell: bash
         run: |
           set -euo pipefail
-          if [[ "$EXPECTED_PROFILE" == repository-only ]]; then
+          [[ "$EXPECTED_PROFILE" == go-strict || "$EXPECTED_PROFILE" == go-library || "$EXPECTED_PROFILE" == repository-only ]]
+          if [[ "$HAS_GO" == false ]]; then
             [[ "$COMPATIBILITY_RESULT" == skipped ]]
           else
             [[ "$COMPATIBILITY_RESULT" == success ]]

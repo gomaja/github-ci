@@ -24,6 +24,7 @@ func TestGoWorkflowContract(t *testing.T) {
 	jobs := assertWorkflowJobs(t, workflow)
 	assertWorkflowJobContracts(t, jobs)
 	assertWorkflowExecutionContracts(t, jobs)
+	assertGoPlanWorkflowContract(t, jobs, string(data))
 	assertBootstrapNetworkAccess(t, jobs)
 	assertScannerRuntimeContracts(t, jobs)
 	assertWorkflowTextContracts(t, string(data))
@@ -99,10 +100,11 @@ func assertWorkflowCallContract(t *testing.T, workflow map[string]any) {
 	on := mapping(t, workflow["on"], "on")
 	workflowCall := mapping(t, on["workflow_call"], "on.workflow_call")
 	inputs := mapping(t, workflowCall["inputs"], "on.workflow_call.inputs")
-	for _, input := range []string{"profile", "config-path", "go-version", "previous-go-version"} {
-		if _, exists := inputs[input]; !exists {
-			t.Errorf("workflow_call input %q is missing", input)
-		}
+	if len(inputs) != 1 {
+		t.Errorf("workflow_call inputs = %#v, want config-path only", inputs)
+	}
+	if _, exists := inputs["config-path"]; !exists {
+		t.Error("workflow_call input config-path is missing")
 	}
 }
 
@@ -140,6 +142,10 @@ func assertWorkflowExecutionContracts(t *testing.T, jobs map[string]any) {
 	t.Helper()
 	preflight := mapping(t, jobs["preflight"], "preflight")
 	assertDualCheckout(t, preflight)
+	outputs := mapping(t, preflight["outputs"], "preflight.outputs")
+	if outputs["profile"] != "${{ steps.consumer.outputs.profile }}" || outputs["has-go"] != "${{ steps.consumer.outputs.has-go }}" {
+		t.Errorf("preflight outputs = %#v", outputs)
+	}
 	compatibility := mapping(t, jobs["compatibility"], "compatibility")
 	strategy := mapping(t, compatibility["strategy"], "compatibility.strategy")
 	if strategy["fail-fast"] != false {
@@ -147,8 +153,8 @@ func assertWorkflowExecutionContracts(t *testing.T, jobs map[string]any) {
 	}
 	for _, name := range []string{"formatting", "core", "tests", "analysis", "compatibility"} {
 		job := mapping(t, jobs[name], name)
-		if job["if"] != "${{ inputs.profile != 'repository-only' }}" {
-			t.Errorf("Go-only job %q if = %#v, want repository-only exclusion", name, job["if"])
+		if job["if"] != "${{ needs.preflight.outputs.has-go == 'true' }}" {
+			t.Errorf("Go-only job %q if = %#v, want validated preflight capability", name, job["if"])
 		}
 	}
 	for _, name := range []string{"evidence", "gate"} {
@@ -177,11 +183,14 @@ func assertCompatibilityGateContract(t *testing.T, gate map[string]any) {
 			continue
 		}
 		environment := mapping(t, step["env"], "compatibility gate env")
-		if environment["EXPECTED_PROFILE"] != "${{ inputs.profile }}" {
+		if environment["EXPECTED_PROFILE"] != "${{ needs.preflight.outputs.profile }}" {
 			t.Errorf("compatibility gate profile = %#v", environment["EXPECTED_PROFILE"])
 		}
+		if environment["HAS_GO"] != "${{ needs.preflight.outputs.has-go }}" {
+			t.Errorf("compatibility gate has-go = %#v", environment["HAS_GO"])
+		}
 		run, _ := step["run"].(string)
-		profileBranch := `if [[ "$EXPECTED_PROFILE" == repository-only ]]; then
+		profileBranch := `if [[ "$HAS_GO" == false ]]; then
   [[ "$COMPATIBILITY_RESULT" == skipped ]]
 else
   [[ "$COMPATIBILITY_RESULT" == success ]]
@@ -192,6 +201,33 @@ fi`
 		return
 	}
 	t.Error("gate has no aggregate enforcement step")
+}
+
+func assertGoPlanWorkflowContract(t *testing.T, jobs map[string]any, text string) {
+	t.Helper()
+	for _, forbidden := range []string{
+		"inputs.profile", "inputs.go-version", "inputs.previous-go-version",
+		"go build ./...", "go test ./...", "go vet ./...",
+	} {
+		if strings.Contains(text, forbidden) {
+			t.Errorf("standard workflow reconstructs policy with %q", forbidden)
+		}
+	}
+	for _, required := range []string{
+		`"$CLI" go-plan`, "go-plan.json", "github-ci-plan", "1.26.6", "1.25.13",
+		`bash "$CENTRAL_DIR/scripts/run-go-group.sh" compatibility`,
+		`bash "$CENTRAL_DIR/scripts/run-go-group.sh" codeql-build`,
+	} {
+		if !strings.Contains(text, required) {
+			t.Errorf("standard workflow is missing typed-plan contract %q", required)
+		}
+	}
+	for _, name := range []string{"formatting", "core", "tests", "analysis", "compatibility"} {
+		job := mapping(t, jobs[name], name)
+		if job["needs"] != "preflight" {
+			t.Errorf("Go job %q needs = %#v, want preflight", name, job["needs"])
+		}
+	}
 }
 
 func assertBootstrapNetworkAccess(t *testing.T, jobs map[string]any) {

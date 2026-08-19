@@ -1,9 +1,34 @@
 package generate
 
 import (
+	"os"
 	"strings"
 	"testing"
 )
+
+func TestGoPlanShellUsesQuotedArraysWithoutEvaluation(t *testing.T) {
+	for _, name := range []string{"../../scripts/load-go-plan.sh", "../../scripts/run-go-group.sh"} {
+		data, err := os.ReadFile(name)
+		if err != nil {
+			t.Fatalf("read %s: %v", name, err)
+		}
+		text := string(data)
+		for _, forbidden := range []string{"eval ", "bash -c", `env ${GO_PLAN_ENVIRONMENT[@]}`, `${GO_PLAN_ARGUMENTS[@]} "$@"`} {
+			if strings.Contains(text, forbidden) {
+				t.Errorf("%s contains unsafe execution form %q", name, forbidden)
+			}
+		}
+	}
+	runner, err := os.ReadFile("../../scripts/run-go-group.sh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, required := range []string{`"${GO_PLAN_ARGUMENTS[@]}"`, `env "${GO_PLAN_ENVIRONMENT[@]}"`} {
+		if !strings.Contains(string(runner), required) {
+			t.Errorf("run-go-group.sh is missing quoted array form %q", required)
+		}
+	}
+}
 
 func TestValidateToolRejectsSourceURLComponentsIndependently(t *testing.T) {
 	tests := []struct {

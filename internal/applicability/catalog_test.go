@@ -127,6 +127,19 @@ func TestKnownReasonCodesAndToolsComeFromCatalog(t *testing.T) {
 	}
 }
 
+func TestAPIDiffAppliesOnlyToLibraryProfile(t *testing.T) {
+	for _, entry := range DefaultCatalog() {
+		if entry.Tool != "apidiff" {
+			continue
+		}
+		if !slices.Equal(entry.Profiles, []config.Profile{config.ProfileGoLibrary}) {
+			t.Fatalf("apidiff profiles = %#v, want go-library only", entry.Profiles)
+		}
+		return
+	}
+	t.Fatal("apidiff catalog entry is missing")
+}
+
 func TestReasonForBindsReasonToCommand(t *testing.T) {
 	if got, ok := ReasonFor("staticcheck", "staticcheck/default"); !ok || got != ReasonNoGoModule {
 		t.Fatalf("ReasonFor(staticcheck) = %q, %t", got, ok)
