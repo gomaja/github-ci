@@ -283,14 +283,13 @@ func evaluateExpected(input Input, expected evidence.Expected, planDigest string
 
 func recordCardinalityFindings(expected evidence.Expected, records []evidence.Record) []Finding {
 	identity := expected.Identity()
-	switch {
-	case len(records) == 0:
+	if len(records) == 0 {
 		return []Finding{{Tool: expected.Tool, CommandID: expected.CommandID, Code: "missing-record", Detail: identity}}
-	case len(records) > 1:
-		return []Finding{{Tool: expected.Tool, CommandID: expected.CommandID, Code: "duplicate-record", Detail: fmt.Sprintf("%s has %d records", identity, len(records))}}
-	default:
-		return nil
 	}
+	if len(records) > 1 {
+		return []Finding{{Tool: expected.Tool, CommandID: expected.CommandID, Code: "duplicate-record", Detail: fmt.Sprintf("%s has %d records", identity, len(records))}}
+	}
+	return nil
 }
 
 func contextCardinalityFindings(input Input, expected evidence.Expected, planDigest string, contexts []RecordContext) []Finding {
@@ -298,10 +297,10 @@ func contextCardinalityFindings(input Input, expected evidence.Expected, planDig
 	for _, context := range contexts {
 		findings = append(findings, validateContext(input, expected, planDigest, context)...)
 	}
-	switch {
-	case len(contexts) == 0:
+	if len(contexts) == 0 {
 		findings = append(findings, Finding{Tool: expected.Tool, CommandID: expected.CommandID, Code: "missing-context", Detail: expected.Identity()})
-	case len(contexts) > 1:
+	}
+	if len(contexts) > 1 {
 		findings = append(findings, Finding{Tool: expected.Tool, CommandID: expected.CommandID, Code: "duplicate-context", Detail: fmt.Sprintf("%s has %d contexts", expected.Identity(), len(contexts))})
 	}
 	return findings

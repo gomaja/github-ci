@@ -56,6 +56,22 @@ func TestRenderCallersRejectsMutableReference(t *testing.T) {
 	}
 }
 
+func TestRenderCallersFiltersMultipleRepositories(t *testing.T) {
+	manifest := testGovernance()
+	manifest.Repositories = append(manifest.Repositories, config.Repository{Name: "selected", Owner: "gomaja"})
+	output := t.TempDir()
+	sha := "0123456789abcdef0123456789abcdef01234567"
+	if err := RenderCallers(manifest, output, sha, "selected"); err != nil {
+		t.Fatalf("RenderCallers() error = %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(output, "gomaja", "example")); !os.IsNotExist(err) {
+		t.Fatalf("unselected repository stat error = %v, want not-exist", err)
+	}
+	if _, err := os.Stat(filepath.Join(output, "gomaja", "selected", ".github", "github-ci.yaml")); err != nil {
+		t.Fatalf("selected repository stat error = %v", err)
+	}
+}
+
 func TestPlanDecodingRejectsTampering(t *testing.T) {
 	t.Parallel()
 	plan := Plan{SchemaVersion: "1", APIVersion: "2026-03-10", ObservedHash: strings.Repeat("a", 64), Operations: []Operation{}}

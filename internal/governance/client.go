@@ -25,6 +25,7 @@ type Client struct {
 	Token      string
 	APIVersion string
 	HTTP       *http.Client
+	retryWait  func(context.Context, time.Duration) error
 }
 
 func (client Client) do(ctx context.Context, method, path string, body []byte, output any) (int, error) {
@@ -46,7 +47,7 @@ func (client Client) do(ctx context.Context, method, path string, body []byte, o
 			return response.StatusCode, err
 		}
 		if shouldRetry(response.StatusCode, method, attempt) {
-			if err := waitForRetry(ctx, retryDelay(response, attempt)); err != nil {
+			if err := client.waitForRetry(ctx, retryDelay(response, attempt)); err != nil {
 				return response.StatusCode, err
 			}
 			continue
@@ -60,6 +61,13 @@ func (client Client) do(ctx context.Context, method, path string, body []byte, o
 		return response.StatusCode, nil
 	}
 	return 0, errors.New("GitHub request retry budget exhausted")
+}
+
+func (client Client) waitForRetry(ctx context.Context, delay time.Duration) error {
+	if client.retryWait == nil {
+		return waitForRetry(ctx, delay)
+	}
+	return client.retryWait(ctx, delay)
 }
 
 func (client Client) endpoint(path string) (*url.URL, *http.Client, error) {

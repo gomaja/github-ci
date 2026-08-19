@@ -7,7 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
-	"strings"
+	"slices"
 	"unicode"
 
 	"github.com/gomaja/github-ci/internal/pathpolicy"
@@ -224,7 +224,7 @@ func ValidatePlan(plan Plan) error {
 	}
 
 	identities := make(map[string]struct{}, len(plan.Expected))
-	previous := ""
+	orderedIdentities := make([]string, 0, len(plan.Expected))
 	for index, expected := range plan.Expected {
 		if !toolNamePattern.MatchString(expected.Tool) {
 			return fmt.Errorf("expected %d tool must be a lowercase identifier: %q", index, expected.Tool)
@@ -250,10 +250,10 @@ func ValidatePlan(plan Plan) error {
 			return fmt.Errorf("duplicate expected identity %q", identity)
 		}
 		identities[identity] = struct{}{}
-		if index > 0 && strings.Compare(previous, identity) >= 0 {
-			return fmt.Errorf("expected entries must be sorted by identity: %q precedes %q", previous, identity)
-		}
-		previous = identity
+		orderedIdentities = append(orderedIdentities, identity)
+	}
+	if !slices.IsSorted(orderedIdentities) {
+		return errors.New("expected entries must be sorted by identity")
 	}
 	return nil
 }

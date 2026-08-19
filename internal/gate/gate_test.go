@@ -189,6 +189,73 @@ func TestEvaluateConsumesValidExceptionOneToOne(t *testing.T) {
 	}
 }
 
+func TestEvaluateConsumesValidSuppressionOneToOne(t *testing.T) {
+	input := validInput(t)
+	observation := validObservation(true)
+	input.Records[0].Suppressed = 1
+	context := onlyContext(input)
+	context.Observations = []Observation{observation}
+	setOnlyContext(&input, context)
+	input.Exceptions = validExceptionSet(t, observation)
+	result := Evaluate(input)
+	if !result.Pass || len(result.Findings) != 0 {
+		t.Fatalf("Evaluate() = %#v", result)
+	}
+}
+
+func TestDuplicateExceptionFindingsCountsEveryEntry(t *testing.T) {
+	entry := exceptions.Entry{Tool: "staticcheck", Rule: "SA1000", Fingerprint: "sha256:01234567", Scope: "internal/parser.go"}
+	findings := duplicateExceptionFindings([]exceptions.Entry{entry, entry})
+	if len(findings) != 1 || findings[0].Code != "duplicate-exception" || findings[0].Detail != entry.Identity() {
+		t.Fatalf("duplicateExceptionFindings() = %#v", findings)
+	}
+	if findings := duplicateExceptionFindings([]exceptions.Entry{entry}); len(findings) != 0 {
+		t.Fatalf("duplicateExceptionFindings(single) = %#v", findings)
+	}
+}
+
+func TestValidateObservationAcceptsEverySupportedSource(t *testing.T) {
+	expected := validInput(t).Plan.Expected[0]
+	for _, test := range []struct {
+		name       string
+		source     ObservationSource
+		suppressed bool
+	}{
+		{name: "analyzer", source: SourceAnalyzer},
+		{name: "inline", source: SourceInline, suppressed: true},
+		{name: "ignore file", source: SourceIgnoreFile, suppressed: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			observation := validObservation(test.suppressed)
+			observation.Source = test.source
+			if err := validateObservation(expected, observation); err != nil {
+				t.Fatalf("validateObservation() error = %v", err)
+			}
+		})
+	}
+}
+
+func TestCompareFindingUsesEveryIdentityComponent(t *testing.T) {
+	base := Finding{Tool: "b", CommandID: "b", Code: "b", Detail: "b"}
+	tests := []Finding{
+		{Tool: "a", CommandID: "z", Code: "z", Detail: "z"},
+		{Tool: "b", CommandID: "a", Code: "z", Detail: "z"},
+		{Tool: "b", CommandID: "b", Code: "a", Detail: "z"},
+		{Tool: "b", CommandID: "b", Code: "b", Detail: "a"},
+	}
+	for _, left := range tests {
+		if comparison := compareFinding(left, base); comparison >= 0 {
+			t.Errorf("compareFinding(%#v, %#v) = %d, want negative", left, base, comparison)
+		}
+		if comparison := compareFinding(base, left); comparison <= 0 {
+			t.Errorf("compareFinding(%#v, %#v) = %d, want positive", base, left, comparison)
+		}
+	}
+	if comparison := compareFinding(base, base); comparison != 0 {
+		t.Errorf("compareFinding(equal) = %d", comparison)
+	}
+}
+
 func TestEvaluatePreservesValidatedExceptionsAcrossJSONRoundTrip(t *testing.T) {
 	input := validInput(t)
 	addOpenFinding(&input)

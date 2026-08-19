@@ -65,19 +65,26 @@ func OpenRegularInRoot(rootName, name string) (*os.File, error) {
 		return nil, openErr
 	}
 	opened, statErr := file.Stat()
-	if statErr != nil || !opened.Mode().IsRegular() || !os.SameFile(observed, opened) {
+	if err := validateRegularIdentity(observed, opened, statErr); err != nil {
 		_ = file.Close()
 		_ = root.Close()
-		if statErr != nil {
-			return nil, statErr
-		}
-		return nil, errors.New("file identity changed while opening")
+		return nil, err
 	}
 	if err := root.Close(); err != nil {
 		_ = file.Close()
 		return nil, fmt.Errorf("close filesystem root: %w", err)
 	}
 	return file, nil
+}
+
+func validateRegularIdentity(observed, opened os.FileInfo, statErr error) error {
+	if statErr != nil {
+		return statErr
+	}
+	if !opened.Mode().IsRegular() || !os.SameFile(observed, opened) {
+		return errors.New("file identity changed while opening")
+	}
+	return nil
 }
 
 // ReadFileInRoot reads name only when its complete resolution remains beneath rootName.

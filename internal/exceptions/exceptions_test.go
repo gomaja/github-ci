@@ -2,9 +2,12 @@ package exceptions
 
 import (
 	"encoding/json"
+	"slices"
 	"strings"
 	"testing"
 	"time"
+
+	"gopkg.in/yaml.v3"
 )
 
 var testNow = time.Date(2026, 8, 18, 15, 30, 0, 0, time.UTC)
@@ -133,13 +136,75 @@ func TestLoadDetailedRejectsFatalDocuments(t *testing.T) {
 	}
 }
 
+func TestLoadDetailedEnforcesDocumentSizeBoundary(t *testing.T) {
+	base := "schema-version: 1\nexceptions: []\n#"
+	exact := base + strings.Repeat("x", maxDocumentBytes-len(base))
+	set, issues, err := LoadDetailed(strings.NewReader(exact), testNow)
+	if err != nil || len(issues) != 0 || len(set.Entries()) != 0 {
+		t.Fatalf("LoadDetailed(exact limit) set = %#v, issues = %#v, error = %v", set, issues, err)
+	}
+
+	_, _, err = LoadDetailed(strings.NewReader(exact+"x"), testNow)
+	if err == nil || err.Error() != "exception document exceeds 1048576 bytes" {
+		t.Fatalf("LoadDetailed(over limit) error = %v", err)
+	}
+}
+
+func TestLoadDetailedRejectsMultipleDocumentsExactly(t *testing.T) {
+	_, _, err := LoadDetailed(strings.NewReader(validDocument()+"---\nexceptions: []\n"), testNow)
+	if err == nil || err.Error() != "exception document contains multiple YAML documents" {
+		t.Fatalf("LoadDetailed() error = %v", err)
+	}
+}
+
+func TestLoadDetailedRejectsTrailingJSONValueExactly(t *testing.T) {
+	var set Set
+	err := set.UnmarshalJSON([]byte(`{"schema_version":1,"entries":[]} {}`))
+	if err == nil || err.Error() != "exception JSON contains trailing data" {
+		t.Fatalf("UnmarshalJSON() error = %v", err)
+	}
+}
+
+func TestSetJSONEnforcesDocumentSizeBoundary(t *testing.T) {
+	base := `{"schema_version":1,"entries":[]}`
+	exact := []byte(base + strings.Repeat(" ", maxDocumentBytes-len(base)))
+	var set Set
+	if err := set.UnmarshalJSON(exact); err != nil {
+		t.Fatalf("UnmarshalJSON(exact limit) error = %v", err)
+	}
+	if got := set.Entries(); len(got) != 0 {
+		t.Fatalf("json.Unmarshal(exact limit) entries = %#v", got)
+	}
+
+	err := set.UnmarshalJSON(append(exact, ' '))
+	if err == nil || err.Error() != "exception JSON exceeds 1048576 bytes" {
+		t.Fatalf("UnmarshalJSON(over limit) error = %v", err)
+	}
+}
+
+func TestSetMarshalJSONDistinguishesValidationStates(t *testing.T) {
+	encoded, err := (Set{}).MarshalJSON()
+	if err != nil {
+		t.Fatalf("MarshalJSON(empty set) error = %v", err)
+	}
+	if got, want := string(encoded), `{"schema_version":1,"entries":[]}`; got != want {
+		t.Fatalf("MarshalJSON(empty set) = %s, want %s", got, want)
+	}
+
+	_, err = (Set{entries: []Entry{{Tool: "staticcheck"}}}).MarshalJSON()
+	if err == nil || err.Error() != "exception set has entries without a validation date" {
+		t.Fatalf("MarshalJSON(unvalidated set) error = %v", err)
+	}
+}
+
 func TestLoadDetailedReportsSchemaIssue(t *testing.T) {
 	_, issues, err := LoadDetailed(strings.NewReader("schema-version: 2\nexceptions: []\n"), testNow)
 	if err != nil {
 		t.Fatalf("LoadDetailed() error = %v", err)
 	}
-	if !hasIssue(issues, "invalid-schema-version") {
-		t.Fatalf("LoadDetailed() issues = %#v", issues)
+	want := []Issue{{Index: -1, Code: "invalid-schema-version", Detail: "schema-version must be 1"}}
+	if !issuesEqual(issues, want) {
+		t.Fatalf("LoadDetailed() issues = %#v, want %#v", issues, want)
 	}
 }
 
@@ -209,6 +274,44 @@ func TestSetJSONRoundTripPreservesValidatedEntries(t *testing.T) {
 	}
 }
 
+func TestSetJSONDistinguishesEmptyValidationStates(t *testing.T) {
+	tests := []struct {
+		name        string
+		document    string
+		wantDate    string
+		wantFailure bool
+	}{
+		{name: "canonical empty set", document: `{"schema_version":1,"entries":[]}`},
+		{name: "dated empty set", document: `{"schema_version":1,"validated_on":"2026-08-18","entries":[]}`, wantDate: "2026-08-18"},
+		{
+			name:        "entry without validation date",
+			document:    `{"schema_version":1,"entries":[{"tool":"staticcheck","rule":"SA1000","fingerprint":"sha256:0123456789abcdef","scope":"internal/parser.go","rationale":"Parser input is validated before this unreachable branch.","owner":"gomaja","approval":"gomaja/github-ci#12","created":"2026-08-01","expires":"2026-08-18","verification_tests":["internal/parser_test.go"]}]}`,
+			wantFailure: true,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			var set Set
+			err := json.Unmarshal([]byte(test.document), &set)
+			if test.wantFailure {
+				if err == nil {
+					t.Fatal("json.Unmarshal() error = nil")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("json.Unmarshal() error = %v", err)
+			}
+			if got := set.ValidatedOn(); got != test.wantDate {
+				t.Fatalf("ValidatedOn() = %q, want %q", got, test.wantDate)
+			}
+			if got := set.Entries(); len(got) != 0 {
+				t.Fatalf("Entries() = %#v, want empty", got)
+			}
+		})
+	}
+}
+
 func TestSetJSONRejectsUnvalidatedOrAmbiguousData(t *testing.T) {
 	set, issues, err := LoadDetailed(strings.NewReader(validDocument()), testNow)
 	if err != nil || len(issues) != 0 {
@@ -249,8 +352,137 @@ func TestSetValidateOnRechecksExpiryAfterSerialization(t *testing.T) {
 	if issues := set.ValidateOn("2026-08-19"); !hasIssue(issues, "expired") {
 		t.Fatalf("ValidateOn() issues = %#v", issues)
 	}
-	if issues := set.ValidateOn("invalid"); !hasIssue(issues, "invalid-validation-date") {
-		t.Fatalf("ValidateOn(invalid) issues = %#v", issues)
+	issues = set.ValidateOn("invalid")
+	want := []Issue{{Index: -1, Code: "invalid-validation-date", Detail: `date "invalid" must use YYYY-MM-DD`}}
+	if !issuesEqual(issues, want) {
+		t.Fatalf("ValidateOn(invalid) issues = %#v, want %#v", issues, want)
+	}
+}
+
+func TestLoadDetailedEnforcesRationaleLengthBoundary(t *testing.T) {
+	tests := []struct {
+		name      string
+		rationale string
+		wantIssue bool
+	}{
+		{name: "twenty characters", rationale: "12345678901234567890"},
+		{name: "nineteen characters", rationale: "1234567890123456789", wantIssue: true},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			document := strings.Replace(validDocument(), "Parser input is validated before this unreachable branch.", test.rationale, 1)
+			set, issues, err := LoadDetailed(strings.NewReader(document), testNow)
+			if err != nil {
+				t.Fatalf("LoadDetailed() error = %v", err)
+			}
+			if got := hasIssue(issues, "invalid-rationale"); got != test.wantIssue {
+				t.Fatalf("invalid-rationale present = %t, want %t; issues = %#v", got, test.wantIssue, issues)
+			}
+			wantEntries := 1
+			if test.wantIssue {
+				wantEntries = 0
+			}
+			if got := len(set.Entries()); got != wantEntries {
+				t.Fatalf("Entries() count = %d, want %d", got, wantEntries)
+			}
+		})
+	}
+}
+
+func TestLoadDetailedEnforcesMaximumExceptionDuration(t *testing.T) {
+	tests := []struct {
+		name      string
+		expires   string
+		wantIssue bool
+	}{
+		{name: "ninety days", expires: "2026-04-01"},
+		{name: "ninety-one days", expires: "2026-04-02", wantIssue: true},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			document := strings.Replace(validDocument(), "created: 2026-08-01", "created: 2026-01-01", 1)
+			document = strings.Replace(document, "expires: 2026-08-18", "expires: "+test.expires, 1)
+			set, issues, err := LoadDetailed(strings.NewReader(document), time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC))
+			if err != nil {
+				t.Fatalf("LoadDetailed() error = %v", err)
+			}
+			if got := hasIssue(issues, "expiry-too-distant"); got != test.wantIssue {
+				t.Fatalf("expiry-too-distant present = %t, want %t; issues = %#v", got, test.wantIssue, issues)
+			}
+			wantEntries := 1
+			if test.wantIssue {
+				wantEntries = 0
+			}
+			if got := len(set.Entries()); got != wantEntries {
+				t.Fatalf("Entries() count = %d, want %d", got, wantEntries)
+			}
+		})
+	}
+}
+
+func TestRejectDuplicateKeysFindsNestedMapping(t *testing.T) {
+	var node yaml.Node
+	if err := yaml.Unmarshal([]byte("outer:\n  duplicate: first\n  duplicate: second\n"), &node); err != nil {
+		t.Fatalf("yaml.Unmarshal() error = %v", err)
+	}
+	if err := rejectDuplicateKeys(&node); err == nil || err.Error() != `duplicate YAML key "duplicate"` {
+		t.Fatalf("rejectDuplicateKeys() error = %v", err)
+	}
+}
+
+func TestRejectDuplicateJSONKeysEnforcesNestingLimit(t *testing.T) {
+	tests := []struct {
+		name    string
+		prefix  string
+		suffix  string
+		depth   int
+		wantErr string
+	}{
+		{name: "array at limit", prefix: "[", suffix: "]", depth: 256},
+		{name: "array over limit", prefix: "[", suffix: "]", depth: 257, wantErr: "validate exception JSON: JSON nesting exceeds 256 levels"},
+		{name: "object at limit", prefix: `{"value":`, suffix: "}", depth: 256},
+		{name: "object over limit", prefix: `{"value":`, suffix: "}", depth: 257, wantErr: "validate exception JSON: JSON nesting exceeds 256 levels"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			document := strings.Repeat(test.prefix, test.depth) + "0" + strings.Repeat(test.suffix, test.depth)
+			err := rejectDuplicateJSONKeys([]byte(document))
+			if test.wantErr == "" {
+				if err != nil {
+					t.Fatalf("rejectDuplicateJSONKeys() error = %v", err)
+				}
+				return
+			}
+			if err == nil || err.Error() != test.wantErr {
+				t.Fatalf("rejectDuplicateJSONKeys() error = %v, want %q", err, test.wantErr)
+			}
+		})
+	}
+}
+
+func TestRejectDuplicateJSONKeysReportsUnclosedArray(t *testing.T) {
+	err := rejectDuplicateJSONKeys([]byte("["))
+	if err == nil || err.Error() != "validate exception JSON: EOF" {
+		t.Fatalf("rejectDuplicateJSONKeys() error = %v", err)
+	}
+}
+
+func TestSortIssuesOrdersEveryIdentityField(t *testing.T) {
+	issues := []Issue{
+		{Index: 1, Code: "a", Detail: "a"},
+		{Index: 0, Code: "b", Detail: "z"},
+		{Index: 0, Code: "a", Detail: "z"},
+		{Index: 0, Code: "a", Detail: "a"},
+	}
+	sortIssues(issues)
+	want := []Issue{
+		{Index: 0, Code: "a", Detail: "a"},
+		{Index: 0, Code: "a", Detail: "z"},
+		{Index: 0, Code: "b", Detail: "z"},
+		{Index: 1, Code: "a", Detail: "a"},
+	}
+	if !issuesEqual(issues, want) {
+		t.Fatalf("sortIssues() = %#v, want %#v", issues, want)
 	}
 }
 
@@ -311,4 +543,8 @@ func hasIssue(issues []Issue, code string) bool {
 		}
 	}
 	return false
+}
+
+func issuesEqual(left, right []Issue) bool {
+	return slices.Equal(left, right)
 }

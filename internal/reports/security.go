@@ -70,7 +70,7 @@ func validateSPDX(data []byte) error {
 	if len(creation["created"]) == 0 || len(creation["creators"]) == 0 {
 		return errors.New("SPDX creationInfo is incomplete")
 	}
-	if len(document.Packages)+len(document.Files) == 0 {
+	if len(document.Packages) == 0 && len(document.Files) == 0 {
 		return errors.New("SPDX document has no described subject")
 	}
 	describesSubject := len(document.DocumentDescribes) != 0

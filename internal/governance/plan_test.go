@@ -7,8 +7,10 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 
 	"github.com/gomaja/github-ci/internal/config"
@@ -136,6 +138,147 @@ func TestBranchRulesetRequiresObservedStatusWithoutCallerEnforcement(t *testing.
 		return
 	}
 	t.Fatal("branch ruleset has no required status check")
+}
+
+func TestDependabotAlertsNotFoundProducesExactEnableOperation(t *testing.T) {
+	github := newFakeGitHub()
+	server := httptest.NewServer(github)
+	t.Cleanup(server.Close)
+	client := Client{BaseURL: server.URL, APIVersion: "2026-03-10", HTTP: server.Client()}
+	manifest := testGovernance()
+	convergeFakeGitHub(t, client, manifest)
+
+	github.mu.Lock()
+	github.alerts = false
+	github.mu.Unlock()
+	plan, err := BuildPlan(context.Background(), client, manifest)
+	if err != nil {
+		t.Fatalf("BuildPlan() error = %v", err)
+	}
+	if len(plan.Operations) != 1 || plan.Operations[0].Kind != "dependabot-alerts" {
+		t.Fatalf("Operations = %#v, want only dependabot-alerts", plan.Operations)
+	}
+}
+
+func TestRulesetNameMatchTakesPrecedenceOverOverlappingScope(t *testing.T) {
+	github := newFakeGitHub()
+	server := httptest.NewServer(github)
+	t.Cleanup(server.Close)
+	client := Client{BaseURL: server.URL, APIVersion: "2026-03-10", HTTP: server.Client()}
+	manifest := testGovernance()
+	convergeFakeGitHub(t, client, manifest)
+
+	github.mu.Lock()
+	desired := branchRuleset(manifest.Repositories[0])
+	overlapping := desired
+	overlapping.Name = "overlapping branch ruleset"
+	github.rulesets[1] = overlapping
+	github.rulesets[3] = desired
+	github.nextRuleset = 4
+	github.mu.Unlock()
+
+	plan, err := BuildPlan(context.Background(), client, manifest)
+	if err != nil {
+		t.Fatalf("BuildPlan() error = %v", err)
+	}
+	if len(plan.Operations) != 1 {
+		t.Fatalf("Operations = %#v, want one duplicate deletion", plan.Operations)
+	}
+	operation := plan.Operations[0]
+	if operation.Kind != "delete-overlapping-ruleset" || operation.Path != "/repos/gomaja/example/rulesets/1" {
+		t.Fatalf("Operation = %#v, want deletion of lower-ID overlapping ruleset", operation)
+	}
+}
+
+func TestListRulesetsVisitsAllOneHundredPages(t *testing.T) {
+	var requests atomic.Int32
+	fullPage := make([]rulesetSummary, 100)
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		page := int(requests.Add(1))
+		if request.URL.Query().Get("page") != strconv.Itoa(page) {
+			http.Error(writer, `{"message":"unexpected page"}`, http.StatusBadRequest)
+			return
+		}
+		writer.Header().Set("Content-Type", "application/json")
+		if page < 100 {
+			writeFakeJSON(writer, fullPage)
+			return
+		}
+		writeFakeJSON(writer, []rulesetSummary{})
+	}))
+	t.Cleanup(server.Close)
+	client := Client{BaseURL: server.URL, APIVersion: "2026-03-10", HTTP: server.Client()}
+
+	rulesets, err := listRulesets(context.Background(), client, "/repos/gomaja/example")
+	if err != nil {
+		t.Fatalf("listRulesets() error = %v", err)
+	}
+	if requests.Load() != 100 || len(rulesets) != 9_900 {
+		t.Fatalf("listRulesets() made %d requests and returned %d rulesets", requests.Load(), len(rulesets))
+	}
+}
+
+func TestNormalizeRulesetCanonicalizesNilAndPreservesValues(t *testing.T) {
+	nilPayload := rulesetPayload{}
+	normalizeRuleset(&nilPayload)
+	if nilPayload.BypassActors == nil || nilPayload.Conditions.RefName.Include == nil ||
+		nilPayload.Conditions.RefName.Exclude == nil || nilPayload.Rules == nil {
+		t.Fatalf("normalizeRuleset(nil fields) = %#v, want non-nil empty collections", nilPayload)
+	}
+
+	populated := rulesetPayload{
+		BypassActors: []any{"actor"},
+		Conditions: rulesetConditions{RefName: refCondition{
+			Include: []string{"z", "a"},
+			Exclude: []string{"excluded"},
+		}},
+		Rules: []rulesetRule{{Type: "z"}, {Type: "a"}},
+	}
+	normalizeRuleset(&populated)
+	if len(populated.BypassActors) != 1 || populated.BypassActors[0] != "actor" ||
+		!slices.Equal(populated.Conditions.RefName.Include, []string{"a", "z"}) ||
+		!slices.Equal(populated.Conditions.RefName.Exclude, []string{"excluded"}) ||
+		len(populated.Rules) != 2 || populated.Rules[0].Type != "a" || populated.Rules[1].Type != "z" {
+		t.Fatalf("normalizeRuleset(populated) = %#v, want preserved and sorted values", populated)
+	}
+}
+
+func TestSupportedMutationMethods(t *testing.T) {
+	for _, method := range []string{http.MethodPatch, http.MethodPost, http.MethodPut, http.MethodDelete} {
+		if !supportedMutation(method) {
+			t.Errorf("supportedMutation(%q) = false", method)
+		}
+	}
+	for _, method := range []string{http.MethodGet, http.MethodHead, ""} {
+		if supportedMutation(method) {
+			t.Errorf("supportedMutation(%q) = true", method)
+		}
+	}
+}
+
+func TestCompareRulesetSummaryOrdersEveryRelationship(t *testing.T) {
+	low := rulesetSummary{ID: 1}
+	high := rulesetSummary{ID: 2}
+	if got := compareRulesetSummary(low, high); got != -1 {
+		t.Fatalf("compareRulesetSummary(low, high) = %d", got)
+	}
+	if got := compareRulesetSummary(high, low); got != 1 {
+		t.Fatalf("compareRulesetSummary(high, low) = %d", got)
+	}
+	if got := compareRulesetSummary(low, low); got != 0 {
+		t.Fatalf("compareRulesetSummary(equal) = %d", got)
+	}
+}
+
+func convergeFakeGitHub(t *testing.T, client Client, manifest config.Governance) {
+	t.Helper()
+	plan, err := BuildPlan(context.Background(), client, manifest)
+	if err != nil {
+		t.Fatalf("BuildPlan() error = %v", err)
+	}
+	if err := Apply(context.Background(), client, manifest, plan, plan.ID); err != nil {
+		t.Fatalf("Apply() error = %v", err)
+	}
 }
 
 func testGovernance() config.Governance {

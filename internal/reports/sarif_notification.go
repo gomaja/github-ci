@@ -507,11 +507,12 @@ func (component *sarifNotificationComponent) descriptorSet(kind sarifDescriptorK
 }
 
 func (set *sarifDescriptorSet) hasDescriptorID(referenceID string) bool {
-	if len(set.descriptorsByID[referenceID]) != 0 {
-		return true
+	for descriptorID := range set.descriptorsByID {
+		if sarifDescriptorIDMatches(referenceID, descriptorID) {
+			return true
+		}
 	}
-	separator := strings.LastIndexByte(referenceID, '/')
-	return separator > 0 && separator < len(referenceID)-1 && len(set.descriptorsByID[referenceID[:separator]]) != 0
+	return false
 }
 
 func validateSARIFNotificationMessage(raw json.RawMessage, label string) error {

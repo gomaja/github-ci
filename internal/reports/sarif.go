@@ -236,10 +236,7 @@ func sarifResultIdentity(raw json.RawMessage) (string, error) {
 		return canonicalJSON(raw)
 	}
 	identity, err := json.Marshal(result)
-	if err != nil {
-		return "", err
-	}
-	return string(identity), nil
+	return string(identity), err
 }
 
 func canonicalJSON(raw json.RawMessage) (string, error) {

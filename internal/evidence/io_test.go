@@ -2,6 +2,7 @@ package evidence
 
 import (
 	"bytes"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -27,6 +28,21 @@ func TestReadRejectsMalformedEvidence(t *testing.T) {
 				t.Fatalf("Read() error = %v, want substring %q", err, test.want)
 			}
 		})
+	}
+}
+
+func TestReadEnforcesExactSizeAndTrailingValueErrors(t *testing.T) {
+	valid := evidenceJSON(t, validRecord(), "")
+	exact := io.MultiReader(strings.NewReader(valid), io.LimitReader(spaceReader{}, maxEvidenceBytes-int64(len(valid))))
+	if _, err := Read(exact); err != nil {
+		t.Fatalf("Read(exact limit) error = %v", err)
+	}
+	oversized := io.MultiReader(strings.NewReader(valid), io.LimitReader(spaceReader{}, maxEvidenceBytes+1-int64(len(valid))))
+	if _, err := Read(oversized); err == nil || err.Error() != "evidence exceeds 67108864 byte limit" {
+		t.Fatalf("Read(oversized) error = %v", err)
+	}
+	if _, err := Read(strings.NewReader(valid + `{}`)); err == nil || err.Error() != "evidence contains a trailing JSON value" {
+		t.Fatalf("Read(trailing) error = %v", err)
 	}
 }
 
@@ -92,4 +108,13 @@ func evidenceJSON(t *testing.T, record Record, beforeClose string) string {
 		t.Fatalf("marshal evidence: %v", err)
 	}
 	return strings.TrimSuffix(string(data), "}") + beforeClose + "}"
+}
+
+type spaceReader struct{}
+
+func (spaceReader) Read(buffer []byte) (int, error) {
+	for index := range buffer {
+		buffer[index] = ' '
+	}
+	return len(buffer), nil
 }
