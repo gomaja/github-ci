@@ -7,21 +7,28 @@ cross-repository canary. Pin all reusable workflow calls to that exact
 40-character SHA. A version comment may describe the commit, but a branch,
 moving major tag, or mutable release tag is not an acceptable reference.
 
-For a published release, fetch its tag and resolve the peeled commit before
-rendering callers:
+After v1.1.0 passes release acceptance and is published, fetch its immutable tag
+and resolve the peeled commit before rendering callers:
 
 ```bash
-git fetch origin tag v1.0.0
-git rev-parse 'v1.0.0^{commit}'
+git fetch origin tag v1.1.0
+git rev-parse 'v1.1.0^{commit}'
 ```
 
-The pre-release canary workflow SHA was
-`3dc64d2ab02b3d5ce3f2eacacfdc1eec9a9e78f7`. It completed the
-[standard gate](https://github.com/gomaja/github-ci/actions/runs/32243207234),
-[deep assurance](https://github.com/gomaja/github-ci/actions/runs/32243204063),
-and a real [cross-repository canary](https://github.com/gomaja/sctp-portkill/pull/3)
-whose [run](https://github.com/gomaja/sctp-portkill/actions/runs/32243265290)
-observed the aggregate check as `gate / gate`.
+Do not adopt v1.0.0. Its pre-release self-test SHA
+`3dc64d2ab02b3d5ce3f2eacacfdc1eec9a9e78f7` completed the
+[standard gate](https://github.com/gomaja/github-ci/actions/runs/32243207234)
+and [deep assurance](https://github.com/gomaja/github-ci/actions/runs/32243204063),
+but the linked [cross-repository canary](https://github.com/gomaja/sctp-portkill/pull/3)
+[run](https://github.com/gomaja/sctp-portkill/actions/runs/32243265290)
+failed. That consumer used schema 1 with `repository-only`, and every Go job was
+skipped. It proved fail-closed aggregate enforcement but did not prove a
+successful Go consumer adoption.
+
+`v1.1.0` is the intentional compatibility reset to schema 2. Its exact release
+commit is the only future adoption target, and only after the standard, deep,
+external Go consumer, and untrusted-fork acceptance checks all pass at that
+same commit.
 
 ## Consumer Configuration
 

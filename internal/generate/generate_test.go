@@ -276,6 +276,92 @@ func TestCheckedInPolicyBindsSemanticParsers(t *testing.T) {
 	}
 }
 
+func TestCheckedInToolProfileMembershipIsExact(t *testing.T) {
+	file, err := os.Open(filepath.Join("..", "..", "policies", "tools.yaml"))
+	if err != nil {
+		t.Fatalf("open checked-in policy: %v", err)
+	}
+	policy, loadErr := LoadPolicy(file)
+	closeErr := file.Close()
+	if loadErr != nil || closeErr != nil {
+		t.Fatalf("load checked-in policy: %v, close: %v", loadErr, closeErr)
+	}
+	want := map[string]string{
+		"actionlint":        "go-strict,go-library,repository-only",
+		"apidiff":           "go-library",
+		"checkov":           "go-strict,go-library,repository-only",
+		"gitleaks":          "go-strict,go-library,repository-only",
+		"go-current":        "go-strict,go-library,release",
+		"go-licenses":       "go-strict,go-library,deep,release",
+		"go-previous":       "go-strict,go-library",
+		"gocover-cobertura": "go-strict,go-library",
+		"goimports":         "go-strict,go-library",
+		"golangci-lint":     "go-strict,go-library",
+		"gopls":             "go-strict,go-library",
+		"gotestsum":         "go-strict,go-library",
+		"govulncheck":       "go-strict,go-library",
+		"gremlins":          "deep",
+		"grype":             "deep,release",
+		"hadolint":          "go-strict,go-library,repository-only",
+		"markdownlint":      "go-strict,go-library,repository-only",
+		"osv-scanner":       "go-strict,go-library",
+		"semgrep":           "go-strict,go-library,repository-only",
+		"shellcheck":        "go-strict,go-library,repository-only",
+		"shfmt":             "go-strict,go-library,repository-only",
+		"staticcheck":       "go-strict,go-library",
+		"syft":              "deep,release",
+		"trivy":             "go-strict,go-library,repository-only,deep,release",
+		"yamllint":          "go-strict,go-library,repository-only",
+		"zizmor":            "go-strict,go-library,repository-only",
+	}
+	if len(policy.Tools) != len(want) {
+		t.Fatalf("tool locks = %d, want %d", len(policy.Tools), len(want))
+	}
+	for _, tool := range policy.Tools {
+		profiles, exists := want[tool.ID]
+		if !exists {
+			t.Errorf("unexpected tool profile lock %q", tool.ID)
+			continue
+		}
+		if got := strings.Join(tool.Profiles, ","); got != profiles {
+			t.Errorf("tool %q profiles = %q, want %q", tool.ID, got, profiles)
+		}
+		delete(want, tool.ID)
+	}
+	for tool := range want {
+		t.Errorf("missing tool profile lock %q", tool)
+	}
+}
+
+func TestPolicyDocumentsScannerOwnershipAndV11AdoptionBoundary(t *testing.T) {
+	policy := string(mustRead(t, filepath.Join("..", "..", "docs", "policy.md")))
+	for _, required := range []string{
+		"Scanner Ownership Matrix", "Primary purpose", "Native report and gate behavior", "Triage owner",
+		"CodeQL", "Semgrep", "gosec", "govulncheck", "OSV-Scanner", "Trivy", "Grype",
+		"GitHub secret scanning", "Gitleaks", "Dependency Review", "Syft",
+		"one scanner never suppresses", "execution error remains blocking",
+	} {
+		if !strings.Contains(policy, required) {
+			t.Errorf("policy is missing %q", required)
+		}
+	}
+
+	for _, name := range []string{"README.md", "docs/adoption.md", "docs/releases.md"} {
+		text := string(mustRead(t, filepath.Join("..", "..", filepath.FromSlash(name))))
+		for _, required := range []string{"v1.0.0", "v1.1.0", "failed"} {
+			if !strings.Contains(text, required) {
+				t.Errorf("%s is missing %q", name, required)
+			}
+		}
+	}
+	adoption := string(mustRead(t, filepath.Join("..", "..", "docs", "adoption.md")))
+	for _, required := range []string{"repository-only", "every Go job was", "fail-closed", "schema 2"} {
+		if !strings.Contains(adoption, required) {
+			t.Errorf("adoption guide is missing %q", required)
+		}
+	}
+}
+
 func TestGenerateIsDeterministicAndVerifyDetectsDrift(t *testing.T) {
 	root := fixtureRoot(t)
 	if err := Generate(root); err != nil {
