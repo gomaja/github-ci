@@ -36,13 +36,11 @@ func RenderCallers(manifest config.Governance, output, workflowSHA, onlyReposito
 		}
 		profile := repositoryProfile(repository.Profile, manifest.Defaults.Profile)
 		consumer := config.Consumer{
-			SchemaVersion: 1,
-			Profile:       profile,
-			Modules:       repository.Modules,
-			BuildTags:     repository.BuildTags,
-			Services:      repository.Services,
-			Generated:     repository.Generated,
-			Exceptions:    repository.Exceptions,
+			SchemaVersion:  2,
+			Profile:        profile,
+			Go:             repository.Go,
+			GeneratedPaths: repository.GeneratedPaths,
+			Exceptions:     repository.Exceptions,
 		}
 		consumerYAML, err := yaml.Marshal(consumer)
 		if err != nil {

@@ -1,13 +1,17 @@
-schema-version: 1
+schema-version: 2
 profile: go-strict
-modules:
-  - .
-  - tools
-build-tags:
-  - integration
-services:
-  - postgresql
-  - redis
-generated:
+go:
+  defaults:
+    packages: [./...]
+    module-mode: readonly
+    build-tags: [integration]
+    test-timeout: 10m
+    package-parallelism: 4
+    race-parallelism: 1
+    coverage-packages: [./...]
+  modules:
+    - path: .
+    - path: tools
+generated-paths:
   - internal/generated
 exceptions: .github/github-ci-exceptions.yaml

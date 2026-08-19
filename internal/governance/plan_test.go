@@ -179,14 +179,14 @@ func TestBuildPlanRefusesUnexpectedRepositoryScope(t *testing.T) {
 }
 
 func TestBranchRulesetRequiresObservedStatusWithoutCallerEnforcement(t *testing.T) {
-	repository := config.Repository{ObservedRequiredCheck: "gate / gate"}
+	repository := config.Repository{ObservedRequiredChecks: []string{"gate / gate", "generated / verify"}}
 	ruleset := branchRuleset(repository)
 	for _, rule := range ruleset.Rules {
 		if rule.Type != "required_status_checks" {
 			continue
 		}
 		checks, ok := rule.Parameters["required_status_checks"].([]map[string]string)
-		if !ok || len(checks) != 1 || checks[0]["context"] != "gate / gate" {
+		if !ok || len(checks) != 2 || checks[0]["context"] != "gate / gate" || checks[1]["context"] != "generated / verify" {
 			t.Fatalf("required status checks = %#v", rule.Parameters["required_status_checks"])
 		}
 		return
@@ -522,11 +522,11 @@ func validEmptyPlan(apiVersion string) Plan {
 
 func testGovernance() config.Governance {
 	return config.Governance{
-		SchemaVersion: 1,
+		SchemaVersion: 2,
 		APIVersion:    "2026-03-10",
 		Owners:        []config.Owner{{Name: "gomaja", Type: "user"}},
 		Defaults: config.GovernanceDefaults{
-			Profile: config.ProfileGoStrict, DefaultBranch: "main", RequiredCheck: "github-ci / gate",
+			Profile: config.ProfileGoStrict, DefaultBranch: "main", RequiredChecks: []string{"github-ci / gate"},
 			PublicOnly: true, RefuseForks: true, RefuseArchived: true, RefusePrivate: true, RefuseUnexpectedOwners: true,
 		},
 		Repositories: []config.Repository{{Name: "example", Owner: "gomaja", EnforceCaller: false}},

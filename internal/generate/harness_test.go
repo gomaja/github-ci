@@ -206,7 +206,7 @@ func TestAdd(t *testing.T) {
 	}
 }
 `,
-		".github/github-ci.yaml": "schema-version: 1\nprofile: go-strict\n",
+		".github/github-ci.yaml": "schema-version: 2\nprofile: go-strict\n",
 	}
 	for name, contents := range files {
 		path := filepath.Join(root, filepath.FromSlash(name))

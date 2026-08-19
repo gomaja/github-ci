@@ -405,11 +405,15 @@ func branchRuleset(repository config.Repository) rulesetPayload {
 			"tool": "CodeQL", "alerts_threshold": "all", "security_alerts_threshold": "all",
 		}}}},
 	}
-	if repository.ObservedRequiredCheck != "" {
+	if len(repository.ObservedRequiredChecks) != 0 {
+		checks := make([]map[string]string, len(repository.ObservedRequiredChecks))
+		for index, check := range repository.ObservedRequiredChecks {
+			checks[index] = map[string]string{"context": check}
+		}
 		rules = append(rules, rulesetRule{Type: "required_status_checks", Parameters: map[string]any{
 			"strict_required_status_checks_policy": true,
 			"do_not_enforce_on_create":             false,
-			"required_status_checks":               []map[string]string{{"context": repository.ObservedRequiredCheck}},
+			"required_status_checks":               checks,
 		}})
 	}
 	return rulesetPayload{

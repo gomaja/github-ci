@@ -6,21 +6,82 @@
   "additionalProperties": false,
   "required": ["schema-version", "profile"],
   "properties": {
-    "schema-version": { "const": 1 },
+    "schema-version": { "const": 2 },
     "profile": { "enum": ["go-strict", "go-library", "repository-only"] },
-    "modules": { "$ref": "#/$defs/paths" },
-    "build-tags": {
-      "type": "array",
-      "items": { "type": "string", "pattern": "^[A-Za-z0-9_.]+$" }
-    },
-    "services": {
-      "type": "array",
-      "items": { "enum": ["postgresql", "redis"] }
-    },
-    "generated": { "$ref": "#/$defs/paths" },
+    "go": { "$ref": "#/$defs/go" },
+    "generated-paths": { "$ref": "#/$defs/paths" },
     "exceptions": { "$ref": "#/$defs/path" }
   },
+  "allOf": [
+    {
+      "if": { "properties": { "profile": { "const": "repository-only" } }, "required": ["profile"] },
+      "then": { "not": { "required": ["go"] } }
+    }
+  ],
   "$defs": {
+    "go": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "defaults": { "$ref": "#/$defs/go-settings" },
+        "modules": {
+          "type": "array",
+          "maxItems": 128,
+          "items": { "$ref": "#/$defs/go-module" }
+        }
+      }
+    },
+    "go-settings": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "packages": { "$ref": "#/$defs/packages" },
+        "module-mode": { "enum": ["readonly", "vendor", "mod"] },
+        "build-tags": { "$ref": "#/$defs/build-tags" },
+        "test-timeout": { "type": "string", "minLength": 1 },
+        "package-parallelism": { "type": "integer", "minimum": 1, "maximum": 64 },
+        "race-parallelism": { "type": "integer", "minimum": 1, "maximum": 16 },
+        "coverage-packages": { "$ref": "#/$defs/coverage-packages" }
+      }
+    },
+    "go-module": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path"],
+      "properties": {
+        "path": { "$ref": "#/$defs/path" },
+        "packages": { "$ref": "#/$defs/packages" },
+        "module-mode": { "enum": ["readonly", "vendor", "mod"] },
+        "build-tags": { "$ref": "#/$defs/build-tags" },
+        "test-timeout": { "type": "string", "minLength": 1 },
+        "package-parallelism": { "type": "integer", "minimum": 1, "maximum": 64 },
+        "race-parallelism": { "type": "integer", "minimum": 1, "maximum": 16 },
+        "coverage-packages": { "$ref": "#/$defs/coverage-packages" }
+      }
+    },
+    "packages": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 256,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/package" }
+    },
+    "coverage-packages": {
+      "type": "array",
+      "maxItems": 256,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/package" }
+    },
+    "package": {
+      "type": "string",
+      "pattern": "^(?:\\.|[A-Za-z0-9_][A-Za-z0-9_.-]*)(?:/(?:\\.\\.\\.|[A-Za-z0-9_][A-Za-z0-9_.-]*))*$"
+    },
+    "build-tags": {
+      "type": "array",
+      "maxItems": 64,
+      "uniqueItems": true,
+      "items": { "type": "string", "pattern": "^[A-Za-z0-9_.]+$" }
+    },
     "path": {
       "type": "string",
       "minLength": 1,
@@ -28,6 +89,7 @@
     },
     "paths": {
       "type": "array",
+      "maxItems": 128,
       "uniqueItems": true,
       "items": { "$ref": "#/$defs/path" }
     }

@@ -291,7 +291,7 @@ func runFiles(ctx context.Context, args []string, stdout, stderr io.Writer) int 
 		if !matches {
 			return nil
 		}
-		if *kind == "go" && generatedPath(name, consumer.Generated) {
+		if *kind == "go" && generatedPath(name, consumer.GeneratedPaths) {
 			return nil
 		}
 		names = append(names, name)
@@ -1026,12 +1026,12 @@ func consumerModules(tracked fs.FS, consumer config.Consumer) ([]string, error) 
 	if !isGoProfile && len(detected) != 0 {
 		return nil, fmt.Errorf("profile %q would omit tracked Go modules", consumer.Profile)
 	}
-	if len(consumer.Modules) == 0 {
+	if consumer.Go == nil || len(consumer.Go.Modules) == 0 {
 		return detected, nil
 	}
-	configured := make([]string, len(consumer.Modules))
-	for index, module := range consumer.Modules {
-		configured[index] = string(module)
+	configured := make([]string, len(consumer.Go.Modules))
+	for index, module := range consumer.Go.Modules {
+		configured[index] = string(module.Path)
 	}
 	slices.Sort(configured)
 	if !slices.Equal(configured, detected) {

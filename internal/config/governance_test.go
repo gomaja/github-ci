@@ -27,7 +27,7 @@ func TestDecodeGovernance(t *testing.T) {
 }
 
 func TestDecodeGovernanceRejectsInvalidInput(t *testing.T) {
-	valid := `schema-version: 1
+	valid := `schema-version: 2
 api-version: "2026-03-10"
 owners:
   - name: gomaja
@@ -35,7 +35,8 @@ owners:
 defaults:
   profile: go-strict
   default-branch: main
-  required-check: github-ci / gate
+  required-checks:
+    - github-ci / gate
   public-only: true
   refuse-forks: true
   refuse-archived: true
@@ -65,8 +66,8 @@ repositories:
 		{name: "invalid repository name", yaml: strings.Replace(valid, "name: github-ci", "name: ../github-ci", 1), want: "invalid GitHub repository name"},
 		{name: "api version", yaml: strings.Replace(valid, "2026-03-10", "2025-01-01", 1), want: "api-version"},
 		{name: "enforced caller without sha", yaml: strings.Replace(valid, "enforce-caller: false", "enforce-caller: true", 1), want: "workflow-sha"},
-		{name: "enforced caller without required check", yaml: strings.Replace(valid, "enforce-caller: false", "enforce-caller: true\n    workflow-sha: 0123456789abcdef0123456789abcdef01234567", 1), want: "observed-required-check"},
-		{name: "invalid workflow sha", yaml: strings.Replace(valid, "enforce-caller: false", "enforce-caller: true\n    workflow-sha: main\n    observed-required-check: github-ci / gate", 1), want: "immutable 40-character"},
+		{name: "enforced caller without required check", yaml: strings.Replace(valid, "enforce-caller: false", "enforce-caller: true\n    workflow-sha: 0123456789abcdef0123456789abcdef01234567", 1), want: "observed-required-checks"},
+		{name: "invalid workflow sha", yaml: strings.Replace(valid, "enforce-caller: false", "enforce-caller: true\n    workflow-sha: main\n    observed-required-checks: [github-ci / gate]", 1), want: "immutable 40-character"},
 	}
 
 	for _, test := range tests {

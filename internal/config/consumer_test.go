@@ -19,14 +19,14 @@ func TestDecodeConsumer(t *testing.T) {
 	if err != nil {
 		t.Fatalf("DecodeConsumer() error = %v", err)
 	}
-	if consumer.SchemaVersion != 1 {
-		t.Fatalf("SchemaVersion = %d, want 1", consumer.SchemaVersion)
+	if consumer.SchemaVersion != 2 {
+		t.Fatalf("SchemaVersion = %d, want 2", consumer.SchemaVersion)
 	}
 	if consumer.Profile != "go-strict" {
 		t.Fatalf("Profile = %q, want go-strict", consumer.Profile)
 	}
-	if len(consumer.Modules) != 2 {
-		t.Fatalf("Modules = %v, want two modules", consumer.Modules)
+	if consumer.Go == nil || len(consumer.Go.Modules) != 2 {
+		t.Fatalf("Go modules = %v, want two modules", consumer.Go)
 	}
 }
 
@@ -37,17 +37,15 @@ func TestDecodeConsumerRejectsInvalidInput(t *testing.T) {
 		want string
 	}{
 		{name: "empty", yaml: "", want: "empty configuration"},
-		{name: "unknown field", yaml: "schema-version: 1\nprofile: go-strict\nunknown: true\n", want: "field unknown not found"},
-		{name: "duplicate key", yaml: "schema-version: 1\nschema-version: 1\nprofile: go-strict\n", want: "already defined"},
-		{name: "two documents", yaml: "schema-version: 1\nprofile: go-strict\n---\nschema-version: 1\nprofile: go-strict\n", want: "multiple YAML documents"},
-		{name: "schema version", yaml: "schema-version: 2\nprofile: go-strict\n", want: "schema-version"},
-		{name: "traversal module", yaml: "schema-version: 1\nprofile: go-strict\nmodules: [../outside]\n", want: "traversal"},
-		{name: "absolute module", yaml: "schema-version: 1\nprofile: go-strict\nmodules: [/tmp/module]\n", want: "absolute"},
-		{name: "backslash module", yaml: "schema-version: 1\nprofile: go-strict\nmodules: ['src\\pkg']\n", want: "slash-separated"},
-		{name: "duplicate module", yaml: "schema-version: 1\nprofile: go-strict\nmodules: [api, api]\n", want: "duplicate module"},
-		{name: "unknown profile", yaml: "schema-version: 1\nprofile: permissive\n", want: "unsupported profile"},
-		{name: "unsupported service", yaml: "schema-version: 1\nprofile: go-strict\nservices: [mysql]\n", want: "unsupported service"},
-		{name: "control character", yaml: "schema-version: 1\nprofile: go-strict\nexceptions: \"bad\\u0007path\"\n", want: "control character"},
+		{name: "unknown field", yaml: "schema-version: 2\nprofile: go-strict\nunknown: true\n", want: "field unknown not found"},
+		{name: "duplicate key", yaml: "schema-version: 2\nschema-version: 2\nprofile: go-strict\n", want: "already defined"},
+		{name: "two documents", yaml: "schema-version: 2\nprofile: go-strict\n---\nschema-version: 2\nprofile: go-strict\n", want: "multiple YAML documents"},
+		{name: "schema version", yaml: "schema-version: 1\nprofile: go-strict\n", want: "schema-version"},
+		{name: "traversal module", yaml: "schema-version: 2\nprofile: go-strict\ngo:\n  modules:\n    - path: ../outside\n", want: "traversal"},
+		{name: "absolute module", yaml: "schema-version: 2\nprofile: go-strict\ngo:\n  modules:\n    - path: /tmp/module\n", want: "absolute"},
+		{name: "backslash module", yaml: "schema-version: 2\nprofile: go-strict\ngo:\n  modules:\n    - path: 'src\\pkg'\n", want: "slash-separated"},
+		{name: "unknown profile", yaml: "schema-version: 2\nprofile: permissive\n", want: "unsupported profile"},
+		{name: "control character", yaml: "schema-version: 2\nprofile: go-strict\nexceptions: \"bad\\u0007path\"\n", want: "control character"},
 	}
 
 	for _, test := range tests {
@@ -67,18 +65,10 @@ func TestConsumerValidationDoesNotStopAtValidCollectionEntries(t *testing.T) {
 		want     string
 	}{
 		{
-			name: "valid build tag before invalid service",
-			consumer: Consumer{
-				SchemaVersion: 1, Profile: ProfileGoStrict,
-				BuildTags: []string{"linux"}, Services: []Service{"mysql"},
-			},
-			want: "unsupported service",
-		},
-		{
 			name: "valid generated path before invalid exceptions path",
 			consumer: Consumer{
-				SchemaVersion: 1, Profile: ProfileGoStrict,
-				Generated: []string{"generated"}, Exceptions: "../outside",
+				SchemaVersion: 2, Profile: ProfileGoStrict,
+				GeneratedPaths: []string{"generated"}, Exceptions: "../outside",
 			},
 			want: "traversal",
 		},

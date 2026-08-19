@@ -1,13 +1,21 @@
-schema-version: 1
+schema-version: 2
 profile: go-strict
-modules:
-  - .
-  - testdata/repositories/go-generated
-  - testdata/repositories/go-multi
-  - testdata/repositories/go-multi/services/api
-  - testdata/repositories/go-single
-  - testdata/repositories/mixed
-generated:
+go:
+  defaults:
+    packages: [./...]
+    module-mode: readonly
+    test-timeout: 10m
+    package-parallelism: 4
+    race-parallelism: 1
+    coverage-packages: [./...]
+  modules:
+    - path: .
+    - path: testdata/repositories/go-generated
+    - path: testdata/repositories/go-multi
+    - path: testdata/repositories/go-multi/services/api
+    - path: testdata/repositories/go-single
+    - path: testdata/repositories/mixed
+generated-paths:
   - .github/workflows
   - configs/golangci.yml
   - templates/callers/generated

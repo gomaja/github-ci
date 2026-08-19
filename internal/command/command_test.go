@@ -297,7 +297,7 @@ func TestRunGenerateRejectsInvalidState(t *testing.T) {
 
 func TestRunFilesClassifiesTrackedRepository(t *testing.T) {
 	repository := newRepository(t)
-	mustWrite(t, filepath.Join(repository, ".github", "github-ci.yaml"), "schema-version: 1\nprofile: repository-only\ngenerated:\n  - generated\n")
+	mustWrite(t, filepath.Join(repository, ".github", "github-ci.yaml"), "schema-version: 2\nprofile: repository-only\ngenerated-paths:\n  - generated\n")
 	files := map[string]string{
 		"main.go":                   "package fixture\n",
 		"generated/main.go":         "package generated\n",
@@ -759,7 +759,7 @@ func newRepository(t *testing.T) string {
 	if err := os.MkdirAll(filepath.Join(root, ".github"), 0o755); err != nil {
 		t.Fatalf("create .github: %v", err)
 	}
-	mustWrite(t, filepath.Join(root, ".github", "github-ci.yaml"), "schema-version: 1\nprofile: repository-only\n")
+	mustWrite(t, filepath.Join(root, ".github", "github-ci.yaml"), "schema-version: 2\nprofile: repository-only\n")
 	for _, args := range [][]string{
 		{"init", "-b", "main"},
 		{"config", "user.name", "gomaja"},

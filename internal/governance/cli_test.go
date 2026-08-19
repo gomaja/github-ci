@@ -334,7 +334,7 @@ func (failingWriter) Write([]byte) (int, error) {
 func writeCLITestManifest(t *testing.T) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "governance.yaml")
-	contents := `schema-version: 1
+	contents := `schema-version: 2
 api-version: "2026-03-10"
 owners:
   - name: gomaja
@@ -342,7 +342,7 @@ owners:
 defaults:
   profile: go-strict
   default-branch: main
-  required-check: gate / gate
+  required-checks: [gate / gate]
   public-only: true
   refuse-forks: true
   refuse-archived: true
