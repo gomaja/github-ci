@@ -1,11 +1,13 @@
 package command
 
 import (
+	"bytes"
 	"context"
 	"io"
 	"io/fs"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -204,6 +206,9 @@ func TestTrackedRepositoryRejectsUnmergedIndex(t *testing.T) {
 }
 
 func TestTrackedRepositoryRejectsControlCharacterPath(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows filesystems reject control-character paths before Git can index them")
+	}
 	root := newRepository(t)
 	mustWrite(t, filepath.Join(root, "control\npath"), "data\n")
 	runGitMutationTest(t, root, nil, "add", ".")
@@ -283,9 +288,11 @@ func runGitMutationTest(t *testing.T, root string, stdin io.Reader, args ...stri
 	command := exec.CommandContext(t.Context(), "git", args...)
 	command.Dir = root
 	command.Stdin = stdin
-	output, err := command.CombinedOutput()
+	var stderr bytes.Buffer
+	command.Stderr = &stderr
+	output, err := command.Output()
 	if err != nil {
-		t.Fatalf("git %s: %v: %s", strings.Join(args, " "), err, output)
+		t.Fatalf("git %s: %v: %s", strings.Join(args, " "), err, stderr.String())
 	}
 	return string(output)
 }

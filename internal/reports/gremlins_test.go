@@ -18,6 +18,15 @@ func TestValidateGremlinsAcceptsCompletePinnedReport(t *testing.T) {
 	}
 }
 
+func TestGremlinsValidatorsRejectNilReaders(t *testing.T) {
+	if err := ValidateGremlins(nil, gremlinsModule); err == nil || !strings.Contains(err.Error(), "reader is nil") {
+		t.Fatalf("ValidateGremlins(nil) error = %v", err)
+	}
+	if _, err := ValidateGremlinsNoResults(nil, gremlinsModule); err == nil || !strings.Contains(err.Error(), "reader is nil") {
+		t.Fatalf("ValidateGremlinsNoResults(nil) error = %v", err)
+	}
+}
+
 func TestValidateGremlinsNoResultsProducesModuleBoundEvidence(t *testing.T) {
 	transcript := "Starting...\nGathering coverage... done in 250ms\n\nNo results to report.\n"
 	evidence, err := ValidateGremlinsNoResults(strings.NewReader(transcript), gremlinsModule)

@@ -124,6 +124,9 @@ func ParserTool(parserVersion string) (string, bool) {
 }
 
 func readBounded(reader io.Reader) ([]byte, error) {
+	if reader == nil {
+		return nil, errors.New("report reader is nil")
+	}
 	data, err := io.ReadAll(io.LimitReader(reader, maxReadBytes))
 	if err != nil {
 		return nil, fmt.Errorf("read report: %w", err)
