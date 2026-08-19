@@ -177,21 +177,32 @@ func TestDetectRecognizesDirectExecutableShellShebangs(t *testing.T) {
 	}
 }
 
-func TestIsShellRequiresExecutableModeAndRecognizedShebang(t *testing.T) {
+func TestIsShellRecognizesSupportedShebangRegardlessOfMode(t *testing.T) {
 	tests := []struct {
 		name string
 		file trackedFile
 		want bool
 	}{
-		{name: "non-executable shebang", file: trackedFile{mode: 0o644, data: []byte("#!/bin/sh\n")}},
+		{name: "non-executable shebang", file: trackedFile{mode: 0o644, data: []byte("#!/bin/sh\n")}, want: true},
 		{name: "executable sh", file: trackedFile{mode: 0o755, data: []byte("#!/bin/sh\n")}, want: true},
 		{name: "executable bash", file: trackedFile{mode: 0o755, data: []byte("#!/bin/bash\n")}, want: true},
+		{name: "direct options", file: trackedFile{data: []byte("#!/bin/bash -e\n")}, want: true},
+		{name: "env split string", file: trackedFile{data: []byte("#!/usr/bin/env -S bash -e\n")}, want: true},
+		{name: "env unset short", file: trackedFile{data: []byte("#!/usr/bin/env -u PATH bash\n")}, want: true},
+		{name: "env unset long", file: trackedFile{data: []byte("#!/usr/bin/env --unset PATH bash\n")}, want: true},
+		{name: "env chdir short", file: trackedFile{data: []byte("#!/usr/bin/env -C /tmp sh\n")}, want: true},
+		{name: "env chdir long", file: trackedFile{data: []byte("#!/usr/bin/env --chdir /tmp ksh\n")}, want: true},
+		{name: "CRLF", file: trackedFile{data: []byte("#!/usr/bin/env bash\r\n")}, want: true},
+		{name: "env without command", file: trackedFile{data: []byte("#!/usr/bin/env\n")}},
+		{name: "env option without operand", file: trackedFile{data: []byte("#!/usr/bin/env -u\n")}},
+		{name: "direct prefix collision", file: trackedFile{data: []byte("#!/bin/bashful\n")}},
+		{name: "env prefix collision", file: trackedFile{data: []byte("#!/usr/bin/env bashful\n")}},
 		{name: "unrecognized", file: trackedFile{mode: 0o755, data: []byte("#!/usr/bin/env fish\n")}},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			if got := isShell(test.file, ""); got != test.want {
-				t.Fatalf("isShell() = %t, want %t", got, test.want)
+			if got := IsShellFile(test.file.path, test.file.data); got != test.want {
+				t.Fatalf("IsShellFile() = %t, want %t", got, test.want)
 			}
 		})
 	}

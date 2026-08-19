@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/gomaja/github-ci/internal/config"
 	"github.com/gomaja/github-ci/internal/generate"
 )
 
@@ -118,6 +119,32 @@ func TestRepositoryScannerInventory(t *testing.T) {
 			t.Errorf("tool policy is missing %s", id)
 		}
 	}
+}
+
+func TestGovernanceUsesRepositoryOnlyProfileForShellCanary(t *testing.T) {
+	t.Parallel()
+	file, err := os.Open(filepath.Join(repositoryRoot(t), "governance", "gomaja.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := file.Close(); err != nil {
+			t.Errorf("close governance manifest: %v", err)
+		}
+	})
+	manifest, err := config.DecodeGovernance(file)
+	if err != nil {
+		t.Fatalf("decode governance manifest: %v", err)
+	}
+	for _, repository := range manifest.Repositories {
+		if repository.Name == "sctp-portkill" {
+			if repository.Profile != config.ProfileRepositoryOnly {
+				t.Fatalf("sctp-portkill profile = %q, want %q", repository.Profile, config.ProfileRepositoryOnly)
+			}
+			return
+		}
+	}
+	t.Fatal("governance manifest is missing sctp-portkill")
 }
 
 func TestRepositoryScannerScriptsFailClosed(t *testing.T) {

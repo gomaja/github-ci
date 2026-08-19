@@ -35,4 +35,5 @@ repositories:
   - name: go-sms
     enforce-caller: false
   - name: sctp-portkill
+    profile: repository-only
     enforce-caller: false

@@ -179,7 +179,7 @@ func inspect(files []trackedFile, generated []string) repositoryShape {
 		if extension == ".go" && !isGenerated(file.path, generated) {
 			shape.ordinaryGo = true
 		}
-		if isShell(file, extension) {
+		if IsShellFile(file.path, file.data) {
 			shape.shell = true
 		}
 		if isDockerfile(base) {
@@ -270,23 +270,56 @@ func isGenerated(name string, generated []string) bool {
 	return false
 }
 
-func isShell(file trackedFile, extension string) bool {
-	switch extension {
+// IsShellFile reports whether a tracked path is a supported shell source file.
+func IsShellFile(name string, data []byte) bool {
+	switch strings.ToLower(path.Ext(path.Base(name))) {
 	case ".sh", ".bash", ".bats", ".zsh", ".ksh":
 		return true
 	}
-	if file.mode.Perm()&0o111 == 0 {
+	line, _, _ := bytes.Cut(data, []byte("\n"))
+	line = bytes.TrimSuffix(line, []byte("\r"))
+	if !bytes.HasPrefix(line, []byte("#!")) {
 		return false
 	}
-	line, _, _ := bytes.Cut(file.data, []byte("\n"))
-	return bytes.HasPrefix(line, []byte("#!/bin/sh")) ||
-		bytes.HasPrefix(line, []byte("#!/bin/bash")) ||
-		bytes.HasPrefix(line, []byte("#!/bin/zsh")) ||
-		bytes.HasPrefix(line, []byte("#!/bin/ksh")) ||
-		bytes.HasPrefix(line, []byte("#!/usr/bin/env sh")) ||
-		bytes.HasPrefix(line, []byte("#!/usr/bin/env bash")) ||
-		bytes.HasPrefix(line, []byte("#!/usr/bin/env zsh")) ||
-		bytes.HasPrefix(line, []byte("#!/usr/bin/env ksh"))
+	fields := strings.Fields(string(line[2:]))
+	if len(fields) == 0 {
+		return false
+	}
+	if isSupportedShellInterpreter(fields[0]) {
+		return true
+	}
+	if path.Base(fields[0]) != "env" {
+		return false
+	}
+	return envSelectsSupportedShell(fields[1:])
+}
+
+func envSelectsSupportedShell(arguments []string) bool {
+	for len(arguments) != 0 {
+		argument := arguments[0]
+		arguments = arguments[1:]
+		switch argument {
+		case "-u", "--unset", "-C", "--chdir":
+			if len(arguments) == 0 {
+				return false
+			}
+			arguments = arguments[1:]
+		}
+		if strings.HasPrefix(argument, "-") || strings.ContainsRune(argument, '=') {
+			continue
+		}
+		return isSupportedShellInterpreter(argument)
+	}
+	return false
+}
+
+func isSupportedShellInterpreter(interpreter string) bool {
+	switch path.Base(interpreter) {
+	case "sh", "bash", "zsh", "ksh":
+		return true
+	default:
+		return false
+	}
 }
 
 func isDockerfile(base string) bool {

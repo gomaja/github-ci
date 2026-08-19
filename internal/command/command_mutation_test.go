@@ -16,20 +16,16 @@ import (
 	"github.com/gomaja/github-ci/internal/gate"
 )
 
-func TestTrackedShellFileMatchesRequiresExecutablePermission(t *testing.T) {
+func TestTrackedShellFileMatchesRecognizesNonExecutableShebang(t *testing.T) {
 	tracked := fstest.MapFS{
 		"script": &fstest.MapFile{Data: []byte("#!/bin/sh\ntrue\n"), Mode: 0o644},
 	}
-	entries, err := fs.ReadDir(tracked, ".")
-	if err != nil {
-		t.Fatalf("ReadDir() error = %v", err)
-	}
-	matched, err := trackedShellFileMatches(tracked, "script", entries[0], "")
+	matched, err := trackedShellFileMatches(tracked, "script")
 	if err != nil {
 		t.Fatalf("trackedShellFileMatches() error = %v", err)
 	}
-	if matched {
-		t.Fatal("trackedShellFileMatches() accepted a non-executable extensionless script")
+	if !matched {
+		t.Fatal("trackedShellFileMatches() rejected a non-executable extensionless script")
 	}
 }
 

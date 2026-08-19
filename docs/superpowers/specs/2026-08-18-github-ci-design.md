@@ -563,7 +563,7 @@ defaults:
   required-check: github-ci / gate
 repositories:
   - name: sctp-portkill
-    profile: go-strict
+    profile: repository-only
   - name: go-sctp
     profile: go-strict
 ```
