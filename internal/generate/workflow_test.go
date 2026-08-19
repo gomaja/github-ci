@@ -372,7 +372,7 @@ func TestDeepWorkflowContract(t *testing.T) {
 	for _, required := range []string{
 		`--output "$report"`,
 		`--timeout-coefficient 20`,
-		`module_path=$(cd "$directory" && go list -m -f '{{.Path}}')`,
+		`module_path=$(cd "$directory" && GOWORK=off go list -m -f '{{.Path}}')`,
 		`"$CLI" validate-gremlins --report "$report" --module "$module_path"`,
 		`name: github-ci-mutation`,
 	} {

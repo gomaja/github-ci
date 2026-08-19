@@ -173,7 +173,7 @@ jobs:
           while IFS= read -r module; do
             directory="$SOURCE_DIR"
             [[ "$module" == "." ]] || directory="$SOURCE_DIR/$module"
-            module_path=$(cd "$directory" && go list -m -f '{{.Path}}')
+            module_path=$(cd "$directory" && GOWORK=off go list -m -f '{{.Path}}')
             report="$MUTATION_DIR/module-${index}.json"
             # Gremlins v0.6.0 derives mutant timeouts from the cached baseline test duration.
             (cd "$directory" && gremlins unleash --silent --workers 2 --timeout-coefficient 20 --output "$report" .)
