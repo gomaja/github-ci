@@ -13,7 +13,10 @@ import (
 	"github.com/gomaja/github-ci/internal/pathpolicy"
 )
 
-const maxGremlinsJSONDepth = 32
+const (
+	maxGremlinsJSONDepth  = 32
+	gremlinsNoResultsLine = "No results to report."
+)
 
 var gremlinsPropertyNames = [...]string{
 	"go_module",
@@ -60,6 +63,15 @@ type gremlinsReport struct {
 	MutatorStatistics *gremlinsStatistics `json:"mutator_statistics"`
 }
 
+// GremlinsNoResultsEvidence records a pinned Gremlins run with no mutation points.
+type GremlinsNoResultsEvidence struct {
+	SchemaVersion int    `json:"schema_version"`
+	Tool          string `json:"tool"`
+	ToolVersion   string `json:"tool_version"`
+	GoModule      string `json:"go_module"`
+	Outcome       string `json:"outcome"`
+}
+
 type gremlinsFile struct {
 	Filename  *string             `json:"file_name"`
 	Mutations *[]gremlinsMutation `json:"mutations"`
@@ -102,11 +114,8 @@ func (count *gremlinsOptionalCount) UnmarshalJSON(data []byte) error {
 
 // ValidateGremlins validates complete mutation evidence emitted by pinned Gremlins v0.6.0.
 func ValidateGremlins(reader io.Reader, expectedModule string) error {
-	if strings.TrimSpace(expectedModule) == "" {
-		return errors.New("expected module must not be empty")
-	}
-	if strings.ContainsFunc(expectedModule, unicode.IsControl) {
-		return errors.New("expected module contains a control character")
+	if err := validateGremlinsModule(expectedModule); err != nil {
+		return err
 	}
 	data, err := readBounded(reader)
 	if err != nil {
@@ -120,6 +129,52 @@ func ValidateGremlins(reader io.Reader, expectedModule string) error {
 		return fmt.Errorf("decode Gremlins report: %w", err)
 	}
 	return validateGremlinsReport(report, expectedModule)
+}
+
+// ValidateGremlinsNoResults validates the terminal message emitted by pinned
+// Gremlins v0.6.0 when its result set contains no mutants.
+func ValidateGremlinsNoResults(reader io.Reader, expectedModule string) (GremlinsNoResultsEvidence, error) {
+	if err := validateGremlinsModule(expectedModule); err != nil {
+		return GremlinsNoResultsEvidence{}, err
+	}
+	data, err := readBounded(reader)
+	if err != nil {
+		return GremlinsNoResultsEvidence{}, err
+	}
+	lines := strings.Split(strings.ReplaceAll(string(data), "\r\n", "\n"), "\n")
+	markerCount := 0
+	finalLine := ""
+	for _, line := range lines {
+		if line == gremlinsNoResultsLine {
+			markerCount++
+		}
+		if strings.TrimSpace(line) != "" {
+			finalLine = line
+		}
+	}
+	if markerCount != 1 {
+		return GremlinsNoResultsEvidence{}, errors.New("gremlins no-results marker must appear exactly once")
+	}
+	if finalLine != gremlinsNoResultsLine {
+		return GremlinsNoResultsEvidence{}, errors.New("gremlins no-results marker must be the final non-empty line")
+	}
+	return GremlinsNoResultsEvidence{
+		SchemaVersion: 1,
+		Tool:          "gremlins",
+		ToolVersion:   "0.6.0",
+		GoModule:      expectedModule,
+		Outcome:       "no-mutants",
+	}, nil
+}
+
+func validateGremlinsModule(expectedModule string) error {
+	if strings.TrimSpace(expectedModule) == "" {
+		return errors.New("expected module must not be empty")
+	}
+	if strings.ContainsFunc(expectedModule, unicode.IsControl) {
+		return errors.New("expected module contains a control character")
+	}
+	return nil
 }
 
 func validateGremlinsReport(report gremlinsReport, expectedModule string) error {
@@ -160,7 +215,7 @@ func validateGremlinsScalars(report gremlinsReport) error {
 		if percentage.value == nil {
 			return fmt.Errorf("%s is required", percentage.name)
 		}
-		if math.IsNaN(*percentage.value) || math.IsInf(*percentage.value, 0) || *percentage.value != 100 {
+		if *percentage.value != 100 {
 			return fmt.Errorf("%s must equal 100", percentage.name)
 		}
 	}
@@ -176,7 +231,13 @@ func validateGremlinsScalars(report gremlinsReport) error {
 	if report.ElapsedTime == nil {
 		return errors.New("elapsed_time is required")
 	}
-	if math.IsNaN(*report.ElapsedTime) || math.IsInf(*report.ElapsedTime, 0) || *report.ElapsedTime < 0 {
+	if math.IsNaN(*report.ElapsedTime) {
+		return errors.New("elapsed_time must not be negative or non-finite")
+	}
+	if math.IsInf(*report.ElapsedTime, 0) {
+		return errors.New("elapsed_time must not be negative or non-finite")
+	}
+	if *report.ElapsedTime < 0 {
 		return errors.New("elapsed_time must not be negative or non-finite")
 	}
 	if report.MutatorStatistics == nil {

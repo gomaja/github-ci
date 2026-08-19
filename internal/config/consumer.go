@@ -127,10 +127,6 @@ func decodeStrictYAML(reader io.Reader, destination any) error {
 		}
 		return fmt.Errorf("decode configuration: %w", err)
 	}
-	if node.Kind == 0 || len(node.Content) == 0 {
-		return errors.New("empty configuration")
-	}
-
 	var trailing yaml.Node
 	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
 		if err == nil {

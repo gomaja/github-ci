@@ -50,6 +50,8 @@ func TestValidateRecordRejectsInvalidInput(t *testing.T) {
 		{name: "traversing command path", mutate: func(record *Record) { record.CommandID = "lint/../report" }, want: "traversal"},
 		{name: "n/a finding", mutate: func(record *Record) { *record = notApplicableRecord(); record.FindingCount = 1 }, want: "N/A record"},
 		{name: "n/a report", mutate: func(record *Record) { *record = notApplicableRecord(); record.ReportSHA256 = testReportSHA }, want: "N/A record"},
+		{name: "n/a outcome", mutate: func(record *Record) { *record = notApplicableRecord(); record.Outcome = OutcomePass }, want: "N/A record"},
+		{name: "n/a exit", mutate: func(record *Record) { *record = notApplicableRecord(); record.ExitCode = 1 }, want: "N/A record"},
 		{name: "n/a applicable", mutate: func(record *Record) { record.Outcome = OutcomeNotApplicable }, want: "applicable record"},
 	}
 

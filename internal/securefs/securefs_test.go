@@ -124,4 +124,15 @@ func TestValidateRegularIdentity(t *testing.T) {
 	if err := validateRegularIdentity(regular, regular, nil); err != nil {
 		t.Fatalf("validateRegularIdentity(same file) = %v", err)
 	}
+	otherPath := filepath.Join(root, "other.txt")
+	if err := os.WriteFile(otherPath, []byte("other"), 0o600); err != nil {
+		t.Fatalf("write other: %v", err)
+	}
+	other, err := os.Stat(otherPath)
+	if err != nil {
+		t.Fatalf("stat other: %v", err)
+	}
+	if err := validateRegularIdentity(regular, other, nil); err == nil || err.Error() != "file identity changed while opening" {
+		t.Fatalf("validateRegularIdentity(different regular file) = %v", err)
+	}
 }

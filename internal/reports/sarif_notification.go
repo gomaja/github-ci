@@ -110,7 +110,13 @@ func parseSARIFNotificationComponent(raw json.RawMessage, label string) (sarifNo
 		return sarifNotificationComponent{}, err
 	}
 	name, exists, err := sarifStringProperty(object, "name")
-	if err != nil || !exists || name == "" {
+	if err != nil {
+		return sarifNotificationComponent{}, fmt.Errorf("SARIF %s name must be a nonempty string", label)
+	}
+	if !exists {
+		return sarifNotificationComponent{}, fmt.Errorf("SARIF %s name must be a nonempty string", label)
+	}
+	if name == "" {
 		return sarifNotificationComponent{}, fmt.Errorf("SARIF %s name must be a nonempty string", label)
 	}
 	guid, _, err := sarifGUIDProperty(object)
@@ -170,7 +176,13 @@ func parseSARIFReportingDescriptor(raw json.RawMessage, label string, parseConfi
 		return sarifReportingDescriptor{}, err
 	}
 	id, exists, err := sarifStringProperty(object, "id")
-	if err != nil || !exists || id == "" {
+	if err != nil {
+		return sarifReportingDescriptor{}, fmt.Errorf("%s id must be a nonempty string", label)
+	}
+	if !exists {
+		return sarifReportingDescriptor{}, fmt.Errorf("%s id must be a nonempty string", label)
+	}
+	if id == "" {
 		return sarifReportingDescriptor{}, fmt.Errorf("%s id must be a nonempty string", label)
 	}
 	guid, _, err := sarifGUIDProperty(object)
@@ -453,7 +465,10 @@ func (resolver *sarifNotificationResolver) resolveComponent(raw json.RawMessage)
 		return 0, err
 	}
 	name, hasName, err := sarifStringProperty(reference, "name")
-	if err != nil || hasName && name == "" {
+	if err != nil {
+		return 0, errors.New("toolComponentReference name must be a nonempty string")
+	}
+	if hasName && name == "" {
 		return 0, errors.New("toolComponentReference name must be a nonempty string")
 	}
 	guid, hasGUID, err := sarifGUIDProperty(reference)

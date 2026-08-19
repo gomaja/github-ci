@@ -19,8 +19,8 @@ import (
 const (
 	// DetectorVersion identifies the tracked-tree applicability algorithm.
 	DetectorVersion = "applicability/v1"
-	maxTrackedFile  = 256 << 20
-	maxTrackedTree  = 2 << 30
+	maxTrackedFile  = 268_435_456
+	maxTrackedTree  = 2_147_483_648
 )
 
 // Input binds detection to consumer configuration and immutable policy identity.

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -59,7 +60,7 @@ func TestWriteEvidenceCreatesVerifiableAtomicFiles(t *testing.T) {
 		if err != nil {
 			t.Fatalf("stat %s: %v", name, err)
 		}
-		if info.Mode().Perm() != 0o644 {
+		if runtime.GOOS != "windows" && info.Mode().Perm() != 0o644 {
 			t.Errorf("%s permissions = %o, want 644", name, info.Mode().Perm())
 		}
 	}
@@ -114,6 +115,44 @@ func TestVerifyRejectsDuplicateAndUnsortedManifestFiles(t *testing.T) {
 			mustWrite(t, manifestPath, data)
 			mustWrite(t, sumsPath, sums)
 			if err := Verify(root, manifestPath, sumsPath); err == nil || err.Error() != "release manifest files must be unique and sorted" {
+				t.Fatalf("Verify() error = %v", err)
+			}
+		})
+	}
+}
+
+func TestVerifyRejectsEitherInvalidManifestIdentityField(t *testing.T) {
+	root := fixtureRoot(t)
+	manifestData, sums, err := Build(Input{
+		Root: root, SubjectSHA: strings.Repeat("d", 40), SourceDate: time.Unix(1, 0), Assets: []string{"dist/a.txt"},
+	})
+	if err != nil {
+		t.Fatalf("Build() error = %v", err)
+	}
+	var canonical Manifest
+	if err := json.Unmarshal(manifestData, &canonical); err != nil {
+		t.Fatalf("decode manifest: %v", err)
+	}
+	tests := []struct {
+		name   string
+		mutate func(*Manifest)
+	}{
+		{name: "schema version", mutate: func(manifest *Manifest) { manifest.SchemaVersion = "2" }},
+		{name: "subject SHA", mutate: func(manifest *Manifest) { manifest.SubjectSHA = "main" }},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			manifest := canonical
+			test.mutate(&manifest)
+			data, err := json.Marshal(manifest)
+			if err != nil {
+				t.Fatalf("marshal manifest: %v", err)
+			}
+			manifestPath := filepath.Join(t.TempDir(), "manifest.json")
+			sumsPath := filepath.Join(t.TempDir(), "SHA256SUMS")
+			mustWrite(t, manifestPath, data)
+			mustWrite(t, sumsPath, sums)
+			if err := Verify(root, manifestPath, sumsPath); err == nil || err.Error() != "invalid release manifest identity" {
 				t.Fatalf("Verify() error = %v", err)
 			}
 		})

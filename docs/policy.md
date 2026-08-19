@@ -46,6 +46,12 @@ previous Go releases; every fuzz target; benchmarks; Gremlins mutation testing
 at 100 percent efficacy and mutant coverage; full-history Gitleaks; dependency
 freshness; generated drift; and PostgreSQL and Redis integration-tagged tests.
 
+Every configured module runs all eleven mutators available in pinned Gremlins
+v0.6.0. A normal report is bound to the exact Go module and accepted only when
+every mutation is killed or not viable. When a module has no mutation points,
+the validator requires Gremlins' exact terminal no-results marker and emits
+module-bound evidence. A missing report without that marker fails closed.
+
 ## Release Assurance
 
 The release workflow accepts an existing immutable `vX.Y.Z` tag, verifies that

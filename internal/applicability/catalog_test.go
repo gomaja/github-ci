@@ -2,6 +2,7 @@ package applicability
 
 import (
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/gomaja/github-ci/internal/config"
@@ -132,5 +133,29 @@ func TestReasonForBindsReasonToCommand(t *testing.T) {
 	}
 	if got, ok := ReasonFor("staticcheck", "hadolint/dockerfiles"); ok || got != "" {
 		t.Fatalf("ReasonFor(mismatched command) = %q, %t", got, ok)
+	}
+}
+
+func TestValidateDefaultPolicyBindsIdentityAndEveryField(t *testing.T) {
+	tests := []struct {
+		name   string
+		mutate func(*Catalog)
+	}{
+		{name: "unknown identity", mutate: func(catalog *Catalog) {
+			(*catalog)[0] = Entry{Tool: "unknown", CommandID: "unknown/command"}
+		}},
+		{name: "parser", mutate: func(catalog *Catalog) { (*catalog)[0].ParserVersion += "-changed" }},
+		{name: "capability", mutate: func(catalog *Catalog) { (*catalog)[0].Capability = CapabilityAlways }},
+		{name: "reason", mutate: func(catalog *Catalog) { (*catalog)[0].ReasonCode = ReasonNoDockerfiles }},
+		{name: "profiles", mutate: func(catalog *Catalog) { (*catalog)[0].Profiles = goProfiles() }},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			catalog := DefaultCatalog()
+			test.mutate(&catalog)
+			if err := catalog.validateDefaultPolicy(); err == nil || !strings.Contains(err.Error(), "catalog policy drift") {
+				t.Fatalf("validateDefaultPolicy() error = %v", err)
+			}
+		})
 	}
 }

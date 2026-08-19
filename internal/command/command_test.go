@@ -203,6 +203,45 @@ func TestRunValidateGremlinsBindsCompleteReportToModule(t *testing.T) {
 	}
 }
 
+func TestRunValidateGremlinsNoResultsWritesEvidence(t *testing.T) {
+	logPath := filepath.Join(t.TempDir(), "gremlins.log")
+	outputPath := filepath.Join(t.TempDir(), "nested", "no-results.json")
+	mustWrite(t, logPath, "Starting...\n\nNo results to report.\n")
+	code, _, stderr := runForTest(t, []string{
+		"validate-gremlins-no-results", "--log", logPath, "--module", "example.com/module", "--output", outputPath,
+	})
+	if code != exitSuccess || stderr != "" {
+		t.Fatalf("validate-gremlins-no-results code = %d, stderr = %q", code, stderr)
+	}
+	var evidence reports.GremlinsNoResultsEvidence
+	if err := json.Unmarshal(mustReadFile(t, outputPath), &evidence); err != nil {
+		t.Fatalf("decode no-results evidence: %v", err)
+	}
+	if evidence.GoModule != "example.com/module" || evidence.Outcome != "no-mutants" {
+		t.Fatalf("no-results evidence = %#v", evidence)
+	}
+
+	tests := []struct {
+		name string
+		args []string
+		want string
+	}{
+		{name: "missing log", args: []string{"validate-gremlins-no-results", "--module", "example.com/module", "--output", outputPath}, want: "--log is required"},
+		{name: "missing module", args: []string{"validate-gremlins-no-results", "--log", logPath, "--output", outputPath}, want: "--module is required"},
+		{name: "missing output", args: []string{"validate-gremlins-no-results", "--log", logPath, "--module", "example.com/module"}, want: "--output is required"},
+		{name: "positional", args: []string{"validate-gremlins-no-results", "--log", logPath, "--module", "example.com/module", "--output", outputPath, "extra"}, want: "unexpected positional argument"},
+		{name: "missing file", args: []string{"validate-gremlins-no-results", "--log", filepath.Join(t.TempDir(), "missing"), "--module", "example.com/module", "--output", outputPath}, want: "open Gremlins log"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			code, _, stderr := runForTest(t, test.args)
+			if code != exitError || !strings.Contains(stderr, test.want) {
+				t.Fatalf("code = %d, stderr = %q, want %q", code, stderr, test.want)
+			}
+		})
+	}
+}
+
 func TestReleaseEvidenceCommandsRejectInvalidInput(t *testing.T) {
 	root := releaseFixture(t)
 	output := t.TempDir()
@@ -286,6 +325,11 @@ func TestRunFilesClassifiesTrackedRepository(t *testing.T) {
 	command.Dir = repository
 	if output, err := command.CombinedOutput(); err != nil {
 		t.Fatalf("git add fixtures: %v: %s", err, output)
+	}
+	command = exec.CommandContext(t.Context(), "git", "update-index", "--chmod=+x", "scripts/check")
+	command.Dir = repository
+	if output, err := command.CombinedOutput(); err != nil {
+		t.Fatalf("stage extensionless script as executable: %v: %s", err, output)
 	}
 
 	want := map[string]string{

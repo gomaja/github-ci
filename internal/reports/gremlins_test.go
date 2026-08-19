@@ -2,6 +2,8 @@ package reports
 
 import (
 	"bytes"
+	"encoding/json"
+	"math"
 	"os"
 	"strings"
 	"testing"
@@ -13,6 +15,58 @@ func TestValidateGremlinsAcceptsCompletePinnedReport(t *testing.T) {
 	report := mustGremlinsFixture(t)
 	if err := ValidateGremlins(bytes.NewReader(report), gremlinsModule); err != nil {
 		t.Fatalf("ValidateGremlins() error = %v", err)
+	}
+}
+
+func TestGremlinsValidatorsRejectNilReaders(t *testing.T) {
+	if err := ValidateGremlins(nil, gremlinsModule); err == nil || !strings.Contains(err.Error(), "reader is nil") {
+		t.Fatalf("ValidateGremlins(nil) error = %v", err)
+	}
+	if _, err := ValidateGremlinsNoResults(nil, gremlinsModule); err == nil || !strings.Contains(err.Error(), "reader is nil") {
+		t.Fatalf("ValidateGremlinsNoResults(nil) error = %v", err)
+	}
+}
+
+func TestValidateGremlinsNoResultsProducesModuleBoundEvidence(t *testing.T) {
+	transcript := "Starting...\nGathering coverage... done in 250ms\n\nNo results to report.\n"
+	evidence, err := ValidateGremlinsNoResults(strings.NewReader(transcript), gremlinsModule)
+	if err != nil {
+		t.Fatalf("ValidateGremlinsNoResults() error = %v", err)
+	}
+	want := GremlinsNoResultsEvidence{
+		SchemaVersion: 1,
+		Tool:          "gremlins",
+		ToolVersion:   "0.6.0",
+		GoModule:      gremlinsModule,
+		Outcome:       "no-mutants",
+	}
+	if evidence != want {
+		t.Fatalf("ValidateGremlinsNoResults() = %#v, want %#v", evidence, want)
+	}
+}
+
+func TestValidateGremlinsNoResultsRejectsUnprovenOutcome(t *testing.T) {
+	tests := []struct {
+		name       string
+		transcript string
+		module     string
+		want       string
+	}{
+		{name: "empty", module: gremlinsModule, want: "empty report"},
+		{name: "wrong case", transcript: "No Results To Report.\n", module: gremlinsModule, want: "exactly once"},
+		{name: "embedded", transcript: "prefix No results to report.\n", module: gremlinsModule, want: "exactly once"},
+		{name: "duplicate", transcript: "No results to report.\nNo results to report.\n", module: gremlinsModule, want: "exactly once"},
+		{name: "trailing output", transcript: "No results to report.\nunexpected\n", module: gremlinsModule, want: "final non-empty line"},
+		{name: "empty module", transcript: "No results to report.\n", want: "expected module"},
+		{name: "control module", transcript: "No results to report.\n", module: "example.com/control\n", want: "control character"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			_, err := ValidateGremlinsNoResults(strings.NewReader(test.transcript), test.module)
+			if err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("ValidateGremlinsNoResults() error = %v, want %q", err, test.want)
+			}
+		})
 	}
 }
 
@@ -96,6 +150,35 @@ func TestValidateGremlinsAcceptsZeroElapsedTime(t *testing.T) {
 	}
 }
 
+func TestValidateGremlinsScalarsRejectsNonFiniteValues(t *testing.T) {
+	var valid gremlinsReport
+	if err := json.Unmarshal(mustGremlinsFixture(t), &valid); err != nil {
+		t.Fatalf("decode valid report: %v", err)
+	}
+	tests := []struct {
+		name   string
+		value  float64
+		assign func(*gremlinsReport, *float64)
+		want   string
+	}{
+		{name: "efficacy NaN", value: math.NaN(), assign: func(report *gremlinsReport, value *float64) { report.TestEfficacy = value }, want: "test_efficacy"},
+		{name: "coverage positive infinity", value: math.Inf(1), assign: func(report *gremlinsReport, value *float64) { report.MutationsCoverage = value }, want: "mutations_coverage"},
+		{name: "elapsed NaN", value: math.NaN(), assign: func(report *gremlinsReport, value *float64) { report.ElapsedTime = value }, want: "elapsed_time"},
+		{name: "elapsed positive infinity", value: math.Inf(1), assign: func(report *gremlinsReport, value *float64) { report.ElapsedTime = value }, want: "elapsed_time"},
+		{name: "elapsed negative infinity", value: math.Inf(-1), assign: func(report *gremlinsReport, value *float64) { report.ElapsedTime = value }, want: "elapsed_time"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			report := valid
+			test.assign(&report, &test.value)
+			err := validateGremlinsScalars(report)
+			if err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("validateGremlinsScalars() error = %v, want %q", err, test.want)
+			}
+		})
+	}
+}
+
 func TestValidateGremlinsUniqueKeysAcceptsMaximumDepth(t *testing.T) {
 	report := strings.Repeat("[", maxGremlinsJSONDepth) + `0` + strings.Repeat("]", maxGremlinsJSONDepth)
 	if err := validateGremlinsUniqueKeys([]byte(report)); err != nil {
@@ -108,6 +191,14 @@ func FuzzValidateGremlins(f *testing.F) {
 	f.Add([]byte(`{"go_module":`), gremlinsModule)
 	f.Fuzz(func(_ *testing.T, report []byte, module string) {
 		_ = ValidateGremlins(bytes.NewReader(report), module)
+	})
+}
+
+func FuzzValidateGremlinsNoResults(f *testing.F) {
+	f.Add([]byte("No results to report.\n"), gremlinsModule)
+	f.Add([]byte(""), "")
+	f.Fuzz(func(_ *testing.T, transcript []byte, module string) {
+		_, _ = ValidateGremlinsNoResults(bytes.NewReader(transcript), module)
 	})
 }
 

@@ -15,7 +15,7 @@ import (
 	"time"
 )
 
-const maxResponseBytes = 16 << 20
+const maxResponseBytes = 16_777_216
 
 const defaultBaseURL = "https://api.github.com"
 
