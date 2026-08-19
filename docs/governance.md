@@ -45,6 +45,10 @@ concurrent drift. Release and tag creation are not governance operations.
 Required status checks are enabled only after a real canary records the stable
 aggregate context. The manifest will not guess the check name.
 
+The live self-test records the aggregate context as `gate / gate`. Consumer
+repositories record their observed context in their own manifest entry before
+caller enforcement is enabled.
+
 Secret scanning for non-provider patterns and validity checks requires GitHub
 Secret Protection for Team or Enterprise repositories. It is unavailable to
 the current personal-account public repositories and is recorded as an

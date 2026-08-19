@@ -321,6 +321,7 @@ func TestCountProducerDoesNotHideCodeQLErrorsOrOtherMessageDefects(t *testing.T)
 
 func TestCountScorecardSARIFKeepsGovernanceIndicatorsNonBlocking(t *testing.T) {
 	report := `{"version":"2.1.0","runs":[{"tool":{"driver":{"name":"Scorecard"}},"results":[` +
+		`{"ruleId":"BranchProtectionID","message":{"text":"repository rules"}},` +
 		`{"ruleId":"CodeReviewID","message":{"text":"historical approvals"}},` +
 		`{"ruleId":"MaintainedID","message":{"text":"repository age"}},` +
 		`{"ruleId":"CIIBestPracticesID","message":{"text":"external attestation"}},` +
@@ -337,8 +338,8 @@ func TestCountScorecardSARIFKeepsGovernanceIndicatorsNonBlocking(t *testing.T) {
 	if err != nil {
 		t.Fatalf("strict Count() error = %v", err)
 	}
-	if strict.Findings != 4 {
-		t.Fatalf("strict Count() findings = %d, want all 4 observations", strict.Findings)
+	if strict.Findings != 5 {
+		t.Fatalf("strict Count() findings = %d, want all 5 observations", strict.Findings)
 	}
 }
 

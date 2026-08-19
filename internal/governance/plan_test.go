@@ -96,6 +96,22 @@ func TestBuildPlanRefusesUnexpectedRepositoryScope(t *testing.T) {
 	}
 }
 
+func TestBranchRulesetRequiresObservedStatusWithoutCallerEnforcement(t *testing.T) {
+	repository := config.Repository{ObservedRequiredCheck: "gate / gate"}
+	ruleset := branchRuleset(repository)
+	for _, rule := range ruleset.Rules {
+		if rule.Type != "required_status_checks" {
+			continue
+		}
+		checks, ok := rule.Parameters["required_status_checks"].([]map[string]string)
+		if !ok || len(checks) != 1 || checks[0]["context"] != "gate / gate" {
+			t.Fatalf("required status checks = %#v", rule.Parameters["required_status_checks"])
+		}
+		return
+	}
+	t.Fatal("branch ruleset has no required status check")
+}
+
 func testGovernance() config.Governance {
 	return config.Governance{
 		SchemaVersion: 1,

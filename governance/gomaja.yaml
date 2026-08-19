@@ -6,7 +6,7 @@ owners:
 defaults:
   profile: go-strict
   default-branch: main
-  required-check: github-ci / gate
+  required-check: gate / gate
   public-only: true
   refuse-forks: true
   refuse-archived: true
@@ -15,6 +15,7 @@ defaults:
 repositories:
   - name: github-ci
     enforce-caller: false
+    observed-required-check: gate / gate
   - name: go-asn1
     enforce-caller: false
   - name: go-asn1-gsmmap

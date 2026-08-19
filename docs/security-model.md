@@ -12,9 +12,11 @@ Producer compatibility handling never replaces this raw copy or changes the
 digest bound into the evidence record.
 
 OpenSSF Scorecard is evaluated through the dedicated `scorecard-sarif/v1`
-policy. The complete native SARIF remains in evidence, while three repository
+policy. The complete native SARIF remains in evidence, while four repository
 governance indicators do not count as blocking code or configuration findings:
 
+- `BranchProtectionID` is enforced and drift-checked independently by the
+  governance ruleset, including the observed aggregate status context.
 - `CodeReviewID` measures approvals on historical changesets; current review
   enforcement is controlled independently by the managed repository ruleset.
 - `MaintainedID` cannot pass for a repository younger than 90 days, and the
