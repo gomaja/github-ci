@@ -11,7 +11,9 @@ go:
   modules:
     - path: .
     - path: testdata/repositories/go-canary
+      build-tags: [canary_a, canary_b]
     - path: testdata/repositories/go-canary/tools
+      build-tags: [canary_a, canary_b]
     - path: testdata/repositories/go-generated
     - path: testdata/repositories/go-multi
     - path: testdata/repositories/go-multi/services/api

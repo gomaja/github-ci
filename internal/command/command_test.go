@@ -21,6 +21,7 @@ import (
 	"github.com/gomaja/github-ci/internal/config"
 	"github.com/gomaja/github-ci/internal/evidence"
 	"github.com/gomaja/github-ci/internal/gate"
+	"github.com/gomaja/github-ci/internal/goexecution"
 	"github.com/gomaja/github-ci/internal/reports"
 )
 
@@ -640,6 +641,24 @@ func TestRepositoryConsumerConfigCoversEveryTrackedModule(t *testing.T) {
 	})
 	if code != exitSuccess {
 		t.Fatalf("repository preflight code = %d, stderr = %q", code, stderr)
+	}
+	code, stdout, stderr := runForTest(t, []string{
+		"go-plan", "--repository", repository, "--config", ".github/github-ci.yaml",
+	})
+	if code != exitSuccess {
+		t.Fatalf("repository go-plan code = %d, stderr = %q", code, stderr)
+	}
+	var plan goexecution.Plan
+	if err := json.Unmarshal([]byte(stdout), &plan); err != nil {
+		t.Fatalf("decode repository go-plan: %v", err)
+	}
+	for _, module := range plan.Modules {
+		if module.Path != "testdata/repositories/go-canary" && module.Path != "testdata/repositories/go-canary/tools" {
+			continue
+		}
+		if len(module.BuildTags) != 2 || module.BuildTags[0] != "canary_a" || module.BuildTags[1] != "canary_b" {
+			t.Errorf("canary module %q build tags = %#v", module.Path, module.BuildTags)
+		}
 	}
 }
 
