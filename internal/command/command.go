@@ -28,6 +28,7 @@ import (
 	"github.com/gomaja/github-ci/internal/exceptions"
 	"github.com/gomaja/github-ci/internal/gate"
 	"github.com/gomaja/github-ci/internal/generate"
+	"github.com/gomaja/github-ci/internal/goexecution"
 	releaseevidence "github.com/gomaja/github-ci/internal/release"
 	"github.com/gomaja/github-ci/internal/reports"
 	"github.com/gomaja/github-ci/internal/securefs"
@@ -57,7 +58,7 @@ func Run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 		return exitError
 	}
 	if len(args) == 0 {
-		writeError(dependencies.stderr, errors.New("usage: github-ci <preflight|modules|files|applicable|aggregate|parse|record|gate|generate|verify-generated|validate-gremlins|validate-gremlins-no-results|release-evidence|verify-release-evidence>"))
+		writeError(dependencies.stderr, errors.New("usage: github-ci <preflight|modules|go-plan|files|applicable|aggregate|parse|record|gate|generate|verify-generated|validate-gremlins|validate-gremlins-no-results|release-evidence|verify-release-evidence>"))
 		return exitError
 	}
 	return dispatch(ctx, args, dependencies)
@@ -92,6 +93,8 @@ func dispatch(ctx context.Context, args []string, dependencies runtimeDependenci
 		return runPreflight(ctx, args[1:], dependencies.stderr)
 	case "modules":
 		return runModules(ctx, args[1:], dependencies.stdout, dependencies.stderr)
+	case "go-plan":
+		return runGoPlan(ctx, args[1:], dependencies.stdout, dependencies.stderr)
 	case "files":
 		return runFiles(ctx, args[1:], dependencies.stdout, dependencies.stderr)
 	case "applicable":
@@ -379,6 +382,48 @@ func runModules(ctx context.Context, args []string, stdout, stderr io.Writer) in
 	if err := writeJSON(stdout, struct {
 		Modules []string `json:"modules"`
 	}{Modules: modules}); err != nil {
+		writeError(stderr, err)
+		return exitError
+	}
+	return exitSuccess
+}
+
+func runGoPlan(ctx context.Context, args []string, stdout, stderr io.Writer) int {
+	flags := newFlagSet("go-plan", stderr)
+	repository := flags.String("repository", ".", "consumer repository root")
+	configPath := flags.String("config", "", "consumer configuration path")
+	if err := flags.Parse(args); err != nil {
+		return exitError
+	}
+	if err := noArguments(flags); err != nil {
+		writeError(stderr, err)
+		return exitError
+	}
+	if err := requireFlags(flagValue{flagConfig, *configPath}); err != nil {
+		writeError(stderr, err)
+		return exitError
+	}
+	tracked, _, err := trackedRepository(ctx, *repository)
+	if err != nil {
+		writeError(stderr, err)
+		return exitError
+	}
+	consumer, err := readTrackedConsumer(tracked, *configPath)
+	if err != nil {
+		writeError(stderr, err)
+		return exitError
+	}
+	modules, err := consumerModules(tracked, consumer)
+	if err != nil {
+		writeError(stderr, err)
+		return exitError
+	}
+	plan, err := goexecution.Resolve(consumer, modules)
+	if err != nil {
+		writeError(stderr, err)
+		return exitError
+	}
+	if err := writeJSON(stdout, plan); err != nil {
 		writeError(stderr, err)
 		return exitError
 	}
