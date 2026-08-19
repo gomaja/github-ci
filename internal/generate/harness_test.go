@@ -291,7 +291,15 @@ func runCommand(t *testing.T, directory string, environment []string, name strin
 	t.Helper()
 	command := exec.CommandContext(t.Context(), name, arguments...)
 	command.Dir = directory
-	command.Env = append(os.Environ(), environment...)
+	baseEnvironment := make([]string, 0, len(os.Environ())+1+len(environment))
+	for _, value := range os.Environ() {
+		if !strings.HasPrefix(value, "RUNNER_TEMP=") {
+			baseEnvironment = append(baseEnvironment, value)
+		}
+	}
+	baseEnvironment = append(baseEnvironment, "RUNNER_TEMP=")
+	baseEnvironment = append(baseEnvironment, environment...)
+	command.Env = baseEnvironment
 	var output bytes.Buffer
 	command.Stdout = &output
 	command.Stderr = &output

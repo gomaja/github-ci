@@ -10,6 +10,10 @@ on:
         required: true
         type: string
 
+concurrency:
+  group: github-ci-release-${{ github.ref }}
+  cancel-in-progress: false
+
 permissions:
   contents: read
 
@@ -17,7 +21,7 @@ jobs:
   acceptance:
     name: exact-commit acceptance
     permissions:
-      actions: read
+      actions: read  # Acceptance locates and downloads the exact candidate run artifact.
       contents: read
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -110,7 +114,7 @@ jobs:
   assurance:
     needs: acceptance
     permissions:
-      actions: read
+      actions: read  # The called release workflow downloads the acceptance artifact.
       contents: read
       id-token: write  # Provenance attestation requires an OIDC identity.
       attestations: write  # The called workflow records build provenance.

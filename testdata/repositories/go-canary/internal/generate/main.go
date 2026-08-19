@@ -1,3 +1,4 @@
+// Package main regenerates the committed canary model.
 package main
 
 import (
@@ -15,7 +16,7 @@ const Model = "schema-2"
 `
 
 func main() {
-	if err := os.WriteFile("generated/model.go", []byte(generatedModel), 0o644); err != nil {
+	if err := os.WriteFile("generated/model.go", []byte(generatedModel), 0o600); err != nil {
 		_, _ = fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}

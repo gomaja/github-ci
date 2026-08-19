@@ -20,6 +20,10 @@ on:
         required: true
         type: string
 
+concurrency:
+  group: github-ci-release-candidate-${{ github.ref }}
+  cancel-in-progress: false
+
 permissions:
   contents: read
 
