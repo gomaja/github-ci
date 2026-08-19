@@ -61,6 +61,30 @@ func TestCountCheckovAcceptsEmptyResourceSummary(t *testing.T) {
 	}
 }
 
+func TestCountTrivyAcceptsOmittedEmptyResults(t *testing.T) {
+	result, err := Count("trivy", strings.NewReader(`{"SchemaVersion":2,"Trivy":{"Version":"0.74.0"}}`))
+	if err != nil {
+		t.Fatalf("Count() error = %v", err)
+	}
+	if result.Findings != 0 {
+		t.Fatalf("Count() findings = %d, want 0", result.Findings)
+	}
+}
+
+func TestCountTrivyRejectsNullResults(t *testing.T) {
+	_, err := Count("trivy", strings.NewReader(`{"SchemaVersion":2,"Results":null}`))
+	if err == nil || !strings.Contains(err.Error(), "Results") {
+		t.Fatalf("Count() error = %v, want invalid Results error", err)
+	}
+}
+
+func TestCountTrivyRejectsUnknownResultFields(t *testing.T) {
+	_, err := Count("trivy", strings.NewReader(`{"SchemaVersion":2,"Results":[{"Target":".","Unsupported":true}]}`))
+	if err == nil || !strings.Contains(err.Error(), "unknown field") {
+		t.Fatalf("Count() error = %v, want unknown result field error", err)
+	}
+}
+
 func TestCountCheckovRejectsMalformedAndEmptyArrays(t *testing.T) {
 	for _, test := range []struct {
 		name string

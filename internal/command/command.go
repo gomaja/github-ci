@@ -284,7 +284,7 @@ func runFiles(ctx context.Context, args []string, stdout, stderr io.Writer) int 
 		if entry.IsDir() {
 			return nil
 		}
-		matches, matchErr := trackedFileMatches(tracked, name, entry, *kind)
+		matches, matchErr := trackedFileMatches(tracked, name, *kind)
 		if matchErr != nil {
 			return matchErr
 		}
@@ -311,7 +311,7 @@ func runFiles(ctx context.Context, args []string, stdout, stderr io.Writer) int 
 	return exitSuccess
 }
 
-func trackedFileMatches(tracked fs.FS, name string, entry fs.DirEntry, kind string) (bool, error) {
+func trackedFileMatches(tracked fs.FS, name, kind string) (bool, error) {
 	base := filepath.Base(name)
 	lowerBase := strings.ToLower(base)
 	extension := strings.ToLower(filepath.Ext(base))
@@ -333,30 +333,21 @@ func trackedFileMatches(tracked fs.FS, name string, entry fs.DirEntry, kind stri
 	case "json":
 		return extension == ".json", nil
 	case "shell":
-		return trackedShellFileMatches(tracked, name, entry, extension)
+		return trackedShellFileMatches(tracked, name)
 	default:
 		return false, fmt.Errorf("unsupported file kind %q", kind)
 	}
 }
 
-func trackedShellFileMatches(tracked fs.FS, name string, entry fs.DirEntry, extension string) (bool, error) {
-	if slices.Contains([]string{".sh", ".bash", ".bats", ".zsh", ".ksh"}, extension) {
+func trackedShellFileMatches(tracked fs.FS, name string) (bool, error) {
+	if applicability.IsShellFile(name, nil) {
 		return true, nil
-	}
-	info, err := entry.Info()
-	if err != nil {
-		return false, fmt.Errorf("stat tracked path %q: %w", name, err)
-	}
-	if info.Mode().Perm()&0o111 == 0 {
-		return false, nil
 	}
 	data, err := fs.ReadFile(tracked, name)
 	if err != nil {
 		return false, fmt.Errorf("read tracked path %q: %w", name, err)
 	}
-	line, _, _ := bytes.Cut(data, []byte("\n"))
-	shebangs := []string{"#!/bin/sh", "#!/bin/bash", "#!/bin/zsh", "#!/bin/ksh", "#!/usr/bin/env sh", "#!/usr/bin/env bash", "#!/usr/bin/env zsh", "#!/usr/bin/env ksh"}
-	return slices.ContainsFunc(shebangs, func(prefix string) bool { return bytes.HasPrefix(line, []byte(prefix)) }), nil
+	return applicability.IsShellFile(name, data), nil
 }
 
 func runModules(ctx context.Context, args []string, stdout, stderr io.Writer) int {

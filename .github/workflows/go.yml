@@ -68,8 +68,8 @@ jobs:
       - name: Check out workflow helpers
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          repository: gomaja/github-ci
-          ref: ${{ github.workflow_sha }}
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
           persist-credentials: false
           path: github-ci
       - name: Bootstrap policy CLI
@@ -102,6 +102,7 @@ jobs:
   formatting:
     name: formatting
     needs: preflight
+    if: ${{ inputs.profile != 'repository-only' }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -139,8 +140,8 @@ jobs:
       - name: Check out workflow helpers
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          repository: gomaja/github-ci
-          ref: ${{ github.workflow_sha }}
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
           persist-credentials: false
           path: github-ci
       - name: Bootstrap analyzers
@@ -175,6 +176,7 @@ jobs:
   core:
     name: core correctness
     needs: preflight
+    if: ${{ inputs.profile != 'repository-only' }}
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
@@ -212,8 +214,8 @@ jobs:
       - name: Check out workflow helpers
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          repository: gomaja/github-ci
-          ref: ${{ github.workflow_sha }}
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
           persist-credentials: false
           path: github-ci
       - name: Bootstrap analyzers
@@ -248,6 +250,7 @@ jobs:
   tests:
     name: tests and race
     needs: preflight
+    if: ${{ inputs.profile != 'repository-only' }}
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
@@ -285,8 +288,8 @@ jobs:
       - name: Check out workflow helpers
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          repository: gomaja/github-ci
-          ref: ${{ github.workflow_sha }}
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
           persist-credentials: false
           path: github-ci
       - name: Bootstrap analyzers
@@ -321,6 +324,7 @@ jobs:
   analysis:
     name: static analysis
     needs: preflight
+    if: ${{ inputs.profile != 'repository-only' }}
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
@@ -359,8 +363,8 @@ jobs:
       - name: Check out workflow helpers
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          repository: gomaja/github-ci
-          ref: ${{ github.workflow_sha }}
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
           persist-credentials: false
           path: github-ci
       - name: Bootstrap analyzers
@@ -395,6 +399,7 @@ jobs:
   compatibility:
     name: Go ${{ matrix.go-version }}
     needs: preflight
+    if: ${{ inputs.profile != 'repository-only' }}
     strategy:
       fail-fast: false
       matrix:
@@ -436,8 +441,8 @@ jobs:
       - name: Check out workflow helpers
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          repository: gomaja/github-ci
-          ref: ${{ github.workflow_sha }}
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
           persist-credentials: false
           path: github-ci
       - name: Bootstrap compatibility toolchain
@@ -506,8 +511,8 @@ jobs:
       - name: Check out workflow helpers
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          repository: gomaja/github-ci
-          ref: ${{ github.workflow_sha }}
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
           persist-credentials: false
           path: github-ci
       - name: Bootstrap policy CLI
@@ -595,8 +600,8 @@ jobs:
       - name: Check out workflow helpers
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          repository: gomaja/github-ci
-          ref: ${{ github.workflow_sha }}
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
           persist-credentials: false
           path: github-ci
       - name: Bootstrap policy CLI
@@ -689,8 +694,8 @@ jobs:
       - name: Check out workflow helpers
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          repository: gomaja/github-ci
-          ref: ${{ github.workflow_sha }}
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
           persist-credentials: false
           path: github-ci
       - name: Bootstrap policy CLI
@@ -761,8 +766,8 @@ jobs:
       - name: Check out workflow helpers
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          repository: gomaja/github-ci
-          ref: ${{ github.workflow_sha }}
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
           persist-credentials: false
           path: github-ci
       - name: Bootstrap policy CLI
@@ -835,8 +840,8 @@ jobs:
       - name: Check out workflow helpers
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          repository: gomaja/github-ci
-          ref: ${{ github.workflow_sha }}
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
           persist-credentials: false
           path: github-ci
       - name: Bootstrap policy CLI
@@ -918,8 +923,8 @@ jobs:
       - name: Check out workflow helpers
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          repository: gomaja/github-ci
-          ref: ${{ github.workflow_sha }}
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
           persist-credentials: false
           path: github-ci
       - name: Bootstrap policy CLI
@@ -996,8 +1001,8 @@ jobs:
       - name: Check out workflow helpers
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          repository: gomaja/github-ci
-          ref: ${{ github.workflow_sha }}
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
           persist-credentials: false
           path: github-ci
       - name: Bootstrap policy CLI
@@ -1087,8 +1092,8 @@ jobs:
       - name: Check out workflow helpers
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          repository: gomaja/github-ci
-          ref: ${{ github.workflow_sha }}
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
           persist-credentials: false
           path: github-ci
       - name: Bootstrap policy CLI
@@ -1132,10 +1137,15 @@ jobs:
       - name: Enforce aggregate result
         env:
           COMPATIBILITY_RESULT: ${{ needs.compatibility.result }}
+          EXPECTED_PROFILE: ${{ inputs.profile }}
           STATUS_PATH: ${{ runner.temp }}/github-ci-result/status
         shell: bash
         run: |
           set -euo pipefail
-          [[ "$COMPATIBILITY_RESULT" == success ]]
+          if [[ "$EXPECTED_PROFILE" == repository-only ]]; then
+            [[ "$COMPATIBILITY_RESULT" == skipped ]]
+          else
+            [[ "$COMPATIBILITY_RESULT" == success ]]
+          fi
           [[ -s "$STATUS_PATH" ]]
           [[ "$(cat "$STATUS_PATH")" == 0 ]]

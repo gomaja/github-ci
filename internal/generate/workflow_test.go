@@ -49,6 +49,51 @@ func TestGeneratedWorkflowsUseFoldedEgressAllowLists(t *testing.T) {
 	}
 }
 
+func TestGeneratedWorkflowsBindHelpersToDefiningWorkflow(t *testing.T) {
+	for _, name := range []string{
+		"../../.github/workflows/go.yml",
+		"../../.github/workflows/deep.yml",
+		"../../.github/workflows/release.yml",
+	} {
+		data, err := os.ReadFile(name)
+		if err != nil {
+			t.Fatalf("read %s: %v", name, err)
+		}
+		text := string(data)
+		if strings.Contains(text, "github.workflow_sha") {
+			t.Errorf("%s binds helpers to the caller workflow SHA", name)
+		}
+		var workflow map[string]any
+		if err := yaml.Unmarshal(data, &workflow); err != nil {
+			t.Fatalf("decode %s: %v", name, err)
+		}
+		jobs := mapping(t, workflow["jobs"], name+" jobs")
+		helperCheckouts := 0
+		for jobName, rawJob := range jobs {
+			job := mapping(t, rawJob, name+" job "+jobName)
+			steps, _ := job["steps"].([]any)
+			for _, rawStep := range steps {
+				step := mapping(t, rawStep, name+" job "+jobName+" step")
+				uses, _ := step["uses"].(string)
+				if !strings.HasPrefix(uses, "actions/checkout@") {
+					continue
+				}
+				with := mapping(t, step["with"], name+" job "+jobName+" checkout.with")
+				if with["path"] != "github-ci" {
+					continue
+				}
+				helperCheckouts++
+				if with["repository"] != "${{ job.workflow_repository }}" || with["ref"] != "${{ job.workflow_sha }}" {
+					t.Errorf("%s job %s helper checkout is not bound to the defining workflow", name, jobName)
+				}
+			}
+		}
+		if helperCheckouts == 0 {
+			t.Errorf("%s has no helper checkout at path github-ci", name)
+		}
+	}
+}
+
 func assertWorkflowCallContract(t *testing.T, workflow map[string]any) {
 	t.Helper()
 	on := mapping(t, workflow["on"], "on")
@@ -100,6 +145,12 @@ func assertWorkflowExecutionContracts(t *testing.T, jobs map[string]any) {
 	if strategy["fail-fast"] != false {
 		t.Errorf("compatibility fail-fast = %#v, want false", strategy["fail-fast"])
 	}
+	for _, name := range []string{"formatting", "core", "tests", "analysis", "compatibility"} {
+		job := mapping(t, jobs[name], name)
+		if job["if"] != "${{ inputs.profile != 'repository-only' }}" {
+			t.Errorf("Go-only job %q if = %#v, want repository-only exclusion", name, job["if"])
+		}
+	}
 	for _, name := range []string{"evidence", "gate"} {
 		job := mapping(t, jobs[name], name)
 		if job["if"] != "${{ always() }}" {
@@ -110,11 +161,37 @@ func assertWorkflowExecutionContracts(t *testing.T, jobs map[string]any) {
 	if gate["name"] != "gate" {
 		t.Errorf("gate name = %#v, want gate", gate["name"])
 	}
+	assertCompatibilityGateContract(t, gate)
 	codeql := mapping(t, jobs["codeql"], "codeql")
 	codeqlPermissions := mapping(t, codeql["permissions"], "codeql.permissions")
 	if codeqlPermissions["contents"] != "read" || codeqlPermissions["security-events"] != "write" {
 		t.Errorf("CodeQL permissions = %#v", codeqlPermissions)
 	}
+}
+
+func assertCompatibilityGateContract(t *testing.T, gate map[string]any) {
+	t.Helper()
+	for _, rawStep := range sequence(t, gate["steps"], "gate steps") {
+		step := mapping(t, rawStep, "gate step")
+		if step["name"] != "Enforce aggregate result" {
+			continue
+		}
+		environment := mapping(t, step["env"], "compatibility gate env")
+		if environment["EXPECTED_PROFILE"] != "${{ inputs.profile }}" {
+			t.Errorf("compatibility gate profile = %#v", environment["EXPECTED_PROFILE"])
+		}
+		run, _ := step["run"].(string)
+		profileBranch := `if [[ "$EXPECTED_PROFILE" == repository-only ]]; then
+  [[ "$COMPATIBILITY_RESULT" == skipped ]]
+else
+  [[ "$COMPATIBILITY_RESULT" == success ]]
+fi`
+		if !strings.Contains(run, profileBranch) {
+			t.Errorf("compatibility gate profile branch = %q", run)
+		}
+		return
+	}
+	t.Error("gate has no aggregate enforcement step")
 }
 
 func assertBootstrapNetworkAccess(t *testing.T, jobs map[string]any) {
@@ -449,6 +526,20 @@ func TestCompositeActionsArePinnedAndNonPrivileged(t *testing.T) {
 	}
 }
 
+func TestActionlintConfigAllowsCurrentWorkflowIdentityContext(t *testing.T) {
+	data, err := os.ReadFile("../../.github/actionlint.yaml")
+	if err != nil {
+		t.Fatalf("read actionlint config: %v", err)
+	}
+	want := "paths:\n" +
+		"  .github/workflows/**/*.{yml,yaml}:\n" +
+		"    ignore:\n" +
+		"      - 'property \"workflow_(repository|sha)\" is not defined in object type'\n"
+	if string(data) != want {
+		t.Fatalf("actionlint config = %q, want narrow workflow identity exception", data)
+	}
+}
+
 func assertDualCheckout(t *testing.T, job map[string]any) {
 	t.Helper()
 	steps := sequence(t, job["steps"], "steps")
@@ -462,13 +553,13 @@ func assertDualCheckout(t *testing.T, job map[string]any) {
 			if with["path"] == "source" {
 				consumer = true
 			}
-			if with["repository"] == "gomaja/github-ci" && with["ref"] == "${{ github.workflow_sha }}" && with["path"] == "github-ci" {
+			if with["repository"] == "${{ job.workflow_repository }}" && with["ref"] == "${{ job.workflow_sha }}" && with["path"] == "github-ci" {
 				central = true
 			}
 		}
 	}
 	if !consumer || !central {
-		t.Errorf("job does not have consumer and workflow-SHA-bound central checkouts")
+		t.Errorf("job does not have consumer and defining-workflow-bound helper checkouts")
 	}
 }
 

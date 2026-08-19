@@ -291,19 +291,29 @@ func countTrivy(data []byte) (int, error) {
 		ArtifactName  string          `json:"ArtifactName,omitempty"`
 		ArtifactType  string          `json:"ArtifactType,omitempty"`
 		Metadata      json.RawMessage `json:"Metadata,omitempty"`
-		Results       *[]trivyResult  `json:"Results"`
+		Results       json.RawMessage `json:"Results,omitempty"`
 	}
 	if err := decodeStrictJSON(data, &report); err != nil {
 		return 0, err
 	}
-	if report.Results == nil {
-		return 0, errors.New("trivy report has no Results array")
-	}
 	if report.SchemaVersion != 2 {
 		return 0, fmt.Errorf("unsupported trivy schema version %d", report.SchemaVersion)
 	}
+	if len(report.Results) == 0 {
+		return 0, nil
+	}
+	if bytes.Equal(bytes.TrimSpace(report.Results), []byte("null")) {
+		return 0, errors.New("trivy Results must be an array when present")
+	}
+	var results []trivyResult
+	if err := decodeStrictJSON(report.Results, &results); err != nil {
+		return 0, fmt.Errorf("decode trivy Results: %w", err)
+	}
+	if results == nil {
+		return 0, errors.New("trivy Results must be an array when present")
+	}
 	findings := 0
-	for index, result := range *report.Results {
+	for index, result := range results {
 		if result.Target == "" {
 			return 0, fmt.Errorf("trivy result %d has no Target identity", index)
 		}

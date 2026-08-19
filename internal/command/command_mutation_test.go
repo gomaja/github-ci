@@ -16,20 +16,16 @@ import (
 	"github.com/gomaja/github-ci/internal/gate"
 )
 
-func TestTrackedShellFileMatchesRequiresExecutablePermission(t *testing.T) {
+func TestTrackedShellFileMatchesRecognizesNonExecutableShebang(t *testing.T) {
 	tracked := fstest.MapFS{
 		"script": &fstest.MapFile{Data: []byte("#!/bin/sh\ntrue\n"), Mode: 0o644},
 	}
-	entries, err := fs.ReadDir(tracked, ".")
-	if err != nil {
-		t.Fatalf("ReadDir() error = %v", err)
-	}
-	matched, err := trackedShellFileMatches(tracked, "script", entries[0], "")
+	matched, err := trackedShellFileMatches(tracked, "script")
 	if err != nil {
 		t.Fatalf("trackedShellFileMatches() error = %v", err)
 	}
-	if matched {
-		t.Fatal("trackedShellFileMatches() accepted a non-executable extensionless script")
+	if !matched {
+		t.Fatal("trackedShellFileMatches() rejected a non-executable extensionless script")
 	}
 }
 
@@ -202,6 +198,40 @@ func TestTrackedRepositoryRejectsUnmergedIndex(t *testing.T) {
 	runGitMutationTest(t, root, index, "update-index", "--index-info")
 	if _, _, err := trackedRepository(context.Background(), root); err == nil || err.Error() != "git index contains an unmerged entry" {
 		t.Fatalf("trackedRepository() error = %v", err)
+	}
+}
+
+func TestTrackedRepositoryRejectsUnsupportedGitMode(t *testing.T) {
+	root := newRepository(t)
+	hash := strings.TrimSpace(runGitMutationTest(t, root, nil, "rev-parse", ":README.md"))
+	runGitMutationTest(t, root, nil, "update-index", "--add", "--cacheinfo", "120000", hash, "link")
+
+	if _, _, err := trackedRepository(context.Background(), root); err == nil || err.Error() != `tracked path "link" has unsupported git mode 120000` {
+		t.Fatalf("trackedRepository() error = %v", err)
+	}
+}
+
+func TestTrackedRepositoryMapsSupportedGitModes(t *testing.T) {
+	root := newRepository(t)
+	mustWrite(t, filepath.Join(root, "script"), "#!/bin/sh\ntrue\n")
+	runGitMutationTest(t, root, nil, "add", "script")
+	runGitMutationTest(t, root, nil, "update-index", "--chmod=+x", "script")
+
+	tracked, _, err := trackedRepository(context.Background(), root)
+	if err != nil {
+		t.Fatalf("trackedRepository() error = %v", err)
+	}
+	for name, want := range map[string]fs.FileMode{
+		"README.md": 0o444,
+		"script":    0o555,
+	} {
+		info, statErr := fs.Stat(tracked, name)
+		if statErr != nil {
+			t.Fatalf("stat %s: %v", name, statErr)
+		}
+		if got := info.Mode().Perm(); got != want {
+			t.Errorf("%s mode = %#o, want %#o", name, got, want)
+		}
 	}
 }
 
