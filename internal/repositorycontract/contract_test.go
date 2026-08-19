@@ -138,6 +138,9 @@ func TestRepositoryScannerScriptsFailClosed(t *testing.T) {
 			t.Errorf("scanner runner is missing fail-closed contract %q", required)
 		}
 	}
+	if count := strings.Count(text, `--user "$(id -u):$(id -g)"`); count != 3 {
+		t.Errorf("scanner runner has %d non-root container invocations, want 3", count)
+	}
 }
 
 func TestExternalReportsAreArchivedBeforeParsing(t *testing.T) {

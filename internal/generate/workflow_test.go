@@ -181,6 +181,34 @@ func assertScannerRuntimeContracts(t *testing.T, jobs map[string]any) {
 	if !foundPython {
 		t.Error("repository scanners do not pin Python 3.11 for locked wheels")
 	}
+
+	scorecard := mapping(t, jobs["scorecard"], "scorecard")
+	scorecardSteps := sequence(t, scorecard["steps"], "scorecard steps")
+	allowlist := ""
+	foundRelativeReport := false
+	for _, rawStep := range scorecardSteps {
+		step := mapping(t, rawStep, "scorecard step")
+		uses, _ := step["uses"].(string)
+		if strings.HasPrefix(uses, "step-security/harden-runner@") {
+			with := mapping(t, step["with"], "scorecard Harden Runner inputs")
+			allowlist, _ = with["allowed-endpoints"].(string)
+		}
+		if strings.HasPrefix(uses, "ossf/scorecard-action@") {
+			with := mapping(t, step["with"], "scorecard inputs")
+			foundRelativeReport = with["results_file"] == "scorecard.sarif"
+		}
+	}
+	for _, endpoint := range []string{
+		"api.deps.dev:443", "api.osv.dev:443",
+		"oss-fuzz-build-logs.storage.googleapis.com:443", "www.bestpractices.dev:443",
+	} {
+		if !strings.Contains(allowlist, endpoint) {
+			t.Errorf("scorecard job does not allow %s", endpoint)
+		}
+	}
+	if !foundRelativeReport {
+		t.Error("Scorecard does not use a container-portable relative result path")
+	}
 }
 
 func assertWorkflowTextContracts(t *testing.T, text string) {

@@ -905,6 +905,10 @@ jobs:
             proxy.golang.org:443
             sum.golang.org:443
             storage.googleapis.com:443
+            api.deps.dev:443
+            api.osv.dev:443
+            oss-fuzz-build-logs.storage.googleapis.com:443
+            www.bestpractices.dev:443
       - name: Check out consumer
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
@@ -929,7 +933,7 @@ jobs:
       - name: Run scorecard/repository
         uses: ossf/scorecard-action@2d1146689b8cda280b9bc96326124645441f03bc
         with:
-          results_file: ${{ runner.temp }}/github-ci-scorecard.sarif
+          results_file: scorecard.sarif
           results_format: sarif
           publish_results: false
       - name: Record Scorecard evidence
@@ -940,7 +944,7 @@ jobs:
           GITHUB_CI_CLI: ${{ runner.temp }}/github-ci-bin/github-ci
           OUTPUT_DIR: ${{ runner.temp }}/github-ci-evidence
           PLAN_PATH: ${{ runner.temp }}/github-ci-plan/plan.json
-          REPORT_PATH: ${{ runner.temp }}/github-ci-scorecard.sarif
+          REPORT_PATH: ${{ github.workspace }}/scorecard.sarif
           TOOL: scorecard
           TOOL_VERSION: 2.4.4
         shell: bash

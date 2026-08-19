@@ -135,7 +135,7 @@ run_semgrep() {
 	local report status
 	report=$(report_path semgrep semgrep/source)
 	set +e
-	docker run --rm --network none --cap-drop ALL --security-opt no-new-privileges \
+	docker run --rm --user "$(id -u):$(id -g)" --network none --cap-drop ALL --security-opt no-new-privileges \
 		--tmpfs /tmp:rw,noexec,nosuid,size=64m \
 		-e HOME=/tmp -e SEMGREP_SETTINGS_FILE=/tmp/semgrep-settings.yml \
 		--read-only -v "$docker_source_dir:/src:ro" -v "$docker_central_dir/policies:/policy:ro" \
@@ -385,7 +385,7 @@ run_markdownlint() {
 	while IFS= read -r -d '' file; do files+=("$file"); done < <(tracked_files markdown)
 	for file in "${files[@]}"; do
 		set +e
-		docker run --rm --network none --cap-drop ALL --security-opt no-new-privileges --read-only \
+		docker run --rm --user "$(id -u):$(id -g)" --network none --cap-drop ALL --security-opt no-new-privileges --read-only \
 			--tmpfs /tmp:rw,noexec,nosuid,size=64m \
 			-v "$docker_source_dir:/workdir:ro" "$MARKDOWNLINT_IMAGE" "$file"
 		status=$?
@@ -416,7 +416,7 @@ run_checkov() {
 	output_directory="$reports/checkov-output"
 	mkdir -p "$output_directory"
 	set +e
-	docker run --rm --network none --cap-drop ALL --security-opt no-new-privileges --read-only \
+	docker run --rm --user "$(id -u):$(id -g)" --network none --cap-drop ALL --security-opt no-new-privileges --read-only \
 		--tmpfs /tmp:rw,noexec,nosuid,size=64m \
 		-v "$docker_source_dir:/src:ro" -v "$docker_reports_dir:/out" --entrypoint checkov "$CHECKOV_IMAGE" \
 		-d /src --framework terraform --output json --output-file-path /out/checkov-output --quiet --skip-download
