@@ -21,4 +21,5 @@ jobs:
       attestations: write  # The called workflow records build provenance.
     uses: ./.github/workflows/release.yml
     with:
+      include-callers: true
       tag: ${{ inputs.tag }}

@@ -34,6 +34,13 @@ func TestRenderCallersPinsExactSHAAndProfile(t *testing.T) {
 		if name != ".github/github-ci.yaml" && !bytes.Contains(data, []byte("@"+sha)) {
 			t.Fatalf("%s does not pin %s", name, sha)
 		}
+		if name == ".github/workflows/github-ci-release.yml" {
+			for _, required := range []string{"inputs:", "tag:", "required: true", "type: string", `tag: ${{ inputs.tag }}`} {
+				if !bytes.Contains(data, []byte(required)) {
+					t.Fatalf("%s does not forward manual tag input %q", name, required)
+				}
+			}
+		}
 	}
 	data, err := os.ReadFile(filepath.Join(root, ".github", "github-ci.yaml"))
 	if err != nil {

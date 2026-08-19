@@ -8,6 +8,10 @@ on:
         required: false
         default: "[%.Policy.GoVersions.Current%]"
         type: string
+      include-callers:
+        required: false
+        default: false
+        type: boolean
       tag:
         required: false
         default: ""
@@ -69,11 +73,15 @@ jobs:
         run: bash "$CENTRAL_DIR/scripts/install-scanners.sh" supply-chain
       - name: Validate tag and build deterministic evidence
         env:
+          CENTRAL_DIR: ${{ github.workspace }}/github-ci
           CLI: ${{ runner.temp }}/github-ci-bin/github-ci
           EVENT_SHA: ${{ github.sha }}
+          GOVERNANCE_CLI: ${{ runner.temp }}/github-ci-bin/github-ci-govern
+          INCLUDE_CALLERS: ${{ inputs.include-callers }}
           REF_NAME: ${{ github.ref_name }}
           REQUESTED_TAG: ${{ inputs.tag }}
           SOURCE_DIR: ${{ github.workspace }}/source
+          WORKFLOW_SHA: ${{ job.workflow_sha }}
         shell: bash
         run: |
           set -euo pipefail
@@ -85,10 +93,34 @@ jobs:
           [[ "$tagged_sha" == "$EVENT_SHA" ]]
           mkdir -p "$SOURCE_DIR/dist"
           git -C "$SOURCE_DIR" archive --format=tar.gz --prefix="${GITHUB_REPOSITORY##*/}-$tag/" -o "$SOURCE_DIR/dist/source-$tag.tar.gz" "$tag"
+          caller_args=()
+          if [[ "$INCLUDE_CALLERS" == "true" ]]; then
+            (cd "$CENTRAL_DIR" && go build -trimpath -o "$GOVERNANCE_CLI" ./cmd/github-ci-govern)
+            caller_output="$RUNNER_TEMP/release-callers"
+            "$GOVERNANCE_CLI" render-callers \
+              --manifest "$CENTRAL_DIR/governance/gomaja.yaml" \
+              --repository github-ci \
+              --workflow-sha "$WORKFLOW_SHA" \
+              --output "$caller_output"
+            caller_root="$caller_output/gomaja/github-ci/.github"
+            cp "$caller_root/github-ci.yaml" "$SOURCE_DIR/dist/github-ci.yaml"
+            cp "$caller_root/workflows/github-ci.yml" "$SOURCE_DIR/dist/github-ci.yml"
+            cp "$caller_root/workflows/github-ci-deep.yml" "$SOURCE_DIR/dist/github-ci-deep.yml"
+            cp "$caller_root/workflows/github-ci-release.yml" "$SOURCE_DIR/dist/github-ci-release.yml"
+            caller_args=(
+              --asset dist/github-ci.yaml
+              --asset dist/github-ci.yml
+              --asset dist/github-ci-deep.yml
+              --asset dist/github-ci-release.yml
+            )
+          fi
           syft "dir:$SOURCE_DIR" --quiet --output "spdx-json=$SOURCE_DIR/dist/sbom.spdx.json" --output "cyclonedx-json=$SOURCE_DIR/dist/sbom.cdx.json"
           source_date=$(git -C "$SOURCE_DIR" show -s --format=%cI "$EVENT_SHA")
           "$CLI" release-evidence --root "$SOURCE_DIR" --subject-sha "$EVENT_SHA" --source-date "$source_date" \
-            --asset "dist/source-$tag.tar.gz" --asset dist/sbom.spdx.json --asset dist/sbom.cdx.json \
+            --asset "dist/source-$tag.tar.gz" \
+            --asset dist/sbom.spdx.json \
+            --asset dist/sbom.cdx.json \
+            "${caller_args[@]}" \
             --manifest "$SOURCE_DIR/dist/release-manifest.json" --checksums "$SOURCE_DIR/dist/SHA256SUMS"
           "$CLI" verify-release-evidence --root "$SOURCE_DIR" --manifest "$SOURCE_DIR/dist/release-manifest.json" --checksums "$SOURCE_DIR/dist/SHA256SUMS"
       - name: Attest release evidence
