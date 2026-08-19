@@ -1,0 +1,54 @@
+# Consumer-owned example. Fork pull requests cannot receive private-module credentials.
+name: private-modules
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  merge_group:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: verify
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c
+        with:
+          egress-policy: block
+          disable-telemetry: true
+          allowed-endpoints: >-
+            api.github.com:443
+            github.com:443
+            *.github.com:443
+            *.githubusercontent.com:443
+            go.dev:443
+            proxy.golang.org:443
+            sum.golang.org:443
+            storage.googleapis.com:443
+      - name: Check out consumer
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Configure private module authentication
+        env:
+          PRIVATE_MODULE_TOKEN: ${{ secrets.PRIVATE_MODULE_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$PRIVATE_MODULE_TOKEN"
+          # Replace OWNER and the command with the consumer's private-module scope and verification entrypoint.
+          go env -w 'GOPRIVATE=github.com/OWNER/*'
+          git config --global url."https://x-access-token:${PRIVATE_MODULE_TOKEN}@github.com/".insteadOf https://github.com/
+          ./scripts/test-private-modules.sh

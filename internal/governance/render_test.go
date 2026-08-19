@@ -55,6 +55,75 @@ func TestRenderCallersPinsExactSHAAndProfile(t *testing.T) {
 	}
 }
 
+func TestStandardCallerHasNoDuplicatedProfileInput(t *testing.T) {
+	caller := standardCaller("0123456789abcdef0123456789abcdef01234567")
+	if strings.Contains(caller, "profile:") || strings.Contains(caller, "with:") {
+		t.Fatalf("standard caller duplicates consumer configuration:\n%s", caller)
+	}
+	data, err := os.ReadFile("../../templates/callers/generated/github-ci.yml")
+	if err != nil {
+		t.Fatalf("read generated standard caller: %v", err)
+	}
+	if bytes.Contains(data, []byte("profile:")) || bytes.Contains(data, []byte("with:")) {
+		t.Fatalf("generated standard caller duplicates consumer configuration:\n%s", data)
+	}
+}
+
+func TestPreparationTemplatesKeepRepositoryBehaviorConsumerOwned(t *testing.T) {
+	tests := []struct {
+		name      string
+		required  []string
+		forbidden []string
+	}{
+		{
+			name: "generated-source.yml.tmpl",
+			required: []string{
+				"./scripts/generate.sh", "git diff --exit-code", "Replace this command",
+			},
+		},
+		{
+			name: "postgresql.yml.tmpl",
+			required: []string{
+				"postgres:18.1@sha256:1090bc3a8ccfb0b55f78a494d76f8d603434f7e4553543d6e807bc7bd6bbd17f",
+				"./scripts/test-postgresql.sh", "Replace this command",
+			},
+		},
+		{
+			name: "redis.yml.tmpl",
+			required: []string{
+				"redis:8.6.1@sha256:315270d166080f537bbdf1b489b603aaaa213cb55a544acfa51feb7481abb1c0",
+				"./scripts/test-redis.sh", "Replace this command",
+			},
+		},
+		{
+			name: "private-modules.yml.tmpl",
+			required: []string{
+				"github.event.pull_request.head.repo.full_name == github.repository", "PRIVATE_MODULE_TOKEN",
+				"GOPRIVATE", "Fork pull requests cannot receive",
+			},
+			forbidden: []string{"pull_request_target"},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			data, err := os.ReadFile(filepath.Join("../../templates/preparation", test.name))
+			if err != nil {
+				t.Fatalf("read template: %v", err)
+			}
+			for _, required := range test.required {
+				if !bytes.Contains(data, []byte(required)) {
+					t.Errorf("template is missing %q", required)
+				}
+			}
+			for _, forbidden := range test.forbidden {
+				if bytes.Contains(data, []byte(forbidden)) {
+					t.Errorf("template contains forbidden %q", forbidden)
+				}
+			}
+		})
+	}
+}
+
 func TestRenderCallersRejectsMutableReference(t *testing.T) {
 	t.Parallel()
 	err := RenderCallers(testGovernance(), t.TempDir(), "main", "example")

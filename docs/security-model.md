@@ -45,6 +45,13 @@ SHA. Actions, downloadable tools, Go modules, and containers are pinned and
 verified through separate immutable controls. Harden Runner uses block-mode
 egress with explicit endpoints on jobs that install or execute external tools.
 
+The reusable workflows do not accept arbitrary shell commands, private-module
+credentials, generator entrypoints, database credentials, migrations, or
+service topology. Those values stay in caller-owned preparation workflows,
+where repository reviewers can see the exact command and require its observed
+check separately. PostgreSQL and Redis examples retain digest-pinned images;
+the central deep workflow starts neither service.
+
 ## Permissions
 
 The default workflow token is `contents: read` and cannot approve pull
@@ -52,6 +59,11 @@ requests. CodeQL alone receives `security-events: write` to publish the same
 results evaluated by the local zero-finding gate. Release evidence receives
 `id-token: write` and `attestations: write`; it does not receive release-write
 permission. Workflows do not use repository secrets for pull requests.
+
+The private-module preparation example permits same-repository pull requests
+but rejects fork repositories before its credentialed step. It never uses
+`pull_request_target`. Forks cannot receive the token, and skipping that
+consumer-owned job must not be misrepresented as private-dependency coverage.
 
 ## Failure Behavior
 

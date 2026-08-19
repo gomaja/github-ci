@@ -63,3 +63,29 @@ Forks have no secrets and receive reduced token permissions. Local findings and
 evidence remain blocking. If an optional GitHub report upload is unavailable,
 confirm that the analyzer itself and aggregate gate completed; do not grant
 secrets to untrusted pull-request code.
+
+## Generated Source Is Repository-Specific
+
+The central workflow classifies configured generated paths but does not guess a
+generator. Copy `templates/preparation/generated-source.yml.tmpl`, replace the
+example command with the repository's deterministic entrypoint, and keep both
+`git diff --exit-code` and the untracked-file check. Require the observed
+`generated / verify` context only after a real run proves its name.
+
+## PostgreSQL Or Redis Integration
+
+The deep reusable workflow intentionally starts no services. Copy the matching
+template from `templates/preparation`, retain the digest-pinned image, and
+replace the example command with the repository's migrations, fixtures, tags,
+and integration suite. Keep that workflow independently required; do not add a
+consumer command input to the reusable workflow.
+
+## Private Go Modules
+
+Use the private-module preparation template only for trusted events or
+same-repository pull requests. Set a least-privilege `PRIVATE_MODULE_TOKEN`,
+replace the `GOPRIVATE` scope and repository command, and verify the job's fork
+condition remains intact. A fork cannot receive the token. Do not use
+`pull_request_target` to run untrusted code with credentials; use a reviewed
+vendored or otherwise credential-free path if fork builds must resolve the
+private dependency.

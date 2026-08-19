@@ -42,12 +42,31 @@ concurrent drift. Release and tag creation are not governance operations.
 - secret scanning and push protection; and
 - private vulnerability reporting.
 
-Required status checks are enabled only after a real canary records the stable
-aggregate context. The manifest will not guess the check name.
+`defaults.required-checks` is a strict, nonempty array of baseline check names.
+Each repository records the complete set it actually observed in
+`observed-required-checks` before enforcement. Every baseline name must be in
+that observed set; repository-specific preparation checks may be added there.
+Planning sorts the exact set for stable REST payloads, preserves all configured
+checks in one ruleset mutation, and never derives a name from a workflow file.
 
-The live self-test records the aggregate context as `gate / gate`. Consumer
-repositories record their observed context in their own manifest entry before
-caller enforcement is enabled.
+The live self-test records the aggregate context as `gate / gate`. A consumer
+that also adopts the generated-source example may record both names:
+
+```yaml
+defaults:
+  required-checks:
+    - github-ci / gate
+repositories:
+  - name: example
+    enforce-caller: true
+    workflow-sha: 0123456789abcdef0123456789abcdef01234567
+    observed-required-checks:
+      - generated / verify
+      - github-ci / gate
+```
+
+Apply binds the first mutation to the plan's observed-state hash, rebuilds the
+remaining plan after every mutation, and refuses concurrent ruleset drift.
 
 Secret scanning for non-provider patterns and validity checks requires GitHub
 Secret Protection for Team or Enterprise repositories. It is unavailable to

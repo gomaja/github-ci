@@ -102,7 +102,7 @@ func (governance Governance) Validate() error {
 
 	repositories := make(map[string]struct{}, len(governance.Repositories))
 	for _, repository := range governance.Repositories {
-		if err := repository.validate(governance.Defaults.Profile, owners); err != nil {
+		if err := repository.validate(governance.Defaults, owners); err != nil {
 			return err
 		}
 		if _, exists := repositories[repository.Name]; exists {
@@ -154,7 +154,7 @@ func (defaults GovernanceDefaults) validate() error {
 	return nil
 }
 
-func (repository Repository) validate(defaultProfile Profile, owners map[string]struct{}) error {
+func (repository Repository) validate(defaults GovernanceDefaults, owners map[string]struct{}) error {
 	if err := validateText("repository name", repository.Name); err != nil {
 		return err
 	}
@@ -172,7 +172,7 @@ func (repository Repository) validate(defaultProfile Profile, owners map[string]
 
 	profile := repository.Profile
 	if profile == "" {
-		profile = defaultProfile
+		profile = defaults.Profile
 	}
 	consumer := Consumer{
 		SchemaVersion:  schemaVersion,
@@ -185,6 +185,10 @@ func (repository Repository) validate(defaultProfile Profile, owners map[string]
 		return fmt.Errorf("repository %q: %w", repository.Name, err)
 	}
 
+	return validateRepositoryCallerPolicy(repository, defaults.RequiredChecks)
+}
+
+func validateRepositoryCallerPolicy(repository Repository, requiredChecks []string) error {
 	if repository.WorkflowSHA != "" && !workflowSHAPattern.MatchString(repository.WorkflowSHA) {
 		return fmt.Errorf("repository %q workflow-sha must be an immutable 40-character lowercase hexadecimal commit SHA", repository.Name)
 	}
@@ -197,6 +201,13 @@ func (repository Repository) validate(defaultProfile Profile, owners map[string]
 			return fmt.Errorf("repository %q has duplicate observed required check %q", repository.Name, check)
 		}
 		observed[check] = struct{}{}
+	}
+	if len(observed) != 0 {
+		for _, required := range requiredChecks {
+			if _, exists := observed[required]; !exists {
+				return fmt.Errorf("repository %q: required check %q has not been observed", repository.Name, required)
+			}
+		}
 	}
 	if repository.EnforceCaller {
 		if repository.WorkflowSHA == "" {

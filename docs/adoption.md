@@ -28,21 +28,55 @@ observed the aggregate check as `gate / gate`.
 Create `.github/github-ci.yaml`:
 
 ```yaml
-schema-version: 1
+schema-version: 2
 profile: go-strict
+go:
+  defaults:
+    packages: [./...]
+    module-mode: readonly
+    build-tags: []
+    test-timeout: 10m
+    package-parallelism: 4
+    race-parallelism: 1
+    coverage-packages: [./...]
 ```
 
 The supported profiles are `go-strict`, `go-library`, and `repository-only`.
-Modules are discovered from tracked `go.mod` files when `modules` is omitted.
-Use explicit repository-relative module paths when the repository intentionally
-excludes fixtures or examples. Optional fields configure build tags, PostgreSQL
-or Redis integration, generated paths, and the exception manifest.
+Modules are discovered from tracked `go.mod` files when `go.modules` is
+omitted. If `go.modules` is present, it must name every tracked module exactly;
+each module entry replaces omitted default fields independently. Package scope,
+module mode, build tags, test timeout, package parallelism, race parallelism,
+and coverage scope are applied through a typed argument plan. Generated paths
+are classification only, and `exceptions` selects the reviewed exception
+manifest.
 
 Render caller files with the governance CLI, or start from the templates in
 `templates/callers/generated` and replace the zero SHA with the validated
 commit. Commit the standard caller and consumer configuration together. The
 deep and release callers are separate because they have different triggers and
 permissions.
+
+## Consumer-Owned Preparation
+
+Reusable workflow jobs cannot inherit a caller job's modified checkout,
+running service containers, or private credentials. Keep preparation and
+repository-specific integration in independent caller-owned workflows, then
+require their observed check names in the repository ruleset.
+
+Copy and review the examples in `templates/preparation`:
+
+- `generated-source.yml.tmpl` runs the repository's explicit generator and
+  fails on tracked or untracked drift;
+- `postgresql.yml.tmpl` and `redis.yml.tmpl` provide digest-pinned services but
+  leave migrations, fixtures, tags, and the test command to the repository;
+- `private-modules.yml.tmpl` configures credentials only for trusted events and
+  same-repository pull requests; and
+- protocol, wire, privileged, or multi-container tests remain ordinary
+  repository-owned workflows because their topology is part of the consumer.
+
+Replace every documented example command before committing a copied template.
+Do not pass a shell command, service password, or private-module token into the
+central reusable workflow.
 
 ## External Repositories
 
@@ -55,6 +89,13 @@ reviews one immutable source identity.
 Fork pull requests receive no repository secrets and a read-only token. Local
 scanner exit status and normalized evidence remain blocking even when GitHub
 does not permit an optional report upload from an untrusted fork.
+
+A repository whose build requires private modules must choose an explicit fork
+policy. The private-module preparation job is skipped for forks and cannot make
+credentials available to them. If external fork contributions must pass the
+main Go gate, provide a credential-free dependency path such as reviewed
+vendoring; never switch to `pull_request_target` to execute fork code with a
+secret.
 
 ## Updating
 
