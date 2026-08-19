@@ -10,9 +10,9 @@ import (
 	"io"
 	"path"
 	"strings"
+	"unicode"
 
 	"github.com/gomaja/github-ci/internal/config"
-	"github.com/gomaja/github-ci/internal/pathpolicy"
 	"gopkg.in/yaml.v3"
 )
 
@@ -304,9 +304,6 @@ func verifyCanaryGeneratedPaths(ctx context.Context, client Client, repositoryNa
 	foundPaths := make(map[string]bool, len(generatedPaths))
 	seen := make(map[string]struct{}, len(tree.Entries))
 	for _, entry := range tree.Entries {
-		if err := pathpolicy.Validate("Git tree path", entry.Path); err != nil {
-			return err
-		}
 		if _, exists := seen[entry.Path]; exists {
 			return fmt.Errorf("git tree contains duplicate path %q", entry.Path)
 		}
@@ -317,15 +314,23 @@ func verifyCanaryGeneratedPaths(ctx context.Context, client Client, repositoryNa
 		if !gitSHAPattern.MatchString(entry.SHA) {
 			return fmt.Errorf("git tree path %q has invalid object SHA", entry.Path)
 		}
+		insideGeneratedPath := false
 		for _, generatedPath := range generatedPaths {
 			inside := generatedPath == "." || entry.Path == generatedPath || strings.HasPrefix(entry.Path, generatedPath+"/")
 			if !inside {
 				continue
 			}
 			foundPaths[generatedPath] = true
-			if strings.HasSuffix(entry.Path, ".go") && entry.Type == "blob" && (entry.Mode == "100644" || entry.Mode == "100755") {
-				generatedGo = true
-			}
+			insideGeneratedPath = true
+		}
+		if !insideGeneratedPath {
+			continue
+		}
+		if err := validateGitTreePath(entry.Path); err != nil {
+			return err
+		}
+		if strings.HasSuffix(entry.Path, ".go") && entry.Type == "blob" && (entry.Mode == "100644" || entry.Mode == "100755") {
+			generatedGo = true
 		}
 	}
 	for _, generatedPath := range generatedPaths {
@@ -335,6 +340,26 @@ func verifyCanaryGeneratedPaths(ctx context.Context, client Client, repositoryNa
 	}
 	if !generatedGo {
 		return errors.New("canary generated path must contain a regular tracked Go source blob")
+	}
+	return nil
+}
+
+func validateGitTreePath(value string) error {
+	if value == "" || path.IsAbs(value) {
+		return fmt.Errorf("git tree path must be a nonempty relative path: %q", value)
+	}
+	for _, character := range value {
+		if unicode.IsControl(character) {
+			return fmt.Errorf("git tree path contains a control character: %q", value)
+		}
+	}
+	for component := range strings.SplitSeq(value, "/") {
+		if component == "" {
+			return fmt.Errorf("git tree path contains an empty path component: %q", value)
+		}
+		if component == "." || component == ".." {
+			return fmt.Errorf("git tree path contains a dot path component: %q", value)
+		}
 	}
 	return nil
 }

@@ -70,6 +70,32 @@ func TestVerifyFindsGeneratedGoInNestedDirectories(t *testing.T) {
 	}
 }
 
+func TestVerifyAllowsUnrelatedLegalGitPathsOutsideGeneratedRoots(t *testing.T) {
+	fixture := newAcceptanceFixture()
+	fixture.trees[testCanary] = append(fixture.trees[testCanary], gitTreeFixture("docs/Release Notes.md", "100644", "blob"))
+	if _, err := fixture.verify(t); err != nil {
+		t.Fatalf("Verify() with unrelated legal Git path error = %v", err)
+	}
+}
+
+func TestVerifyAllowsLegalGitNamesInsideGeneratedRoots(t *testing.T) {
+	fixture := newAcceptanceFixture()
+	for _, repository := range []string{testCanary, testFork} {
+		fixture.trees[repository][1]["path"] = "generated/Release Notes.go"
+	}
+	if _, err := fixture.verify(t); err != nil {
+		t.Fatalf("Verify() with legal generated Git path error = %v", err)
+	}
+
+	fixture = newAcceptanceFixture()
+	fixture.config = strings.Replace(fixture.config, "  - generated\n", "  - .\n", 1)
+	fixture.forkConfig = fixture.config
+	fixture.trees[testCanary] = append(fixture.trees[testCanary], gitTreeFixture("docs/Release Notes.md", "100644", "blob"))
+	if _, err := fixture.verify(t); err != nil {
+		t.Fatalf("Verify() with repository-root generated scope error = %v", err)
+	}
+}
+
 func TestVerifyRejectsGeneratedGoThatIsNotARegularBlob(t *testing.T) {
 	tests := []struct {
 		name       string
@@ -157,6 +183,12 @@ func TestVerifyRejectsEveryUnprovenCondition(t *testing.T) {
 		{name: "invalid Git object SHA", mutate: func(f *acceptanceFixture) {
 			f.trees[testCanary][1]["sha"] = "main"
 		}, want: "invalid object SHA"},
+		{name: "traversing generated Git path", mutate: func(f *acceptanceFixture) {
+			f.trees[testCanary][1]["path"] = "generated/../model.go"
+		}, want: "dot path component"},
+		{name: "control character in generated Git path", mutate: func(f *acceptanceFixture) {
+			f.trees[testCanary][1]["path"] = "generated/model\n.go"
+		}, want: "control character"},
 		{name: "untracked module", mutate: func(f *acceptanceFixture) {
 			f.status["/repos/"+testCanary+"/contents/tools/go.mod"] = http.StatusNotFound
 		}, want: "tracked go.mod"},
