@@ -7,6 +7,9 @@ configuration. Every applicable producer must emit schema-valid evidence for
 the exact subject SHA, command identity, parser version, and policy digest.
 Missing, duplicate, malformed, stale, skipped, cancelled, or mismatched
 evidence fails closed. An analyzer finding blocks regardless of severity.
+The versioned Scorecard policy archives the repository-posture observations
+listed in `docs/security-model.md` without classifying them as gate findings;
+an error-level result remains blocking.
 
 `N/A` is allowed only when the detector proves that the required tracked-file
 capability is absent. A workflow cannot mark its own scanner not applicable.
@@ -43,8 +46,9 @@ exclusion rules fail configuration review, and issue reporting is unlimited.
 
 Primary ownership identifies the result used to classify and route a finding;
 it does not make overlapping results advisory. Every applicable scanner must
-produce its native report and normalized evidence, and every finding or
-execution error remains blocking.
+produce its native report and normalized evidence. Every classified finding or
+execution error remains blocking; the documented Scorecard posture observations
+remain visible in native evidence without being classified as findings.
 
 | Scanner | Primary purpose | Why the overlap remains | Native report and gate behavior | Triage owner |
 | --- | --- | --- | --- | --- |
