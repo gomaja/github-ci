@@ -122,6 +122,7 @@ run_mutation_context() {
 		transcript="$MUTATION_DIR/module-${index}.log"
 		evidence="$MUTATION_DIR/module-${index}-no-results.json"
 		execute_with_plan_environment "$directory" gremlins unleash \
+			--integration \
 			--workers 2 \
 			--timeout-coefficient 20 \
 			--arithmetic-base \

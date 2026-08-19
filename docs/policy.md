@@ -7,6 +7,9 @@ configuration. Every applicable producer must emit schema-valid evidence for
 the exact subject SHA, command identity, parser version, and policy digest.
 Missing, duplicate, malformed, stale, skipped, cancelled, or mismatched
 evidence fails closed. An analyzer finding blocks regardless of severity.
+The versioned Scorecard policy archives the repository-posture observations
+listed in `docs/security-model.md` without classifying them as gate findings;
+an error-level result remains blocking.
 
 `N/A` is allowed only when the detector proves that the required tracked-file
 capability is absent. A workflow cannot mark its own scanner not applicable.
@@ -43,8 +46,9 @@ exclusion rules fail configuration review, and issue reporting is unlimited.
 
 Primary ownership identifies the result used to classify and route a finding;
 it does not make overlapping results advisory. Every applicable scanner must
-produce its native report and normalized evidence, and every finding or
-execution error remains blocking.
+produce its native report and normalized evidence. Every classified finding or
+execution error remains blocking; the documented Scorecard posture observations
+remain visible in native evidence without being classified as findings.
 
 | Scanner | Primary purpose | Why the overlap remains | Native report and gate behavior | Triage owner |
 | --- | --- | --- | --- | --- |
@@ -59,6 +63,7 @@ execution error remains blocking.
 | Gitleaks | Blocking checkout content and scheduled full-history secret detection | Gives deterministic local evidence on pull requests and finds historical material outside the checked-out tree | Gitleaks JSON through `gitleaks-json/v1`; every finding or execution error blocks | Source-security policy maintainers |
 | Dependency Review | Pull-request dependency additions and version deltas | Owns the change boundary while SBOM tools inspect the complete resolved repository inventory | Action conclusion normalized as `command-status/v1`; a finding, action failure, or missing evidence blocks | Dependency owners |
 | Syft | Authoritative complete software inventory for downstream SBOM analysis | Inventory is distinct from vulnerability matching; Grype consumes a second Syft-native representation | SPDX JSON through `spdx-json/v1`, with Syft JSON retained for Grype; missing or malformed inventory blocks | Supply-chain maintainers |
+| OpenSSF Scorecard | Repository posture signals not already enforced by central jobs or managed governance | Preserves an independent view of consumer hygiene while reusable-workflow opacity prevents it from observing central CodeQL and deep fuzz execution | Native SARIF through `scorecard-sarif/v1`; SAST and fuzzing posture signals are nonblocking only because CodeQL and selected deep fuzz evidence are authoritative, while actionable consumer findings still block | Repository administrators and security |
 
 The overlap policy is additive: one scanner never suppresses, downgrades, or
 closes another scanner's finding. Duplicate-looking results are linked during

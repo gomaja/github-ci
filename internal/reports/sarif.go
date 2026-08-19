@@ -76,7 +76,7 @@ func scorecardResultBlocks(raw json.RawMessage) (bool, error) {
 
 func isScorecardGovernanceIndicator(ruleID string) bool {
 	switch ruleID {
-	case "BranchProtectionID", "CIIBestPracticesID", "CodeReviewID", "MaintainedID":
+	case "BranchProtectionID", "CIIBestPracticesID", "CodeReviewID", "FuzzingID", "MaintainedID", "SASTID":
 		return true
 	default:
 		return false
