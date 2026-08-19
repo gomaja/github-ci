@@ -461,51 +461,98 @@ func TestDeepWorkflowContract(t *testing.T) {
 	}
 	text := string(data)
 	for _, required := range []string{
-		"portability:", "fuzz-benchmark:", "mutation:", "history-refresh:", "services:",
-		"gremlins unleash", "gitleaks git", "go mod edit -json", `go list -m -u -json "${dependencies[@]}"`,
-		"go list ./...", "go test \"$package\"", `^Fuzz[[:alnum:]_]*$`, "-bench .", "-fuzz",
-		"postgres:18.1@sha256:", "redis:8.6.1@sha256:",
+		"preflight:", "portability:", "fuzz-benchmark:", "mutation:", "history-refresh:",
+		"go-plan.json", "github-ci-plan", "scripts/run-deep-go.sh\" portability",
+		"scripts/run-deep-go.sh\" fuzz-benchmark", "scripts/run-deep-go.sh\" mutation-context",
+		"gitleaks git", "go mod edit -json", `go list -m -u -json "${dependencies[@]}"`,
+		"1.26.6", "1.25.13", "ubuntu-latest", "macos-latest", "windows-latest",
 	} {
 		if !strings.Contains(text, required) {
 			t.Errorf("deep workflow is missing %q", required)
 		}
 	}
-	if strings.Contains(text, "egress-policy: audit") {
-		t.Error("deep workflow contains audit-only egress")
-	}
-	if strings.Contains(text, "go test ./... -run '^$' -fuzz") {
-		t.Error("deep workflow attempts to fuzz multiple packages in one go test invocation")
-	}
-	if strings.Contains(text, `^Fuzz[[:alnum:]_]+$`) {
-		t.Error("deep workflow skips the valid bare Fuzz target name")
-	}
-	if strings.Contains(text, "go list -m -u -json all") {
-		t.Error("deep workflow requires updates for transitive modules outside the root go.mod")
-	}
-	for _, required := range []string{
-		`--output "$report"`,
-		`--timeout-coefficient 20`,
-		`--arithmetic-base`,
-		`--conditionals-boundary`,
-		`--conditionals-negation`,
-		`--increment-decrement`,
-		`--invert-assignments`,
-		`--invert-bitwise`,
-		`--invert-bwassign`,
-		`--invert-logical`,
-		`--invert-loopctrl`,
-		`--invert-negatives`,
-		`--remove-self-assignments`,
-		`module_path=$(cd "$directory" && GOWORK=off go list -m -f '{{.Path}}')`,
-		`"$CLI" validate-gremlins --report "$report" --module "$module_path"`,
-		`"$CLI" validate-gremlins-no-results --log "$transcript" --module "$module_path" --output "$evidence"`,
-		`name: github-ci-mutation`,
+	for _, forbidden := range []string{
+		"services:", "postgres:", "redis:", "POSTGRES_DSN", "REDIS_ADDR", "-tags integration",
+		"inputs.profile", "inputs.go-version", "inputs.previous-go-version",
+		"go build ./...", "go test ./...", "go vet ./...", "go list ./...",
+		"egress-policy: audit", "go list -m -u -json all", "== skipped",
 	} {
-		if !strings.Contains(text, required) {
-			t.Errorf("deep workflow does not independently enforce mutation result %q", required)
+		if strings.Contains(text, forbidden) {
+			t.Errorf("deep workflow contains forbidden %q", forbidden)
+		}
+	}
+	var workflow map[string]any
+	if err := yaml.Unmarshal(data, &workflow); err != nil {
+		t.Fatalf("decode deep workflow: %v", err)
+	}
+	on := mapping(t, workflow["on"], "deep on")
+	inputs := mapping(t, mapping(t, on["workflow_call"], "deep workflow_call")["inputs"], "deep inputs")
+	if len(inputs) != 2 || inputs["config-path"] == nil || inputs["fuzz-time"] == nil {
+		t.Errorf("deep inputs = %#v, want config-path and fuzz-time", inputs)
+	}
+	jobs := mapping(t, workflow["jobs"], "deep jobs")
+	if _, exists := jobs["services"]; exists {
+		t.Error("deep workflow still defines a central services job")
+	}
+	for _, name := range []string{"portability", "fuzz-benchmark", "mutation", "history-refresh"} {
+		job := mapping(t, jobs[name], "deep "+name)
+		if job["needs"] != "preflight" {
+			t.Errorf("deep job %q needs = %#v, want preflight", name, job["needs"])
+		}
+	}
+	for _, name := range []string{"preflight", "portability", "fuzz-benchmark", "mutation", "history-refresh"} {
+		job := mapping(t, jobs[name], "deep "+name)
+		assertDualCheckout(t, job)
+		assertNoExpressionsInRun(t, name, job)
+	}
+	gate := mapping(t, jobs["gate"], "deep gate")
+	needs := sequence(t, gate["needs"], "deep gate needs")
+	if !slices.Equal(needs, []any{"preflight", "portability", "fuzz-benchmark", "mutation", "history-refresh"}) {
+		t.Errorf("deep gate needs = %#v", needs)
+	}
+	for _, assertion := range []string{
+		`[[ "$PREFLIGHT_RESULT" == success ]]`,
+		`[[ "$FUZZ_RESULT" == success ]]`,
+		`[[ "$HISTORY_RESULT" == success ]]`,
+		`[[ "$MUTATION_RESULT" == success ]]`,
+		`[[ "$PORTABILITY_RESULT" == success ]]`,
+	} {
+		if !strings.Contains(text, assertion) {
+			t.Errorf("deep gate is missing %q", assertion)
 		}
 	}
 	assertImmutableUses(t, text)
+}
+
+func TestDeepExecutorContract(t *testing.T) {
+	data, err := os.ReadFile("../../scripts/run-deep-go.sh")
+	if err != nil {
+		t.Fatalf("read deep executor: %v", err)
+	}
+	text := string(data)
+	for _, required := range []string{
+		`load_go_invocation "$GO_PLAN_PATH" "$index" build`,
+		`load_go_invocation "$GO_PLAN_PATH" "$index" test`,
+		`load_go_invocation "$GO_PLAN_PATH" "$index" gopls`,
+		`^Fuzz[[:alnum:]_]*$`, `-fuzz="^${target}$"`, `-fuzztime="$FUZZ_TIME"`,
+		`--workers 2`, `--timeout-coefficient 20`, `--arithmetic-base`,
+		`--conditionals-boundary`, `--conditionals-negation`, `--increment-decrement`,
+		`--invert-assignments`, `--invert-bitwise`, `--invert-bwassign`,
+		`--invert-logical`, `--invert-loopctrl`, `--invert-negatives`,
+		`--remove-self-assignments`, `--output "$report" .`,
+		`validate-gremlins --report "$report" --module "$module_path"`,
+		`validate-gremlins-no-results --log "$transcript" --module "$module_path" --output "$evidence"`,
+	} {
+		if !strings.Contains(text, required) {
+			t.Errorf("deep executor is missing %q", required)
+		}
+	}
+	if strings.Contains(text, "./...") {
+		t.Error("deep executor reconstructs a root package scope")
+	}
+	if count := strings.Count(text, `for index in "${!GO_PLAN_MODULE_PATHS[@]}"`); count != 3 {
+		t.Errorf("deep executor module loops = %d, want 3", count)
+	}
 }
 
 func TestReleaseWorkflowProducesEvidenceWithoutPublishing(t *testing.T) {

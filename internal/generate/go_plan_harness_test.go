@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
@@ -109,6 +110,57 @@ func TestRunGoGroupExecutesTypedArgumentArrays(t *testing.T) {
 	assertCapturedInvocation(t, capture, "govulncheck", module.Invocations[goexecution.ToolGovulncheck], nil)
 }
 
+func TestRunDeepGoExecutesPlannedPortabilityAndTaggedFuzz(t *testing.T) {
+	root := repositoryRoot(t)
+	temporary := t.TempDir()
+	source := filepath.Join(temporary, "source")
+	if err := os.MkdirAll(source, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	goPlan := writeGoExecutionPlan(t, temporary)
+	fakeBin := filepath.Join(temporary, "bin")
+	capture := filepath.Join(temporary, "capture")
+	writeFakeGoTools(t, fakeBin)
+	if err := os.MkdirAll(capture, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	environment := []string{
+		"CAPTURE_DIR=" + capture,
+		"CENTRAL_DIR=" + root,
+		"FUZZ_TIME=1s",
+		"GO_PLAN_PATH=" + goPlan,
+		"PATH=" + fakeBin + string(os.PathListSeparator) + os.Getenv("PATH"),
+		"SOURCE_DIR=" + source,
+	}
+	runCommand(t, root, environment, "bash", filepath.Join(root, "scripts", "run-deep-go.sh"), "portability")
+	runCommand(t, root, environment, "bash", filepath.Join(root, "scripts", "run-deep-go.sh"), "fuzz-benchmark")
+
+	module := readGoExecutionPlan(t, goPlan).Modules[0]
+	assertCapturedInvocation(t, capture, "go", module.Invocations[goexecution.ToolBuild], nil)
+	assertCapturedInvocation(t, capture, "go", module.Invocations[goexecution.ToolVet], nil)
+	assertCapturedInvocation(t, capture, "go", module.Invocations[goexecution.ToolTest], nil)
+	assertCapturedGoArguments(t, capture, []string{"list", "-mod=vendor", "-tags=sqlite,integration", "./cmd/...", "./internal/..."})
+	assertCapturedGoArguments(t, capture, []string{"-mod=vendor", "-tags=sqlite,integration", "example.com/fixture", "-fuzz=^FuzzBare$", "-fuzztime=1s"})
+	assertCapturedGoArguments(t, capture, []string{"-mod=vendor", "-tags=sqlite,integration", "./cmd/...", "./internal/...", "-bench=.", "-benchtime=1s"})
+}
+
+func TestRunDeepGoRejectsInvalidFuzzDurationBeforeExecution(t *testing.T) {
+	root := repositoryRoot(t)
+	temporary := t.TempDir()
+	environment := append(os.Environ(),
+		"CENTRAL_DIR="+root,
+		"FUZZ_TIME=0s",
+		"GO_PLAN_PATH="+writeGoExecutionPlan(t, temporary),
+		"SOURCE_DIR="+temporary,
+	)
+	command := exec.CommandContext(t.Context(), "bash", filepath.Join(root, "scripts", "run-deep-go.sh"), "fuzz-benchmark")
+	command.Dir = root
+	command.Env = environment
+	if err := command.Run(); err == nil {
+		t.Fatal("run-deep-go accepted a zero fuzz duration")
+	}
+}
+
 func writeGoExecutionPlan(t *testing.T, root string) string {
 	t.Helper()
 	packages := []string{"./cmd/...", "./internal/..."}
@@ -202,6 +254,10 @@ printf '%s\0' "${GOFLAGS:-}" "${GOMAXPROCS:-}" "$@" >"$record"
 case "$tool" in
   go)
     if [[ "${1:-}" == version ]]; then printf 'go version go1.26.6 fixture/amd64\n'; fi
+    if [[ "${1:-}" == list ]]; then printf 'example.com/fixture\n'; fi
+    for argument in "$@"; do
+      if [[ "$argument" == -list=* ]]; then printf 'FuzzBare\n'; fi
+    done
     ;;
   golangci-lint)
     output=''
@@ -300,4 +356,34 @@ func removeTrustedGolangCIArguments(t *testing.T, arguments []string) []string {
 		result = append(result, arguments[index])
 	}
 	return result
+}
+
+func assertCapturedGoArguments(t *testing.T, directory string, required []string) {
+	t.Helper()
+	files, err := filepath.Glob(filepath.Join(directory, "go.*"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range files {
+		data, readErr := os.ReadFile(name)
+		if readErr != nil {
+			t.Fatal(readErr)
+		}
+		fields := strings.Split(strings.TrimSuffix(string(data), "\x00"), "\x00")
+		if len(fields) < 3 {
+			continue
+		}
+		arguments := fields[2:]
+		matched := true
+		for _, value := range required {
+			if !slices.Contains(arguments, value) {
+				matched = false
+				break
+			}
+		}
+		if matched {
+			return
+		}
+	}
+	t.Fatalf("no captured go invocation contains %#v", required)
 }
