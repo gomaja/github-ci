@@ -187,14 +187,30 @@ func TestIsShellRecognizesSupportedShebangRegardlessOfMode(t *testing.T) {
 		{name: "executable sh", file: trackedFile{mode: 0o755, data: []byte("#!/bin/sh\n")}, want: true},
 		{name: "executable bash", file: trackedFile{mode: 0o755, data: []byte("#!/bin/bash\n")}, want: true},
 		{name: "direct options", file: trackedFile{data: []byte("#!/bin/bash -e\n")}, want: true},
+		{name: "direct malformed options", file: trackedFile{data: []byte("#!/bin/bash 'unterminated\n")}, want: true},
 		{name: "env split string", file: trackedFile{data: []byte("#!/usr/bin/env -S bash -e\n")}, want: true},
+		{name: "env split quoted", file: trackedFile{data: []byte("#!/usr/bin/env -S 'bash' -e\n")}, want: true},
+		{name: "env split double quoted", file: trackedFile{data: []byte("#!/usr/bin/env -S \"bash\" -e\n")}, want: true},
+		{name: "env split short attached", file: trackedFile{data: []byte("#!/usr/bin/env -Sbash -e\n")}, want: true},
+		{name: "env split long separate", file: trackedFile{data: []byte("#!/usr/bin/env --split-string bash -e\n")}, want: true},
+		{name: "env split long attached", file: trackedFile{data: []byte("#!/usr/bin/env --split-string=bash -e\n")}, want: true},
+		{name: "env split combined option", file: trackedFile{data: []byte("#!/usr/bin/env -vS bash -e\n")}, want: true},
+		{name: "env split combined attached", file: trackedFile{data: []byte("#!/usr/bin/env -vSbash -e\n")}, want: true},
+		{name: "env split assignment", file: trackedFile{data: []byte("#!/usr/bin/env -S MODE=strict bash -e\n")}, want: true},
 		{name: "env unset short", file: trackedFile{data: []byte("#!/usr/bin/env -u PATH bash\n")}, want: true},
+		{name: "env unset attached S name", file: trackedFile{data: []byte("#!/usr/bin/env -uSHELL bash\n")}, want: true},
 		{name: "env unset long", file: trackedFile{data: []byte("#!/usr/bin/env --unset PATH bash\n")}, want: true},
 		{name: "env chdir short", file: trackedFile{data: []byte("#!/usr/bin/env -C /tmp sh\n")}, want: true},
 		{name: "env chdir long", file: trackedFile{data: []byte("#!/usr/bin/env --chdir /tmp ksh\n")}, want: true},
 		{name: "CRLF", file: trackedFile{data: []byte("#!/usr/bin/env bash\r\n")}, want: true},
 		{name: "env without command", file: trackedFile{data: []byte("#!/usr/bin/env\n")}},
 		{name: "env option without operand", file: trackedFile{data: []byte("#!/usr/bin/env -u\n")}},
+		{name: "env split short without value", file: trackedFile{data: []byte("#!/usr/bin/env -S\n")}},
+		{name: "env split long without value", file: trackedFile{data: []byte("#!/usr/bin/env --split-string\n")}},
+		{name: "env split unterminated quote", file: trackedFile{data: []byte("#!/usr/bin/env -S 'bash -e\n")}},
+		{name: "env split comment without command", file: trackedFile{data: []byte("#!/usr/bin/env -S '# bash'\n")}},
+		{name: "env split attached prefix collision", file: trackedFile{data: []byte("#!/usr/bin/env -Sbashful -e\n")}},
+		{name: "env split attached non-shell", file: trackedFile{data: []byte("#!/usr/bin/env --split-string=python -I\n")}},
 		{name: "direct prefix collision", file: trackedFile{data: []byte("#!/bin/bashful\n")}},
 		{name: "env prefix collision", file: trackedFile{data: []byte("#!/usr/bin/env bashful\n")}},
 		{name: "unrecognized", file: trackedFile{mode: 0o755, data: []byte("#!/usr/bin/env fish\n")}},
@@ -203,6 +219,39 @@ func TestIsShellRecognizesSupportedShebangRegardlessOfMode(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			if got := IsShellFile(test.file.path, test.file.data); got != test.want {
 				t.Fatalf("IsShellFile() = %t, want %t", got, test.want)
+			}
+		})
+	}
+}
+
+func TestSplitEnvString(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		want  []string
+		valid bool
+	}{
+		{name: "whitespace", input: "  bash\t-e  ", want: []string{"bash", "-e"}, valid: true},
+		{name: "quotes", input: `'bash' "-e"`, want: []string{"bash", "-e"}, valid: true},
+		{name: "empty quote", input: `'' bash`, want: []string{"", "bash"}, valid: true},
+		{name: "comment", input: `bash # ignored`, want: []string{"bash"}, valid: true},
+		{name: "embedded hash", input: `ba#sh`, want: []string{"ba#sh"}, valid: true},
+		{name: "escaped hash", input: `\# bash`, want: []string{"#", "bash"}, valid: true},
+		{name: "escaped separator", input: `MODE=strict\_bash -e`, want: []string{"MODE=strict", "bash", "-e"}, valid: true},
+		{name: "quoted underscore", input: `"ba\_sh"`, want: []string{"ba sh"}, valid: true},
+		{name: "control termination", input: `bash\c ignored`, want: []string{"bash"}, valid: true},
+		{name: "single quoted backslash", input: `'ba\qsh'`, want: []string{`ba\qsh`}, valid: true},
+		{name: "unterminated single quote", input: `'bash`, valid: false},
+		{name: "unterminated double quote", input: `"bash`, valid: false},
+		{name: "trailing escape", input: `bash\`, valid: false},
+		{name: "unsupported escape", input: `ba\qsh`, valid: false},
+		{name: "quoted control termination", input: `"bash\c"`, valid: false},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			got, valid := splitEnvString(test.input)
+			if valid != test.valid || !slices.Equal(got, test.want) {
+				t.Fatalf("splitEnvString(%q) = %#v, %t; want %#v, %t", test.input, got, valid, test.want, test.valid)
 			}
 		})
 	}

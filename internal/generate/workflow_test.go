@@ -63,13 +63,33 @@ func TestGeneratedWorkflowsBindHelpersToDefiningWorkflow(t *testing.T) {
 		if strings.Contains(text, "github.workflow_sha") {
 			t.Errorf("%s binds helpers to the caller workflow SHA", name)
 		}
-		for _, required := range []string{
-			"repository: ${{ job.workflow_repository }}",
-			"ref: ${{ job.workflow_sha }}",
-		} {
-			if !strings.Contains(text, required) {
-				t.Errorf("%s is missing %q", name, required)
+		var workflow map[string]any
+		if err := yaml.Unmarshal(data, &workflow); err != nil {
+			t.Fatalf("decode %s: %v", name, err)
+		}
+		jobs := mapping(t, workflow["jobs"], name+" jobs")
+		helperCheckouts := 0
+		for jobName, rawJob := range jobs {
+			job := mapping(t, rawJob, name+" job "+jobName)
+			steps, _ := job["steps"].([]any)
+			for _, rawStep := range steps {
+				step := mapping(t, rawStep, name+" job "+jobName+" step")
+				uses, _ := step["uses"].(string)
+				if !strings.HasPrefix(uses, "actions/checkout@") {
+					continue
+				}
+				with := mapping(t, step["with"], name+" job "+jobName+" checkout.with")
+				if with["path"] != "github-ci" {
+					continue
+				}
+				helperCheckouts++
+				if with["repository"] != "${{ job.workflow_repository }}" || with["ref"] != "${{ job.workflow_sha }}" {
+					t.Errorf("%s job %s helper checkout is not bound to the defining workflow", name, jobName)
+				}
 			}
+		}
+		if helperCheckouts == 0 {
+			t.Errorf("%s has no helper checkout at path github-ci", name)
 		}
 	}
 }

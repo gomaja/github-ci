@@ -281,7 +281,8 @@ func IsShellFile(name string, data []byte) bool {
 	if !bytes.HasPrefix(line, []byte("#!")) {
 		return false
 	}
-	fields := strings.Fields(string(line[2:]))
+	raw := string(line[2:])
+	fields := strings.Fields(raw)
 	if len(fields) == 0 {
 		return false
 	}
@@ -291,7 +292,173 @@ func IsShellFile(name string, data []byte) bool {
 	if path.Base(fields[0]) != "env" {
 		return false
 	}
-	return envSelectsSupportedShell(fields[1:])
+	arguments, valid := splitEnvString(raw)
+	if !valid || len(arguments) == 0 {
+		return false
+	}
+	return envSelectsSupportedShell(expandEnvSplitString(arguments[1:]))
+}
+
+func expandEnvSplitString(arguments []string) []string {
+	for index, argument := range arguments {
+		if isDetachedEnvSplitOption(argument) {
+			return arguments[index:][1:]
+		}
+		switch {
+		case strings.HasPrefix(argument, "--split-string="):
+			value := strings.TrimPrefix(argument, "--split-string=")
+			if value == "" {
+				return nil
+			}
+			return append([]string{value}, arguments[index:][1:]...)
+		case strings.HasPrefix(argument, "-S"):
+			return append([]string{argument[2:]}, arguments[index:][1:]...)
+		case strings.HasPrefix(argument, "--"):
+			continue
+		case strings.HasPrefix(argument, "-"):
+			flags, value, found := strings.Cut(argument[1:], "S")
+			if !found || !isEnvFlagBundle(flags) {
+				continue
+			}
+			if value == "" {
+				return arguments[index:][1:]
+			}
+			return append([]string{value}, arguments[index:][1:]...)
+		}
+	}
+	return arguments
+}
+
+func isDetachedEnvSplitOption(argument string) bool {
+	return argument == "-S" || argument == "--split-string"
+}
+
+func isEnvFlagBundle(flags string) bool {
+	for _, flag := range flags {
+		if flag != '0' && flag != 'i' && flag != 'v' {
+			return false
+		}
+	}
+	return true
+}
+
+// splitEnvString lexes the GNU Coreutils env -S quoting and escape rules.
+func splitEnvString(input string) ([]string, bool) {
+	state := envStringState{}
+	for index := 0; index < len(input); index++ {
+		character := input[index]
+		if state.quote == 0 && isEnvSpace(character) {
+			state.flush()
+			continue
+		}
+		if state.consumeQuote(character) {
+			continue
+		}
+		if state.quote == 0 && character == '#' && !state.inArgument {
+			break
+		}
+		if character != '\\' {
+			state.write(character)
+			continue
+		}
+		if index+1 == len(input) {
+			return nil, false
+		}
+		next := input[index+1]
+		index++
+		stop, valid := state.consumeEscape(next)
+		if !valid {
+			return nil, false
+		}
+		if stop {
+			state.flush()
+			return state.arguments, true
+		}
+	}
+	if state.quote != 0 {
+		return nil, false
+	}
+	state.flush()
+	return state.arguments, true
+}
+
+type envStringState struct {
+	arguments  []string
+	current    strings.Builder
+	quote      byte
+	inArgument bool
+}
+
+func (state *envStringState) flush() {
+	if !state.inArgument {
+		return
+	}
+	state.arguments = append(state.arguments, state.current.String())
+	state.current.Reset()
+	state.inArgument = false
+}
+
+func (state *envStringState) write(character byte) {
+	state.current.WriteByte(character)
+	state.inArgument = true
+}
+
+func (state *envStringState) consumeQuote(character byte) bool {
+	if character != '\'' && character != '"' {
+		return false
+	}
+	if state.quote == 0 {
+		state.quote = character
+		state.inArgument = true
+		return true
+	}
+	if state.quote == character {
+		state.quote = 0
+		return true
+	}
+	return false
+}
+
+func (state *envStringState) consumeEscape(character byte) (bool, bool) {
+	if state.quote == '\'' && character != '\'' && character != '\\' {
+		state.write('\\')
+		state.write(character)
+		return false, true
+	}
+	switch character {
+	case 'c':
+		return true, state.quote == 0
+	case '_':
+		if state.quote == 0 {
+			state.flush()
+		} else {
+			state.write(' ')
+		}
+	case 'f':
+		state.write('\f')
+	case 'n':
+		state.write('\n')
+	case 'r':
+		state.write('\r')
+	case 't':
+		state.write('\t')
+	case 'v':
+		state.write('\v')
+	case '#', '$', '"', '\'', '\\':
+		state.write(character)
+	default:
+		return false, false
+	}
+	return false, true
+}
+
+func isEnvSpace(character byte) bool {
+	switch character {
+	case ' ', '\t', '\n', '\r', '\v', '\f':
+		return true
+	default:
+		return false
+	}
 }
 
 func envSelectsSupportedShell(arguments []string) bool {
