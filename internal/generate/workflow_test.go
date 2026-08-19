@@ -49,6 +49,31 @@ func TestGeneratedWorkflowsUseFoldedEgressAllowLists(t *testing.T) {
 	}
 }
 
+func TestGeneratedWorkflowsBindHelpersToDefiningWorkflow(t *testing.T) {
+	for _, name := range []string{
+		"../../.github/workflows/go.yml",
+		"../../.github/workflows/deep.yml",
+		"../../.github/workflows/release.yml",
+	} {
+		data, err := os.ReadFile(name)
+		if err != nil {
+			t.Fatalf("read %s: %v", name, err)
+		}
+		text := string(data)
+		if strings.Contains(text, "github.workflow_sha") {
+			t.Errorf("%s binds helpers to the caller workflow SHA", name)
+		}
+		for _, required := range []string{
+			"repository: ${{ job.workflow_repository }}",
+			"ref: ${{ job.workflow_sha }}",
+		} {
+			if !strings.Contains(text, required) {
+				t.Errorf("%s is missing %q", name, required)
+			}
+		}
+	}
+}
+
 func assertWorkflowCallContract(t *testing.T, workflow map[string]any) {
 	t.Helper()
 	on := mapping(t, workflow["on"], "on")
@@ -462,13 +487,13 @@ func assertDualCheckout(t *testing.T, job map[string]any) {
 			if with["path"] == "source" {
 				consumer = true
 			}
-			if with["repository"] == "gomaja/github-ci" && with["ref"] == "${{ github.workflow_sha }}" && with["path"] == "github-ci" {
+			if with["repository"] == "${{ job.workflow_repository }}" && with["ref"] == "${{ job.workflow_sha }}" && with["path"] == "github-ci" {
 				central = true
 			}
 		}
 	}
 	if !consumer || !central {
-		t.Errorf("job does not have consumer and workflow-SHA-bound central checkouts")
+		t.Errorf("job does not have consumer and defining-workflow-bound helper checkouts")
 	}
 }
 

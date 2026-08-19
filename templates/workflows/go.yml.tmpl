@@ -68,8 +68,8 @@ jobs:
       - name: Check out workflow helpers
         uses: [%.Action "checkout"%]
         with:
-          repository: gomaja/github-ci
-          ref: ${{ github.workflow_sha }}
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
           persist-credentials: false
           path: github-ci
       - name: Bootstrap policy CLI
@@ -139,8 +139,8 @@ jobs:
       - name: Check out workflow helpers
         uses: [%.Action "checkout"%]
         with:
-          repository: gomaja/github-ci
-          ref: ${{ github.workflow_sha }}
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
           persist-credentials: false
           path: github-ci
       - name: Bootstrap analyzers
@@ -212,8 +212,8 @@ jobs:
       - name: Check out workflow helpers
         uses: [%.Action "checkout"%]
         with:
-          repository: gomaja/github-ci
-          ref: ${{ github.workflow_sha }}
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
           persist-credentials: false
           path: github-ci
       - name: Bootstrap analyzers
@@ -285,8 +285,8 @@ jobs:
       - name: Check out workflow helpers
         uses: [%.Action "checkout"%]
         with:
-          repository: gomaja/github-ci
-          ref: ${{ github.workflow_sha }}
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
           persist-credentials: false
           path: github-ci
       - name: Bootstrap analyzers
@@ -359,8 +359,8 @@ jobs:
       - name: Check out workflow helpers
         uses: [%.Action "checkout"%]
         with:
-          repository: gomaja/github-ci
-          ref: ${{ github.workflow_sha }}
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
           persist-credentials: false
           path: github-ci
       - name: Bootstrap analyzers
@@ -436,8 +436,8 @@ jobs:
       - name: Check out workflow helpers
         uses: [%.Action "checkout"%]
         with:
-          repository: gomaja/github-ci
-          ref: ${{ github.workflow_sha }}
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
           persist-credentials: false
           path: github-ci
       - name: Bootstrap compatibility toolchain
@@ -506,8 +506,8 @@ jobs:
       - name: Check out workflow helpers
         uses: [%.Action "checkout"%]
         with:
-          repository: gomaja/github-ci
-          ref: ${{ github.workflow_sha }}
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
           persist-credentials: false
           path: github-ci
       - name: Bootstrap policy CLI
@@ -595,8 +595,8 @@ jobs:
       - name: Check out workflow helpers
         uses: [%.Action "checkout"%]
         with:
-          repository: gomaja/github-ci
-          ref: ${{ github.workflow_sha }}
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
           persist-credentials: false
           path: github-ci
       - name: Bootstrap policy CLI
@@ -689,8 +689,8 @@ jobs:
       - name: Check out workflow helpers
         uses: [%.Action "checkout"%]
         with:
-          repository: gomaja/github-ci
-          ref: ${{ github.workflow_sha }}
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
           persist-credentials: false
           path: github-ci
       - name: Bootstrap policy CLI
@@ -761,8 +761,8 @@ jobs:
       - name: Check out workflow helpers
         uses: [%.Action "checkout"%]
         with:
-          repository: gomaja/github-ci
-          ref: ${{ github.workflow_sha }}
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
           persist-credentials: false
           path: github-ci
       - name: Bootstrap policy CLI
@@ -835,8 +835,8 @@ jobs:
       - name: Check out workflow helpers
         uses: [%.Action "checkout"%]
         with:
-          repository: gomaja/github-ci
-          ref: ${{ github.workflow_sha }}
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
           persist-credentials: false
           path: github-ci
       - name: Bootstrap policy CLI
@@ -918,8 +918,8 @@ jobs:
       - name: Check out workflow helpers
         uses: [%.Action "checkout"%]
         with:
-          repository: gomaja/github-ci
-          ref: ${{ github.workflow_sha }}
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
           persist-credentials: false
           path: github-ci
       - name: Bootstrap policy CLI
@@ -996,8 +996,8 @@ jobs:
       - name: Check out workflow helpers
         uses: [%.Action "checkout"%]
         with:
-          repository: gomaja/github-ci
-          ref: ${{ github.workflow_sha }}
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
           persist-credentials: false
           path: github-ci
       - name: Bootstrap policy CLI
@@ -1087,8 +1087,8 @@ jobs:
       - name: Check out workflow helpers
         uses: [%.Action "checkout"%]
         with:
-          repository: gomaja/github-ci
-          ref: ${{ github.workflow_sha }}
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
           persist-credentials: false
           path: github-ci
       - name: Bootstrap policy CLI
