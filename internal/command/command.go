@@ -57,7 +57,7 @@ func Run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 		return exitError
 	}
 	if len(args) == 0 {
-		writeError(dependencies.stderr, errors.New("usage: github-ci <preflight|modules|files|applicable|aggregate|parse|record|gate|generate|verify-generated|validate-gremlins|release-evidence|verify-release-evidence>"))
+		writeError(dependencies.stderr, errors.New("usage: github-ci <preflight|modules|files|applicable|aggregate|parse|record|gate|generate|verify-generated|validate-gremlins|validate-gremlins-no-results|release-evidence|verify-release-evidence>"))
 		return exitError
 	}
 	return dispatch(ctx, args, dependencies)
@@ -110,6 +110,8 @@ func dispatch(ctx context.Context, args []string, dependencies runtimeDependenci
 		return runGenerate(ctx, args[1:], dependencies.stderr, true)
 	case "validate-gremlins":
 		return runValidateGremlins(args[1:], dependencies.stderr)
+	case "validate-gremlins-no-results":
+		return runValidateGremlinsNoResults(args[1:], dependencies.stderr)
 	case "release-evidence":
 		return runReleaseEvidence(args[1:], dependencies.stderr)
 	case "verify-release-evidence":
@@ -148,6 +150,44 @@ func runValidateGremlins(args []string, stderr io.Writer) int {
 	}
 	if closeErr != nil {
 		writeError(stderr, fmt.Errorf("close Gremlins report: %w", closeErr))
+		return exitError
+	}
+	return exitSuccess
+}
+
+func runValidateGremlinsNoResults(args []string, stderr io.Writer) int {
+	flags := newFlagSet("validate-gremlins-no-results", stderr)
+	logPath := flags.String("log", "", "Gremlins execution log path")
+	module := flags.String("module", "", "expected Go module path")
+	output := flags.String("output", "", "validated no-results evidence path")
+	if err := flags.Parse(args); err != nil {
+		return exitError
+	}
+	if err := noArguments(flags); err != nil {
+		writeError(stderr, err)
+		return exitError
+	}
+	if err := requireFlags(flagValue{"--log", *logPath}, flagValue{"--module", *module}, flagValue{"--output", *output}); err != nil {
+		writeError(stderr, err)
+		return exitError
+	}
+	file, err := securefs.Open(*logPath)
+	if err != nil {
+		writeError(stderr, fmt.Errorf("open Gremlins log: %w", err))
+		return exitError
+	}
+	evidence, validationErr := reports.ValidateGremlinsNoResults(file, *module)
+	closeErr := file.Close()
+	if validationErr != nil {
+		writeError(stderr, validationErr)
+		return exitError
+	}
+	if closeErr != nil {
+		writeError(stderr, fmt.Errorf("close Gremlins log: %w", closeErr))
+		return exitError
+	}
+	if err := writeJSONAtomic(*output, evidence); err != nil {
+		writeError(stderr, fmt.Errorf("write Gremlins no-results evidence: %w", err))
 		return exitError
 	}
 	return exitSuccess

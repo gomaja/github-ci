@@ -372,8 +372,20 @@ func TestDeepWorkflowContract(t *testing.T) {
 	for _, required := range []string{
 		`--output "$report"`,
 		`--timeout-coefficient 20`,
+		`--arithmetic-base`,
+		`--conditionals-boundary`,
+		`--conditionals-negation`,
+		`--increment-decrement`,
+		`--invert-assignments`,
+		`--invert-bitwise`,
+		`--invert-bwassign`,
+		`--invert-logical`,
+		`--invert-loopctrl`,
+		`--invert-negatives`,
+		`--remove-self-assignments`,
 		`module_path=$(cd "$directory" && GOWORK=off go list -m -f '{{.Path}}')`,
 		`"$CLI" validate-gremlins --report "$report" --module "$module_path"`,
+		`"$CLI" validate-gremlins-no-results --log "$transcript" --module "$module_path" --output "$evidence"`,
 		`name: github-ci-mutation`,
 	} {
 		if !strings.Contains(text, required) {

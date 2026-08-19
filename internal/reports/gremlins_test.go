@@ -16,6 +16,49 @@ func TestValidateGremlinsAcceptsCompletePinnedReport(t *testing.T) {
 	}
 }
 
+func TestValidateGremlinsNoResultsProducesModuleBoundEvidence(t *testing.T) {
+	transcript := "Starting...\nGathering coverage... done in 250ms\n\nNo results to report.\n"
+	evidence, err := ValidateGremlinsNoResults(strings.NewReader(transcript), gremlinsModule)
+	if err != nil {
+		t.Fatalf("ValidateGremlinsNoResults() error = %v", err)
+	}
+	want := GremlinsNoResultsEvidence{
+		SchemaVersion: 1,
+		Tool:          "gremlins",
+		ToolVersion:   "0.6.0",
+		GoModule:      gremlinsModule,
+		Outcome:       "no-mutants",
+	}
+	if evidence != want {
+		t.Fatalf("ValidateGremlinsNoResults() = %#v, want %#v", evidence, want)
+	}
+}
+
+func TestValidateGremlinsNoResultsRejectsUnprovenOutcome(t *testing.T) {
+	tests := []struct {
+		name       string
+		transcript string
+		module     string
+		want       string
+	}{
+		{name: "empty", module: gremlinsModule, want: "empty report"},
+		{name: "wrong case", transcript: "No Results To Report.\n", module: gremlinsModule, want: "exactly once"},
+		{name: "embedded", transcript: "prefix No results to report.\n", module: gremlinsModule, want: "exactly once"},
+		{name: "duplicate", transcript: "No results to report.\nNo results to report.\n", module: gremlinsModule, want: "exactly once"},
+		{name: "trailing output", transcript: "No results to report.\nunexpected\n", module: gremlinsModule, want: "final non-empty line"},
+		{name: "empty module", transcript: "No results to report.\n", want: "expected module"},
+		{name: "control module", transcript: "No results to report.\n", module: "example.com/control\n", want: "control character"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			_, err := ValidateGremlinsNoResults(strings.NewReader(test.transcript), test.module)
+			if err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("ValidateGremlinsNoResults() error = %v, want %q", err, test.want)
+			}
+		})
+	}
+}
+
 func TestValidateGremlinsRejectsMalformedOrInconsistentEvidence(t *testing.T) {
 	valid := string(mustGremlinsFixture(t))
 	tests := []struct {
@@ -108,6 +151,14 @@ func FuzzValidateGremlins(f *testing.F) {
 	f.Add([]byte(`{"go_module":`), gremlinsModule)
 	f.Fuzz(func(_ *testing.T, report []byte, module string) {
 		_ = ValidateGremlins(bytes.NewReader(report), module)
+	})
+}
+
+func FuzzValidateGremlinsNoResults(f *testing.F) {
+	f.Add([]byte("No results to report.\n"), gremlinsModule)
+	f.Add([]byte(""), "")
+	f.Fuzz(func(_ *testing.T, transcript []byte, module string) {
+		_, _ = ValidateGremlinsNoResults(bytes.NewReader(transcript), module)
 	})
 }
 

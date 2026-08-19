@@ -175,9 +175,29 @@ jobs:
             [[ "$module" == "." ]] || directory="$SOURCE_DIR/$module"
             module_path=$(cd "$directory" && GOWORK=off go list -m -f '{{.Path}}')
             report="$MUTATION_DIR/module-${index}.json"
+            transcript="$MUTATION_DIR/module-${index}.log"
+            evidence="$MUTATION_DIR/module-${index}-no-results.json"
             # Gremlins v0.6.0 derives mutant timeouts from the cached baseline test duration.
-            (cd "$directory" && gremlins unleash --silent --workers 2 --timeout-coefficient 20 --output "$report" .)
-            "$CLI" validate-gremlins --report "$report" --module "$module_path"
+            (cd "$directory" && gremlins unleash \
+              --workers 2 \
+              --timeout-coefficient 20 \
+              --arithmetic-base \
+              --conditionals-boundary \
+              --conditionals-negation \
+              --increment-decrement \
+              --invert-assignments \
+              --invert-bitwise \
+              --invert-bwassign \
+              --invert-logical \
+              --invert-loopctrl \
+              --invert-negatives \
+              --remove-self-assignments \
+              --output "$report" .) 2>&1 | tee "$transcript"
+            if [[ -f "$report" ]]; then
+              "$CLI" validate-gremlins --report "$report" --module "$module_path"
+            else
+              "$CLI" validate-gremlins-no-results --log "$transcript" --module "$module_path" --output "$evidence"
+            fi
             index=$((index + 1))
           done < <("$CLI" modules --repository "$SOURCE_DIR" --config "$CONFIG_PATH" | jq -r '.modules[]')
       - name: Upload mutation evidence
