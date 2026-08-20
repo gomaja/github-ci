@@ -4,8 +4,9 @@
 successfully adopted the v1.0.0 Go workflow, so the v1.1 line uses schema 2 and
 does not preserve ineffective schema-1 fields. `v1.0.0` remains immutable
 historical evidence and must not be deleted, moved, or used as an adoption
-target. For this patch line, use v1.1.2 only after its complete acceptance chain
-passes.
+target. For this patch line, prefer the exact v1.1.3 commit only after its
+complete acceptance chain passes; until then, the accepted exact v1.1.2 commit
+remains valid.
 
 ## Consumer configuration
 
@@ -97,8 +98,9 @@ same rule. The reusable workflow receives none of their commands or secrets.
 
 1. Convert the consumer and governance YAML to schema 2 on a branch.
 2. Run the repository generator and commit all rendered callers together.
-3. Pin callers to the exact accepted v1.1.2 commit, never to `v1.1.2`, `v1`, or
-   a branch in executable YAML.
+3. After v1.1.3 passes its complete acceptance chain, pin callers to its exact
+   accepted commit. Until then, retain the accepted v1.1.2 commit. Never pin
+   executable YAML to `v1.1.3`, `v1`, or a branch.
 4. Run consumer-owned generation, service, private-dependency, protocol, and
    system jobs independently.
 5. Require both the existing protected check and the candidate `gate / gate`

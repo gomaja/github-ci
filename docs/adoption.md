@@ -7,12 +7,12 @@ cross-repository canary. Pin all reusable workflow calls to that exact
 40-character SHA. A version comment may describe the commit, but a branch,
 moving major tag, or mutable release tag is not an acceptable reference.
 
-After v1.1.2 passes release acceptance and is published, fetch its immutable tag
+After v1.1.3 passes release acceptance and is published, fetch its immutable tag
 and resolve the peeled commit before rendering callers:
 
 ```bash
-git fetch origin tag v1.1.2
-git rev-parse 'v1.1.2^{commit}'
+git fetch origin tag v1.1.3
+git rev-parse 'v1.1.3^{commit}'
 ```
 
 Do not adopt v1.0.0. Its pre-release self-test SHA
@@ -36,10 +36,16 @@ and tag-evidence checks at commit
 and [tag evidence and provenance](https://github.com/gomaja/github-ci/actions/runs/32384592414)
 remain valid.
 
-`v1.1.2` preserves the accepted schema 2 behavior and supersedes `v1.1.1` only
-to correct the versioned documentation and use a verified signed tag. Its exact
-release commit becomes the current adoption target only after the complete
-acceptance chain passes again at that commit.
+`v1.1.2` preserves the accepted schema 2 behavior and completed the full
+acceptance chain at commit `f10be1183b42364176a7d3f1ebfd789aad8aba30`.
+Its [exact-commit candidate](https://github.com/gomaja/github-ci/actions/runs/32393221746)
+and [tag evidence and provenance](https://github.com/gomaja/github-ci/actions/runs/32395259085)
+remain valid. Its exact-SHA reusable workflows remain adoptable. Its release
+`SHA256SUMS` records repository-relative `dist/` paths, however, so it cannot
+be checked directly from a flat `gh release download`; the recorded digests
+and provenance remain valid. `v1.1.3` corrects the checksum paths without
+changing the schema 2 contract and becomes the preferred adoption target only
+after the complete acceptance chain passes again at its exact commit.
 
 Repositories with schema-1 configuration must follow the complete
 [v1.1 migration guide](migration-v1.1.md). Unknown and removed fields fail

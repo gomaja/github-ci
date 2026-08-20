@@ -759,6 +759,41 @@ func TestReleaseWorkflowProducesEvidenceWithoutPublishing(t *testing.T) {
 	assertImmutableUses(t, text)
 }
 
+func TestReleaseWorkflowChecksPublishedAssetsBeforeAttestation(t *testing.T) {
+	data, err := os.ReadFile("../../.github/workflows/release.yml")
+	if err != nil {
+		t.Fatalf("read release workflow: %v", err)
+	}
+	var workflow map[string]any
+	if err := yaml.Unmarshal(data, &workflow); err != nil {
+		t.Fatalf("decode release workflow: %v", err)
+	}
+	jobs := mapping(t, workflow["jobs"], "release jobs")
+	releaseJob := mapping(t, jobs["release-evidence"], "release evidence job")
+	steps := sequence(t, releaseJob["steps"], "release evidence steps")
+	checksumIndex := -1
+	attestationIndex := -1
+	for index, rawStep := range steps {
+		step := mapping(t, rawStep, "release evidence step")
+		switch step["name"] {
+		case "Validate tag and build deterministic evidence":
+			run, ok := step["run"].(string)
+			if !ok {
+				t.Fatalf("release evidence validation run = %#v, want string", step["run"])
+			}
+			if !strings.Contains(run, `(cd "$SOURCE_DIR/dist" && sha256sum --check SHA256SUMS)`) {
+				t.Fatal("release evidence does not validate checksums from the published asset directory")
+			}
+			checksumIndex = index
+		case "Attest release evidence":
+			attestationIndex = index
+		}
+	}
+	if checksumIndex < 0 || attestationIndex < 0 || checksumIndex >= attestationIndex {
+		t.Fatalf("checksum step index = %d, attestation step index = %d, want checksum validation first", checksumIndex, attestationIndex)
+	}
+}
+
 func TestRepositoryReleaseCallerIncludesPinnedCallers(t *testing.T) {
 	data, err := os.ReadFile("../../.github/workflows/release-evidence.yml")
 	if err != nil {

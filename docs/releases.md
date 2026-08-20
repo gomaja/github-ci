@@ -25,10 +25,18 @@ checksummed evidence, and provenance controls; it does not replace any of them.
   [candidate](https://github.com/gomaja/github-ci/actions/runs/32382404153)
   and [tag evidence](https://github.com/gomaja/github-ci/actions/runs/32384592414)
   remain valid.
-- `v1.1.2` preserves the accepted `v1.1.1` behavior and supersedes it as the
-  documented adoption target solely to correct versioned documentation and use
-  a verified signed tag. It is adoptable only after the complete acceptance
-  chain passes at its exact commit.
+- `v1.1.2` preserves the accepted `v1.1.1` behavior and completed the full
+  acceptance chain at commit `f10be1183b42364176a7d3f1ebfd789aad8aba30` with a
+  verified signed tag. Its
+  [candidate](https://github.com/gomaja/github-ci/actions/runs/32393221746)
+  and [tag evidence](https://github.com/gomaja/github-ci/actions/runs/32395259085)
+  remain valid. Its exact-SHA workflows remain adoptable, but its `SHA256SUMS`
+  records repository-relative `dist/` paths while GitHub Release assets
+  download flat. The individual digests and provenance remain valid, but the
+  checksum file is not directly runnable from the download directory.
+- `v1.1.3` corrects the checksum file to use published asset names and preserves
+  the schema 2 workflow contract. It becomes the preferred adoption target only
+  after the complete acceptance chain passes at its exact commit.
 
 The `github-ci-release` workflow validates an existing tag and produces a
 deterministic source archive, SPDX and CycloneDX SBOMs, a release manifest,
@@ -52,7 +60,11 @@ The release evidence includes the validated acceptance record, a default
 strict consumer configuration, and standard, deep, and release caller
 workflows pinned to the tagged commit. It also includes the source archive,
 SPDX and CycloneDX SBOMs, release manifest, and `SHA256SUMS`; GitHub records
-build provenance for every evidence file.
+build provenance for every evidence file. New checksum files use the published
+asset names, reject basename collisions, and are checked from the flat release
+directory before attestation. Verification continues to accept a complete
+legacy repository-relative checksum file for historical releases but rejects a
+mixture of the two formats.
 
 The v1.1 line keeps the historical v1.0.0 tag and release unchanged. The
 v1.1.0 reset was allowed to break the unadopted v1.0.0 API by explicit project
