@@ -7,12 +7,12 @@ cross-repository canary. Pin all reusable workflow calls to that exact
 40-character SHA. A version comment may describe the commit, but a branch,
 moving major tag, or mutable release tag is not an acceptable reference.
 
-After v1.1.0 passes release acceptance and is published, fetch its immutable tag
+After v1.1.2 passes release acceptance and is published, fetch its immutable tag
 and resolve the peeled commit before rendering callers:
 
 ```bash
-git fetch origin tag v1.1.0
-git rev-parse 'v1.1.0^{commit}'
+git fetch origin tag v1.1.2
+git rev-parse 'v1.1.2^{commit}'
 ```
 
 Do not adopt v1.0.0. Its pre-release self-test SHA
@@ -25,10 +25,21 @@ failed. That consumer used schema 1 with `repository-only`, and every Go job was
 skipped. It proved fail-closed aggregate enforcement but did not prove a
 successful Go consumer adoption.
 
-`v1.1.0` is the intentional compatibility reset to schema 2. Its exact release
-commit is the only future adoption target, and only after the standard, deep,
-external Go consumer, and untrusted-fork acceptance checks all pass at that
-same commit.
+`v1.1.0` introduced the intentional compatibility reset to schema 2, but its
+untrusted-fork canary was incomplete and its
+[tag evidence](https://github.com/gomaja/github-ci/actions/runs/32328609432)
+failed closed. It is not an adoption target. `v1.1.1` subsequently completed
+the standard, deep, external Go consumer, untrusted-fork, exact-commit candidate,
+and tag-evidence checks at commit
+`9016be300245e6046b8b572a8bca63d445b50620`; its
+[exact-commit candidate](https://github.com/gomaja/github-ci/actions/runs/32382404153)
+and [tag evidence and provenance](https://github.com/gomaja/github-ci/actions/runs/32384592414)
+remain valid.
+
+`v1.1.2` preserves the accepted schema 2 behavior and supersedes `v1.1.1` only
+to correct the versioned documentation and use a verified signed tag. Its exact
+release commit becomes the current adoption target only after the complete
+acceptance chain passes again at that commit.
 
 Repositories with schema-1 configuration must follow the complete
 [v1.1 migration guide](migration-v1.1.md). Unknown and removed fields fail

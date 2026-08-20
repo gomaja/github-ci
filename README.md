@@ -35,16 +35,19 @@ go run github.com/gomaja/github-ci/cmd/github-ci-govern@<commit-sha> \
 ```
 
 Do not adopt `v1.0.0`: its linked external canary failed and exercised only the
-`repository-only` profile. `v1.1.0` is an intentional one-time compatibility
-reset to schema 2 because no consumer successfully adopted v1.0.0. Adopt only
-the exact `v1.1.0` commit SHA after its release-acceptance gate succeeds.
+`repository-only` profile. `v1.1.0` introduced the intentional one-time schema
+2 compatibility reset, but its release evidence failed closed before complete
+consumer proof. `v1.1.1` completed that proof and remains valid. `v1.1.2`
+supersedes it as the documented adoption target without changing the schema 2
+contract. Adopt only the exact `v1.1.2` commit SHA after its release-acceptance
+gate succeeds.
 Release evidence automation validates existing tags but never creates, moves,
 deletes, or publishes a tag or GitHub Release.
 
 ## Documentation
 
 - [Adoption](docs/adoption.md)
-- [Migration from v1.0.0](docs/migration-v1.1.md)
+- [Migration from v1.0.0 to v1.1.x](docs/migration-v1.1.md)
 - [Policy and scanner inventory](docs/policy.md)
 - [Governance](docs/governance.md)
 - [Security model](docs/security-model.md)
