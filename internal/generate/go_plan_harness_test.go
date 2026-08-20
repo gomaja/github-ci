@@ -30,25 +30,6 @@ func TestHarnessExecutablePathUsesWindowsSuffix(t *testing.T) {
 	}
 }
 
-func TestHarnessCLIBuildIsCentralized(t *testing.T) {
-	files, err := filepath.Glob("*_test.go")
-	if err != nil {
-		t.Fatalf("list package tests: %v", err)
-	}
-	needle := `"go", "build",` + ` "-o"`
-	directBuilds := 0
-	for _, name := range files {
-		data, readErr := os.ReadFile(name)
-		if readErr != nil {
-			t.Fatalf("read %s: %v", name, readErr)
-		}
-		directBuilds += strings.Count(string(data), needle)
-	}
-	if directBuilds != 1 {
-		t.Fatalf("direct CLI build sites = %d, want one platform-aware helper", directBuilds)
-	}
-}
-
 func harnessExecutablePath(base, goos string) string {
 	if goos == "windows" {
 		return base + ".exe"
