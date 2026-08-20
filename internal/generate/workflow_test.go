@@ -231,6 +231,18 @@ func assertWorkflowExecutionContracts(t *testing.T, jobs map[string]any) {
 	if codeqlPermissions["contents"] != "read" || codeqlPermissions["security-events"] != "write" {
 		t.Errorf("CodeQL permissions = %#v", codeqlPermissions)
 	}
+	for _, rawStep := range sequence(t, codeql["steps"], "codeql steps") {
+		step := mapping(t, rawStep, "codeql step")
+		if step["name"] != "Bootstrap policy CLI" {
+			continue
+		}
+		with := mapping(t, step["with"], "codeql bootstrap inputs")
+		if with["go-version"] != "1.26.7" {
+			t.Errorf("CodeQL bootstrap Go version = %#v, want previous supported 1.26.7", with["go-version"])
+		}
+		return
+	}
+	t.Error("CodeQL has no policy CLI bootstrap step")
 }
 
 func assertCompatibilityGateContract(t *testing.T, gate map[string]any) {

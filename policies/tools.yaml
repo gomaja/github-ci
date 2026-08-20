@@ -122,9 +122,9 @@ tools:
     acquisition: go-module
     version-command: go version -m "$(command -v goimports)"
   - id: golangci-lint
-    version: 2.12.2
-    source: https://proxy.golang.org/github.com/golangci/golangci-lint/v2/@v/v2.12.2.zip
-    checksum: h1:7+d1uY0bq1MU2UV3R5pW5Q7QWdcoq4naMRXM+gsJKrs=
+    version: 2.13.0
+    source: https://proxy.golang.org/github.com/golangci/golangci-lint/v2/@v/v2.13.0.zip
+    checksum: h1:n/YR8sCuTAfjwKLHOU0q63X2e4tObi1PCNOz+HXJ3cE=
     parser: golangci-lint-json/v1
     profiles: [go-strict, go-library]
     acquisition: go-module
@@ -220,9 +220,9 @@ tools:
     acquisition: release-asset
     version-command: shfmt --version
   - id: staticcheck
-    version: "2026.1"
-    source: https://proxy.golang.org/honnef.co/go/tools/@v/v0.7.0.zip
-    checksum: h1:w6WUp1VbkqPEgLz4rkBzH/CSU6HkoqNLp6GstyTx3lU=
+    version: "2026.2rc1"
+    source: https://proxy.golang.org/honnef.co/go/tools/@v/v0.8.0-rc.1.zip
+    checksum: h1:wqMm2kjcEXMOr+6yau+pdKqJKe6l2N1aKPkpini+Kzk=
     parser: staticcheck-jsonl/v1
     profiles: [go-strict, go-library]
     acquisition: go-module

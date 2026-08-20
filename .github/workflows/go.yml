@@ -519,7 +519,7 @@ jobs:
       - name: Bootstrap policy CLI
         uses: ./github-ci/actions/bootstrap
         with:
-          go-version: 1.27.0
+          go-version: 1.26.7
           install-tools: "false"
       - name: Download applicability plan
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
