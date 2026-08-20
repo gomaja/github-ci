@@ -30,11 +30,37 @@ func TestHarnessExecutablePathUsesWindowsSuffix(t *testing.T) {
 	}
 }
 
+func TestHarnessCLIBuildIsCentralized(t *testing.T) {
+	files, err := filepath.Glob("*_test.go")
+	if err != nil {
+		t.Fatalf("list package tests: %v", err)
+	}
+	needle := `"go", "build",` + ` "-o"`
+	directBuilds := 0
+	for _, name := range files {
+		data, readErr := os.ReadFile(name)
+		if readErr != nil {
+			t.Fatalf("read %s: %v", name, readErr)
+		}
+		directBuilds += strings.Count(string(data), needle)
+	}
+	if directBuilds != 1 {
+		t.Fatalf("direct CLI build sites = %d, want one platform-aware helper", directBuilds)
+	}
+}
+
 func harnessExecutablePath(base, goos string) string {
 	if goos == "windows" {
 		return base + ".exe"
 	}
 	return base
+}
+
+func buildHarnessCLI(t *testing.T, root, directory string) string {
+	t.Helper()
+	cli := harnessExecutablePath(filepath.Join(directory, "github-ci"), runtime.GOOS)
+	runCommand(t, root, nil, "go", "build", "-o", cli, "./cmd/github-ci")
+	return cli
 }
 
 func TestSchema2CanaryHarness(t *testing.T) {
@@ -64,8 +90,7 @@ func TestSchema2CanaryHarness(t *testing.T) {
 	runCommand(t, source, nil, "go", "test", "-tags=canary_a,canary_b", "./...")
 	runCommand(t, filepath.Join(source, "tools"), nil, "go", "test", "-tags=canary_a,canary_b", "./...")
 
-	cli := harnessExecutablePath(filepath.Join(temporary, "github-ci"), runtime.GOOS)
-	runCommand(t, root, nil, "go", "build", "-o", cli, "./cmd/github-ci")
+	cli := buildHarnessCLI(t, root, temporary)
 	planPath := filepath.Join(temporary, "plan.json")
 	runCommand(t, root, nil, cli, "preflight", "--repository", source, "--config", ".github/github-ci.yaml", "--policy", filepath.Join(root, "policies", "tools.yaml"), "--output", planPath)
 	goPlanPath := filepath.Join(temporary, "go-plan.json")
@@ -252,8 +277,7 @@ go:
 	} {
 		runCommand(t, repository, nil, "git", arguments...)
 	}
-	cli := harnessExecutablePath(filepath.Join(t.TempDir(), "github-ci"), runtime.GOOS)
-	runCommand(t, root, nil, "go", "build", "-o", cli, "./cmd/github-ci")
+	cli := buildHarnessCLI(t, root, t.TempDir())
 	command := exec.CommandContext(t.Context(), cli, "go-plan", "--repository", repository, "--config", ".github/github-ci.yaml")
 	command.Dir = repository
 	var output bytes.Buffer
