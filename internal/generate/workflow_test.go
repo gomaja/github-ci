@@ -244,6 +244,27 @@ func assertWorkflowJobContracts(t *testing.T, jobs map[string]any) {
 	}
 }
 
+func assertDeepWorkflowTimeouts(t *testing.T, jobs map[string]any) {
+	t.Helper()
+	for name, raw := range jobs {
+		job := mapping(t, raw, "deep "+name)
+		timeout, ok := job["timeout-minutes"].(int)
+		if !ok || timeout <= 0 {
+			t.Errorf("deep job %q timeout-minutes = %#v, want a positive integer", name, job["timeout-minutes"])
+			continue
+		}
+		if name == "mutation" {
+			if timeout != 90 {
+				t.Errorf("deep mutation timeout-minutes = %d, want 90", timeout)
+			}
+			continue
+		}
+		if timeout > 60 {
+			t.Errorf("deep job %q timeout-minutes = %d, want at most 60", name, timeout)
+		}
+	}
+}
+
 func assertWorkflowExecutionContracts(t *testing.T, jobs map[string]any) {
 	t.Helper()
 	preflight := mapping(t, jobs["preflight"], "preflight")
@@ -612,6 +633,7 @@ func TestDeepWorkflowContract(t *testing.T) {
 	if _, exists := jobs["services"]; exists {
 		t.Error("deep workflow still defines a central services job")
 	}
+	assertDeepWorkflowTimeouts(t, jobs)
 	for _, name := range []string{"portability", "fuzz-benchmark", "mutation", "history-refresh"} {
 		job := mapping(t, jobs[name], "deep "+name)
 		if job["needs"] != "preflight" {
