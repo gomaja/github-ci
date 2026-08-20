@@ -50,7 +50,7 @@ jobs:
       - name: Bootstrap policy CLI
         uses: ./source/actions/bootstrap
         with:
-          go-version: 1.26.6
+          go-version: 1.27.0
           install-tools: "false"
       - name: Find successful candidate run at tag commit
         id: candidate

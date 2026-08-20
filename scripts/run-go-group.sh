@@ -272,7 +272,7 @@ tests)
 	;;
 analysis)
 	run_module_command staticcheck staticcheck/default "$(staticcheck -version)" staticcheck
-	run_module_command golangci-lint golangci-lint/default 2.12.2 golangci-lint
+	run_module_command golangci-lint golangci-lint/default 2.13.0 golangci-lint
 	run_module_command govulncheck govulncheck/modules 1.7.0 govulncheck
 	;;
 compatibility | codeql-build)

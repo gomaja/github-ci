@@ -277,7 +277,7 @@ func TestRepositoryDocumentationLinksResolve(t *testing.T) {
 		t.Fatalf("README local link count = %d, want at least 8", len(links))
 	}
 	for _, match := range links {
-		target := strings.Split(match[1], "#")[0]
+		target, _, _ := strings.Cut(match[1], "#")
 		if target == "" || strings.Contains(target, "://") {
 			continue
 		}

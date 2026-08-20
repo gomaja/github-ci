@@ -43,6 +43,16 @@ func TestGoPlanShellUsesQuotedArraysWithoutEvaluation(t *testing.T) {
 	}
 }
 
+func TestGoRunnerBindsGolangCILintEvidenceToLockedVersion(t *testing.T) {
+	runner, err := os.ReadFile("../../scripts/run-go-group.sh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(runner), "run_module_command golangci-lint golangci-lint/default 2.13.0 golangci-lint") {
+		t.Error("run-go-group.sh does not bind golangci-lint evidence to version 2.13.0")
+	}
+}
+
 func TestUnsafeShellCommandPatternsCoverEquivalentSpellings(t *testing.T) {
 	for _, text := range []string{
 		"eval command",

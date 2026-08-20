@@ -109,6 +109,29 @@ func TestBootstrapBuildsFromItsActionBoundRepository(t *testing.T) {
 	}
 }
 
+func TestBootstrapInstallsGo127CompatibleAnalyzers(t *testing.T) {
+	data, err := os.ReadFile("../../actions/bootstrap/action.yml")
+	if err != nil {
+		t.Fatalf("read bootstrap action: %v", err)
+	}
+	text := string(data)
+	for _, required := range []string{
+		"github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.13.0",
+		`grep -F '2.13.0'`,
+		"honnef.co/go/tools/cmd/staticcheck@v0.8.0-rc.1",
+		`grep -F '2026.2rc1 (0.8.0-rc.1)'`,
+	} {
+		if !strings.Contains(text, required) {
+			t.Errorf("bootstrap action is missing %q", required)
+		}
+	}
+	for _, obsolete := range []string{"golangci-lint@v2.12.2", "staticcheck@v0.7.0"} {
+		if strings.Contains(text, obsolete) {
+			t.Errorf("bootstrap action retains obsolete analyzer lock %q", obsolete)
+		}
+	}
+}
+
 func TestStandardAndDeepWorkflowsUploadDistinctArtifacts(t *testing.T) {
 	standard := uploadedArtifactNames(t, "../../.github/workflows/go.yml")
 	deep := uploadedArtifactNames(t, "../../.github/workflows/deep.yml")
@@ -231,6 +254,18 @@ func assertWorkflowExecutionContracts(t *testing.T, jobs map[string]any) {
 	if codeqlPermissions["contents"] != "read" || codeqlPermissions["security-events"] != "write" {
 		t.Errorf("CodeQL permissions = %#v", codeqlPermissions)
 	}
+	for _, rawStep := range sequence(t, codeql["steps"], "codeql steps") {
+		step := mapping(t, rawStep, "codeql step")
+		if step["name"] != "Bootstrap policy CLI" {
+			continue
+		}
+		with := mapping(t, step["with"], "codeql bootstrap inputs")
+		if with["go-version"] != "1.26.7" {
+			t.Errorf("CodeQL bootstrap Go version = %#v, want previous supported 1.26.7", with["go-version"])
+		}
+		return
+	}
+	t.Error("CodeQL has no policy CLI bootstrap step")
 }
 
 func assertCompatibilityGateContract(t *testing.T, gate map[string]any) {
@@ -272,7 +307,7 @@ func assertGoPlanWorkflowContract(t *testing.T, jobs map[string]any, text string
 		}
 	}
 	for _, required := range []string{
-		`"$CLI" go-plan`, "go-plan.json", "github-ci-plan", "1.26.6", "1.25.13",
+		`"$CLI" go-plan`, "go-plan.json", "github-ci-plan", "1.27.0", "1.26.7",
 		`bash "$CENTRAL_DIR/scripts/run-go-group.sh" compatibility`,
 		`bash "$CENTRAL_DIR/scripts/run-go-group.sh" codeql-build`,
 	} {
@@ -523,7 +558,7 @@ func TestDeepWorkflowContract(t *testing.T) {
 		"go-plan.json", "github-ci-deep-plan", "scripts/run-deep-go.sh\" portability",
 		"scripts/run-deep-go.sh\" fuzz-benchmark", "scripts/run-deep-go.sh\" mutation-context",
 		"gitleaks git", "go mod edit -json", `go list -m -u -json "${dependencies[@]}"`,
-		"1.26.6", "1.25.13", "ubuntu-latest", "macos-latest", "windows-latest",
+		"1.27.0", "1.26.7", "ubuntu-latest", "macos-latest", "windows-latest",
 	} {
 		if !strings.Contains(text, required) {
 			t.Errorf("deep workflow is missing %q", required)
@@ -628,6 +663,7 @@ func TestReleaseWorkflowProducesEvidenceWithoutPublishing(t *testing.T) {
 		"include-callers:",
 		"acceptance-required:",
 		"default: false",
+		`default: "1.27.0"`,
 		`ref: ${{ inputs.tag || github.ref }}`,
 		`INCLUDE_CALLERS: ${{ inputs.include-callers }}`,
 		`ACCEPTANCE_REQUIRED: ${{ inputs.acceptance-required }}`,
@@ -681,6 +717,7 @@ func TestRepositoryReleaseCallerIncludesPinnedCallers(t *testing.T) {
 	}
 	for _, required := range []string{
 		"actions: read", "acceptance:", "release-candidate.yml", "head_sha", "status=success",
+		"go-version: 1.27.0",
 		"github-ci-release-acceptance", "verify-acceptance-record", "acceptance-required: true", "needs: acceptance",
 		`WORKFLOW_REPOSITORY: ${{ job.workflow_repository }}`,
 		`WORKFLOW_SHA: ${{ job.workflow_sha }}`,
@@ -706,6 +743,7 @@ func TestReleaseCandidateRequiresLocalAndExternalAcceptance(t *testing.T) {
 	text := string(data)
 	for _, required := range []string{
 		"workflow_dispatch:", "canary-repository:", "standard-run-id:", "deep-run-id:", "fork-run-id:",
+		"go-version: 1.27.0",
 		"local-standard:", "uses: ./.github/workflows/go.yml", "local-deep:", "uses: ./.github/workflows/deep.yml",
 		"verify-acceptance", `--candidate-sha "$CANDIDATE_SHA"`, "github-ci-release-acceptance", "if-no-files-found: error",
 		"needs: [local-standard, local-deep, verify]", "RESULT_STANDARD", "RESULT_DEEP", "RESULT_VERIFY",

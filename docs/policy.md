@@ -42,6 +42,16 @@ production-oriented rules otherwise generate false positives for deliberate
 adversarial fixtures. Generated code is detected in strict mode, unused
 exclusion rules fail configuration review, and issue reporting is unlimited.
 
+Go 1.27 drives the primary build, test, race, vet, Staticcheck, and
+golangci-lint execution; the compatibility matrix also runs Go 1.26.7. Direct
+Staticcheck is pinned to upstream's Go 1.27-capable `2026.2rc1` release until a
+final release is available. CodeQL Go extraction temporarily uses the previous
+supported Go 1.26.7 toolchain because the latest released CodeQL bundle cannot
+process Go 1.27 source; upstream support remains tracked in
+[github/codeql#22042](https://github.com/github/codeql/pull/22042). Extraction
+diagnostics remain blocking, and the tested fallback must be removed when a
+compatible CodeQL bundle is immutably pinned.
+
 ## Scanner Ownership Matrix
 
 Primary ownership identifies the result used to classify and route a finding;
