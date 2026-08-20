@@ -119,7 +119,7 @@ func TestBootstrapInstallsGo127CompatibleAnalyzers(t *testing.T) {
 		"github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.13.0",
 		`grep -F '2.13.0'`,
 		"honnef.co/go/tools/cmd/staticcheck@v0.8.0-rc.1",
-		`grep -F '2026.2rc1 (v0.8.0-rc.1)'`,
+		`grep -F '2026.2rc1 (0.8.0-rc.1)'`,
 	} {
 		if !strings.Contains(text, required) {
 			t.Errorf("bootstrap action is missing %q", required)

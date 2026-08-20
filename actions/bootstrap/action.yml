@@ -41,7 +41,7 @@ runs:
         GOBIN="$BIN_DIR" go install github.com/boumenot/gocover-cobertura@v1.5.0
         "$BIN_DIR/golangci-lint" version | grep -F '2.13.0'
         "$BIN_DIR/govulncheck" -version | grep -F 'govulncheck@v1.7.0'
-        "$BIN_DIR/staticcheck" -version | grep -F '2026.2rc1 (v0.8.0-rc.1)'
+        "$BIN_DIR/staticcheck" -version | grep -F '2026.2rc1 (0.8.0-rc.1)'
         "$BIN_DIR/gopls" version | grep -F 'v0.23.0'
         go version -m "$BIN_DIR/goimports" | grep -F $'mod\tgolang.org/x/tools\tv0.49.0'
         "$BIN_DIR/gotestsum" --version | grep -F 'v1.13.0'
