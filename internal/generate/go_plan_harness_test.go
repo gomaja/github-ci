@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"slices"
 	"sort"
 	"strings"
@@ -18,6 +19,30 @@ import (
 	"github.com/gomaja/github-ci/internal/gate"
 	"github.com/gomaja/github-ci/internal/goexecution"
 )
+
+func TestHarnessExecutablePathUsesWindowsSuffix(t *testing.T) {
+	base := filepath.Join("temporary", "github-ci")
+	if got := harnessExecutablePath(base, "windows"); got != base+".exe" {
+		t.Fatalf("Windows executable path = %q, want %q", got, base+".exe")
+	}
+	if got := harnessExecutablePath(base, "linux"); got != base {
+		t.Fatalf("Linux executable path = %q, want %q", got, base)
+	}
+}
+
+func harnessExecutablePath(base, goos string) string {
+	if goos == "windows" {
+		return base + ".exe"
+	}
+	return base
+}
+
+func buildHarnessCLI(t *testing.T, root, directory string) string {
+	t.Helper()
+	cli := harnessExecutablePath(filepath.Join(directory, "github-ci"), runtime.GOOS)
+	runCommand(t, root, nil, "go", "build", "-o", cli, "./cmd/github-ci")
+	return cli
+}
 
 func TestSchema2CanaryHarness(t *testing.T) {
 	root := repositoryRoot(t)
@@ -46,8 +71,7 @@ func TestSchema2CanaryHarness(t *testing.T) {
 	runCommand(t, source, nil, "go", "test", "-tags=canary_a,canary_b", "./...")
 	runCommand(t, filepath.Join(source, "tools"), nil, "go", "test", "-tags=canary_a,canary_b", "./...")
 
-	cli := filepath.Join(temporary, "github-ci")
-	runCommand(t, root, nil, "go", "build", "-o", cli, "./cmd/github-ci")
+	cli := buildHarnessCLI(t, root, temporary)
 	planPath := filepath.Join(temporary, "plan.json")
 	runCommand(t, root, nil, cli, "preflight", "--repository", source, "--config", ".github/github-ci.yaml", "--policy", filepath.Join(root, "policies", "tools.yaml"), "--output", planPath)
 	goPlanPath := filepath.Join(temporary, "go-plan.json")
@@ -234,8 +258,7 @@ go:
 	} {
 		runCommand(t, repository, nil, "git", arguments...)
 	}
-	cli := filepath.Join(t.TempDir(), "github-ci")
-	runCommand(t, root, nil, "go", "build", "-o", cli, "./cmd/github-ci")
+	cli := buildHarnessCLI(t, root, t.TempDir())
 	command := exec.CommandContext(t.Context(), cli, "go-plan", "--repository", repository, "--config", ".github/github-ci.yaml")
 	command.Dir = repository
 	var output bytes.Buffer
