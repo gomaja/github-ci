@@ -4,13 +4,31 @@ Releases use immutable `vX.Y.Z` tags. Consumers pin the tag's exact commit SHA
 and retain the semantic version only as review context. Moving major tags such
 as `v1` are not part of the strict distribution model.
 
-`v1.0.0` remains immutable historical evidence but is not an adoption target.
-Its linked external canary failed and used `repository-only`, so it proved the
-aggregate gate failed closed without proving Go adoption. `v1.1.0` is the
-intentional one-time compatibility reset to schema 2 because no consumer
-successfully adopted v1.0.0. It becomes an adoption target only after standard,
-deep, external Go consumer, and untrusted-fork acceptance all pass at its exact
-commit.
+Release-specific annotated tags from `v1.1.2` onward must be signed. Before a
+draft release is created, the tag must pass local signature verification and
+GitHub must report the tag signature as verified. Tag signing adds author
+identity to the existing exact-SHA, protected-tag, immutable-release,
+checksummed evidence, and provenance controls; it does not replace any of them.
+
+## Release History
+
+- `v1.0.0` remains immutable historical evidence but is not an adoption target.
+  Its linked external canary failed and used `repository-only`, proving the
+  aggregate gate failed closed without proving Go adoption.
+- `v1.1.0` introduced the intentional one-time schema 2 compatibility reset,
+  but the untrusted-fork canary was incomplete and the tag-triggered evidence
+  workflow failed closed. It is not an adoption target.
+- `v1.1.1` is the first fully accepted schema 2 release. Its standard, deep,
+  external Go consumer, untrusted-fork, exact-commit candidate, tag evidence,
+  and provenance all passed at commit
+  `9016be300245e6046b8b572a8bca63d445b50620`. Its
+  [candidate](https://github.com/gomaja/github-ci/actions/runs/32382404153)
+  and [tag evidence](https://github.com/gomaja/github-ci/actions/runs/32384592414)
+  remain valid.
+- `v1.1.2` preserves the accepted `v1.1.1` behavior and supersedes it as the
+  documented adoption target solely to correct versioned documentation and use
+  a verified signed tag. It is adoptable only after the complete acceptance
+  chain passes at its exact commit.
 
 The `github-ci-release` workflow validates an existing tag and produces a
 deterministic source archive, SPDX and CycloneDX SBOMs, a release manifest,
@@ -36,11 +54,11 @@ workflows pinned to the tagged commit. It also includes the source archive,
 SPDX and CycloneDX SBOMs, release manifest, and `SHA256SUMS`; GitHub records
 build provenance for every evidence file.
 
-The v1.1.0 release keeps the historical v1.0.0 tag and release unchanged. It is
-allowed to break the unadopted v1.0.0 API by explicit project decision; future
-incompatible changes to workflow inputs, configuration or evidence schemas,
-job names, required checks, permissions, or policy behavior require a new major
-version and a reviewed consumer update.
+The v1.1 line keeps the historical v1.0.0 tag and release unchanged. The
+v1.1.0 reset was allowed to break the unadopted v1.0.0 API by explicit project
+decision. Future incompatible changes to workflow inputs, configuration or
+evidence schemas, job names, required checks, permissions, or policy behavior
+require a new major version and a reviewed consumer update.
 
 The manually dispatched release-candidate workflow never creates a tag or
 release. Its final gate requires this repository's local standard and deep

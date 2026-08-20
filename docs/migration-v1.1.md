@@ -1,9 +1,11 @@
-# Migrating from v1.0.0 to v1.1.0
+# Migrating from v1.0.0 to v1.1.x
 
-`v1.1.0` is an intentional compatibility reset. No repository successfully
-adopted the v1.0.0 Go workflow, so this release uses schema 2 and does not
-preserve ineffective schema-1 fields. `v1.0.0` remains immutable historical
-evidence and must not be deleted, moved, or used as an adoption target.
+`v1.1.0` introduced an intentional compatibility reset. No repository
+successfully adopted the v1.0.0 Go workflow, so the v1.1 line uses schema 2 and
+does not preserve ineffective schema-1 fields. `v1.0.0` remains immutable
+historical evidence and must not be deleted, moved, or used as an adoption
+target. For this patch line, use v1.1.2 only after its complete acceptance chain
+passes.
 
 ## Consumer configuration
 
@@ -95,7 +97,7 @@ same rule. The reusable workflow receives none of their commands or secrets.
 
 1. Convert the consumer and governance YAML to schema 2 on a branch.
 2. Run the repository generator and commit all rendered callers together.
-3. Pin callers to the exact accepted v1.1.0 commit, never to `v1.1.0`, `v1`, or
+3. Pin callers to the exact accepted v1.1.2 commit, never to `v1.1.2`, `v1`, or
    a branch in executable YAML.
 4. Run consumer-owned generation, service, private-dependency, protocol, and
    system jobs independently.
