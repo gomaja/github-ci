@@ -129,7 +129,8 @@ func TestValidateGremlinsRejectsMalformedOrInconsistentEvidence(t *testing.T) {
 		{name: "unknown statistic", report: strings.Replace(valid, `"arithmetic_base":1`, `"unknown":1`, 1), module: gremlinsModule, want: "unknown field"},
 		{name: "trailing value", report: valid + `{}`, module: gremlinsModule, want: "trailing"},
 		{name: "malformed trailing value", report: valid + `?`, module: gremlinsModule, want: "invalid character"},
-		{name: "unclosed object", report: `{"go_module":"example.com/module"`, module: gremlinsModule, want: "EOF"},
+		{name: "unclosed object", report: `{"go_module":"example.com/module"`, module: gremlinsModule, want: "validate Gremlins JSON"},
+		{name: "unclosed array", report: `[`, module: gremlinsModule, want: "validate Gremlins JSON"},
 		{name: "excessive nesting", report: `{"unknown":` + strings.Repeat("[", maxGremlinsJSONDepth) + `0` + strings.Repeat("]", maxGremlinsJSONDepth) + `}`, module: gremlinsModule, want: "nesting exceeds"},
 	}
 	for _, test := range tests {

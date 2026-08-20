@@ -1,7 +1,7 @@
 schema-version: 1
 go-versions:
-  current: 1.26.6
-  previous: 1.25.13
+  current: 1.27.0
+  previous: 1.26.7
 actions:
   - id: attest-build-provenance
     repository: actions/attest-build-provenance
@@ -82,9 +82,9 @@ tools:
     acquisition: release-asset
     version-command: gitleaks version
   - id: go-current
-    version: 1.26.6
-    source: https://go.dev/dl/go1.26.6.linux-amd64.tar.gz
-    checksum: sha256:708effb774be8237570d0add163225abbdfaf4fca28b2611df167beba4feef89
+    version: 1.27.0
+    source: https://go.dev/dl/go1.27.0.linux-amd64.tar.gz
+    checksum: sha256:675c26c449cbb18fc24b74650de1eabbae6e16f64326fd85a283fb3b58280685
     parser: command-status/v1
     profiles: [go-strict, go-library, release]
     acquisition: go-toolchain
@@ -98,9 +98,9 @@ tools:
     acquisition: go-module
     version-command: go version -m "$(command -v go-licenses)"
   - id: go-previous
-    version: 1.25.13
-    source: https://go.dev/dl/go1.25.13.linux-amd64.tar.gz
-    checksum: sha256:39042a078ea9ceebe3ecda4a7188f0f5b96e14a071d27923ba7f40b456e85ae3
+    version: 1.26.7
+    source: https://go.dev/dl/go1.26.7.linux-amd64.tar.gz
+    checksum: sha256:ffb5f8de10c62550dfddab66b36b57030721e0a44a3218e9e1181d7b59f121ca
     parser: command-status/v1
     profiles: [go-strict, go-library]
     acquisition: go-toolchain

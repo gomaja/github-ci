@@ -10,7 +10,7 @@ on:
         type: boolean
       go-version:
         required: false
-        default: "1.26.6"
+        default: "1.27.0"
         type: string
       include-callers:
         required: false

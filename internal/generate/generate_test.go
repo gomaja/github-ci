@@ -276,6 +276,47 @@ func TestCheckedInPolicyBindsSemanticParsers(t *testing.T) {
 	}
 }
 
+func TestCheckedInGoToolchainLocksMatchSupportedReleases(t *testing.T) {
+	file, err := os.Open(filepath.Join("..", "..", "policies", "tools.yaml"))
+	if err != nil {
+		t.Fatalf("open checked-in policy: %v", err)
+	}
+	policy, loadErr := LoadPolicy(file)
+	closeErr := file.Close()
+	if loadErr != nil || closeErr != nil {
+		t.Fatalf("load checked-in policy: %v, close: %v", loadErr, closeErr)
+	}
+
+	if policy.GoVersions.Current != "1.27.0" || policy.GoVersions.Previous != "1.26.7" {
+		t.Fatalf("Go versions = current %q, previous %q", policy.GoVersions.Current, policy.GoVersions.Previous)
+	}
+	want := map[string]Tool{
+		"go-current": {
+			Version:  "1.27.0",
+			Source:   "https://go.dev/dl/go1.27.0.linux-amd64.tar.gz",
+			Checksum: "sha256:675c26c449cbb18fc24b74650de1eabbae6e16f64326fd85a283fb3b58280685",
+		},
+		"go-previous": {
+			Version:  "1.26.7",
+			Source:   "https://go.dev/dl/go1.26.7.linux-amd64.tar.gz",
+			Checksum: "sha256:ffb5f8de10c62550dfddab66b36b57030721e0a44a3218e9e1181d7b59f121ca",
+		},
+	}
+	for _, tool := range policy.Tools {
+		expected, exists := want[tool.ID]
+		if !exists {
+			continue
+		}
+		if tool.Version != expected.Version || tool.Source != expected.Source || tool.Checksum != expected.Checksum {
+			t.Errorf("tool %q lock = version %q, source %q, checksum %q", tool.ID, tool.Version, tool.Source, tool.Checksum)
+		}
+		delete(want, tool.ID)
+	}
+	for tool := range want {
+		t.Errorf("checked-in policy is missing tool %q", tool)
+	}
+}
+
 func TestCheckedInToolProfileMembershipIsExact(t *testing.T) {
 	file, err := os.Open(filepath.Join("..", "..", "policies", "tools.yaml"))
 	if err != nil {

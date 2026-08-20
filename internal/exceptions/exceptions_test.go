@@ -2,6 +2,8 @@ package exceptions
 
 import (
 	"encoding/json"
+	"errors"
+	"io"
 	"slices"
 	"strings"
 	"testing"
@@ -462,8 +464,12 @@ func TestRejectDuplicateJSONKeysEnforcesNestingLimit(t *testing.T) {
 
 func TestRejectDuplicateJSONKeysReportsUnclosedArray(t *testing.T) {
 	err := rejectDuplicateJSONKeys([]byte("["))
-	if err == nil || err.Error() != "validate exception JSON: EOF" {
+	if err == nil || !strings.HasPrefix(err.Error(), "validate exception JSON: ") {
 		t.Fatalf("rejectDuplicateJSONKeys() error = %v", err)
+	}
+	var syntaxError *json.SyntaxError
+	if !errors.Is(err, io.EOF) && !errors.As(err, &syntaxError) {
+		t.Fatalf("rejectDuplicateJSONKeys() error cause = %T, want EOF or *json.SyntaxError", err)
 	}
 }
 
