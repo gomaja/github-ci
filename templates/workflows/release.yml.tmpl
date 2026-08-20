@@ -152,6 +152,7 @@ jobs:
             "${caller_args[@]}" \
             --manifest "$SOURCE_DIR/dist/release-manifest.json" --checksums "$SOURCE_DIR/dist/SHA256SUMS"
           "$CLI" verify-release-evidence --root "$SOURCE_DIR" --manifest "$SOURCE_DIR/dist/release-manifest.json" --checksums "$SOURCE_DIR/dist/SHA256SUMS"
+          (cd "$SOURCE_DIR/dist" && sha256sum --check SHA256SUMS)
       - name: Attest release evidence
         uses: [%.Action "attest-build-provenance"%]
         with:

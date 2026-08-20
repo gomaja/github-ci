@@ -31,13 +31,120 @@ func TestBuildIsDeterministicAndSorted(t *testing.T) {
 	if !strings.Contains(string(first), `"source_date":"2026-08-19T00:03:04Z"`) {
 		t.Fatalf("manifest does not normalize source date: %s", first)
 	}
-	if strings.Index(string(firstSums), "dist/a.txt") > strings.Index(string(firstSums), "dist/z.txt") {
-		t.Fatalf("checksums are not sorted: %s", firstSums)
-	}
 	for _, name := range []string{".github/workflows/go.yml", "policies/tools.yaml", "schemas/evidence.json"} {
 		if !strings.Contains(string(first), `"path":"`+name+`"`) {
 			t.Errorf("manifest omitted metadata %q: %s", name, first)
 		}
+	}
+}
+
+func TestBuildUsesPublishedAssetNamesInChecksums(t *testing.T) {
+	root := fixtureRoot(t)
+	mustWrite(t, filepath.Join(root, "a", "z.txt"), []byte("z"))
+	mustWrite(t, filepath.Join(root, "z", "a.txt"), []byte("a"))
+	_, sums, err := Build(Input{
+		Root: root, SubjectSHA: strings.Repeat("a", 40), SourceDate: time.Unix(1, 0),
+		Assets: []string{"a/z.txt", "z/a.txt"},
+	})
+	if err != nil {
+		t.Fatalf("Build() error = %v", err)
+	}
+	want := "ca978112ca1bbdcafac231b39a23dc4da786eff8147c4e72b9807785afee48bb  a.txt\n" +
+		"594e519ae499312b29433b7dd8a97ff068defcba9755b6d5d00e84c524d67b06  z.txt\n"
+	if string(sums) != want {
+		t.Fatalf("Build() checksums = %q, want flat published asset names %q", sums, want)
+	}
+}
+
+func TestBuildRejectsDuplicatePublishedAssetNames(t *testing.T) {
+	root := fixtureRoot(t)
+	mustWrite(t, filepath.Join(root, "other", "a.txt"), []byte("other"))
+	_, _, err := Build(Input{
+		Root: root, SubjectSHA: strings.Repeat("a", 40), SourceDate: time.Unix(1, 0),
+		Assets: []string{"dist/a.txt", "other/a.txt"},
+	})
+	if err == nil || err.Error() != `duplicate published release asset name "a.txt"` {
+		t.Fatalf("Build() error = %v, want duplicate published asset name", err)
+	}
+}
+
+func TestVerifyAcceptsLegacyRepositoryRelativeChecksums(t *testing.T) {
+	root := fixtureRoot(t)
+	mustWrite(t, filepath.Join(root, "a", "z.txt"), []byte("z"))
+	mustWrite(t, filepath.Join(root, "z", "a.txt"), []byte("a"))
+	manifest, _, err := Build(Input{
+		Root: root, SubjectSHA: strings.Repeat("a", 40), SourceDate: time.Unix(1, 0),
+		Assets: []string{"a/z.txt", "z/a.txt"},
+	})
+	if err != nil {
+		t.Fatalf("Build() error = %v", err)
+	}
+	manifestPath := filepath.Join(t.TempDir(), "release-manifest.json")
+	sumsPath := filepath.Join(t.TempDir(), "SHA256SUMS")
+	mustWrite(t, manifestPath, manifest)
+	mustWrite(t, sumsPath, []byte(
+		"594e519ae499312b29433b7dd8a97ff068defcba9755b6d5d00e84c524d67b06  a/z.txt\n"+
+			"ca978112ca1bbdcafac231b39a23dc4da786eff8147c4e72b9807785afee48bb  z/a.txt\n",
+	))
+	if err := Verify(root, manifestPath, sumsPath); err != nil {
+		t.Fatalf("Verify() legacy checksums error = %v", err)
+	}
+}
+
+func TestVerifyRejectsMixedPublishedAndRepositoryRelativeChecksums(t *testing.T) {
+	root := fixtureRoot(t)
+	manifest, _, err := Build(Input{
+		Root: root, SubjectSHA: strings.Repeat("a", 40), SourceDate: time.Unix(1, 0),
+		Assets: []string{"dist/a.txt", "dist/z.txt"},
+	})
+	if err != nil {
+		t.Fatalf("Build() error = %v", err)
+	}
+	manifestPath := filepath.Join(t.TempDir(), "release-manifest.json")
+	sumsPath := filepath.Join(t.TempDir(), "SHA256SUMS")
+	mustWrite(t, manifestPath, manifest)
+	mustWrite(t, sumsPath, []byte(
+		"ca978112ca1bbdcafac231b39a23dc4da786eff8147c4e72b9807785afee48bb  a.txt\n"+
+			"594e519ae499312b29433b7dd8a97ff068defcba9755b6d5d00e84c524d67b06  dist/z.txt\n",
+	))
+	if err := Verify(root, manifestPath, sumsPath); err == nil || err.Error() != "SHA256SUMS does not match release manifest" {
+		t.Fatalf("Verify() mixed checksums error = %v", err)
+	}
+}
+
+func TestVerifyRejectsDuplicatePublishedAssetNamesInManifest(t *testing.T) {
+	root := fixtureRoot(t)
+	mustWrite(t, filepath.Join(root, "other", "a.txt"), []byte("b"))
+	mustWrite(t, filepath.Join(root, "other", "z.txt"), []byte("b"))
+	manifestData, _, err := Build(Input{
+		Root: root, SubjectSHA: strings.Repeat("a", 40), SourceDate: time.Unix(1, 0),
+		Assets: []string{"dist/a.txt", "other/z.txt"},
+	})
+	if err != nil {
+		t.Fatalf("Build() error = %v", err)
+	}
+	var manifest Manifest
+	if err := json.Unmarshal(manifestData, &manifest); err != nil {
+		t.Fatalf("decode manifest: %v", err)
+	}
+	for index := range manifest.Files {
+		if manifest.Files[index].Path == "other/z.txt" {
+			manifest.Files[index].Path = "other/a.txt"
+		}
+	}
+	manifestData, err = json.Marshal(manifest)
+	if err != nil {
+		t.Fatalf("marshal manifest: %v", err)
+	}
+	manifestPath := filepath.Join(t.TempDir(), "release-manifest.json")
+	sumsPath := filepath.Join(t.TempDir(), "SHA256SUMS")
+	mustWrite(t, manifestPath, manifestData)
+	mustWrite(t, sumsPath, []byte(
+		"ca978112ca1bbdcafac231b39a23dc4da786eff8147c4e72b9807785afee48bb  dist/a.txt\n"+
+			"3e23e8160039594a33894f6564e1b1348bbd7a0088d42c4acb73eeaed59c009d  other/a.txt\n",
+	))
+	if err := Verify(root, manifestPath, sumsPath); err == nil || err.Error() != `duplicate published release asset name "a.txt"` {
+		t.Fatalf("Verify() error = %v, want duplicate published asset name", err)
 	}
 }
 
@@ -63,6 +170,23 @@ func TestWriteEvidenceCreatesVerifiableAtomicFiles(t *testing.T) {
 		if runtime.GOOS != "windows" && info.Mode().Perm() != 0o644 {
 			t.Errorf("%s permissions = %o, want 644", name, info.Mode().Perm())
 		}
+	}
+}
+
+func TestWriteEvidenceVerifiesPublishedNameSortOrderAcrossDirectories(t *testing.T) {
+	root := fixtureRoot(t)
+	mustWrite(t, filepath.Join(root, "other", "a.txt"), []byte("other"))
+	manifestPath := filepath.Join(t.TempDir(), "release-manifest.json")
+	sumsPath := filepath.Join(t.TempDir(), "SHA256SUMS")
+	input := Input{
+		Root: root, SubjectSHA: strings.Repeat("c", 40), SourceDate: time.Unix(1, 0),
+		Assets: []string{"dist/z.txt", "other/a.txt"},
+	}
+	if err := WriteEvidence(input, manifestPath, sumsPath); err != nil {
+		t.Fatalf("WriteEvidence() error = %v", err)
+	}
+	if err := Verify(root, manifestPath, sumsPath); err != nil {
+		t.Fatalf("Verify() error = %v", err)
 	}
 }
 

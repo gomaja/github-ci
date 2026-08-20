@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path"
 	"path/filepath"
 	"regexp"
 	"slices"
@@ -72,14 +73,18 @@ func Build(input Input) ([]byte, []byte, error) {
 		}
 		files = append(files, digest)
 	}
-	var sums strings.Builder
+	assetDigests := make([]FileDigest, 0, len(assets))
 	for _, name := range assets {
 		digest, digestErr := digestFile(input.Root, name, "asset")
 		if digestErr != nil {
 			return nil, nil, digestErr
 		}
 		files = append(files, digest)
-		fmt.Fprintf(&sums, "%s  %s\n", digest.SHA256, digest.Path)
+		assetDigests = append(assetDigests, digest)
+	}
+	var sums strings.Builder
+	for _, digest := range assetDigests {
+		fmt.Fprintf(&sums, "%s  %s\n", digest.SHA256, publishedAssetName(digest.Path))
 	}
 	slices.SortFunc(files, func(left, right FileDigest) int { return strings.Compare(left.Path, right.Path) })
 	manifest := Manifest{
@@ -127,7 +132,8 @@ func Verify(root, manifestPath, sumsPath string) error {
 		return errors.New("invalid release manifest identity")
 	}
 	seen := make(map[string]struct{}, len(manifest.Files))
-	var sums strings.Builder
+	publishedNames := make(map[string]struct{})
+	assets := make([]FileDigest, 0)
 	previous := ""
 	for _, expected := range manifest.Files {
 		if err := pathpolicy.Validate("release file", expected.Path); err != nil {
@@ -149,14 +155,31 @@ func Verify(root, manifestPath, sumsPath string) error {
 			return fmt.Errorf("release file %q does not match manifest", expected.Path)
 		}
 		if expected.Kind == "asset" {
-			fmt.Fprintf(&sums, "%s  %s\n", expected.SHA256, expected.Path)
+			publishedName := publishedAssetName(expected.Path)
+			if _, exists := publishedNames[publishedName]; exists {
+				return fmt.Errorf("duplicate published release asset name %q", publishedName)
+			}
+			publishedNames[publishedName] = struct{}{}
+			assets = append(assets, expected)
 		}
+	}
+	var publishedSums strings.Builder
+	var legacySums strings.Builder
+	publishedAssets := slices.Clone(assets)
+	slices.SortFunc(publishedAssets, func(left, right FileDigest) int {
+		return strings.Compare(publishedAssetName(left.Path), publishedAssetName(right.Path))
+	})
+	for _, expected := range publishedAssets {
+		fmt.Fprintf(&publishedSums, "%s  %s\n", expected.SHA256, publishedAssetName(expected.Path))
+	}
+	for _, expected := range assets {
+		fmt.Fprintf(&legacySums, "%s  %s\n", expected.SHA256, expected.Path)
 	}
 	actualSums, err := securefs.ReadFile(sumsPath)
 	if err != nil {
 		return fmt.Errorf("read SHA256SUMS: %w", err)
 	}
-	if !bytes.Equal(actualSums, []byte(sums.String())) {
+	if !bytes.Equal(actualSums, []byte(publishedSums.String())) && !bytes.Equal(actualSums, []byte(legacySums.String())) {
 		return errors.New("SHA256SUMS does not match release manifest")
 	}
 	return nil
@@ -168,6 +191,7 @@ func validateAssets(values []string) ([]string, error) {
 	}
 	assets := slices.Clone(values)
 	slices.Sort(assets)
+	publishedNames := make(map[string]struct{}, len(assets))
 	for index, name := range assets {
 		if err := pathpolicy.Validate("release asset", name); err != nil {
 			return nil, err
@@ -175,8 +199,20 @@ func validateAssets(values []string) ([]string, error) {
 		if index > 0 && assets[index-1] == name {
 			return nil, fmt.Errorf("duplicate release asset %q", name)
 		}
+		publishedName := publishedAssetName(name)
+		if _, exists := publishedNames[publishedName]; exists {
+			return nil, fmt.Errorf("duplicate published release asset name %q", publishedName)
+		}
+		publishedNames[publishedName] = struct{}{}
 	}
+	slices.SortFunc(assets, func(left, right string) int {
+		return strings.Compare(publishedAssetName(left), publishedAssetName(right))
+	})
 	return assets, nil
+}
+
+func publishedAssetName(repositoryPath string) string {
+	return path.Base(repositoryPath)
 }
 
 func metadataFiles(root string) ([]string, error) {

@@ -38,9 +38,11 @@ Do not adopt `v1.0.0`: its linked external canary failed and exercised only the
 `repository-only` profile. `v1.1.0` introduced the intentional one-time schema
 2 compatibility reset, but its release evidence failed closed before complete
 consumer proof. `v1.1.1` completed that proof and remains valid. `v1.1.2`
-supersedes it as the documented adoption target without changing the schema 2
-contract. Adopt only the exact `v1.1.2` commit SHA after its release-acceptance
-gate succeeds.
+repeated the complete acceptance chain with a signed tag and remains a valid
+exact-SHA adoption anchor, but its `SHA256SUMS` uses repository-relative
+`dist/` paths that do not match flat GitHub Release downloads. `v1.1.3`
+corrects that packaging contract without changing schema 2 and becomes the
+preferred adoption target only after its release-acceptance gate succeeds.
 Release evidence automation validates existing tags but never creates, moves,
 deletes, or publishes a tag or GitHub Release.
 
