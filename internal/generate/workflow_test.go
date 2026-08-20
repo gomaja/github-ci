@@ -30,6 +30,31 @@ func TestGoWorkflowContract(t *testing.T) {
 	assertWorkflowTextContracts(t, string(data))
 }
 
+func TestCodeQLAnalysisCategoryIsStableAcrossCallers(t *testing.T) {
+	data, err := os.ReadFile("../../.github/workflows/go.yml")
+	if err != nil {
+		t.Fatalf("read Go workflow: %v", err)
+	}
+	var workflow map[string]any
+	if err := yaml.Unmarshal(data, &workflow); err != nil {
+		t.Fatalf("decode Go workflow: %v", err)
+	}
+	jobs := mapping(t, workflow["jobs"], "jobs")
+	codeql := mapping(t, jobs["codeql"], "codeql")
+	for _, rawStep := range sequence(t, codeql["steps"], "codeql steps") {
+		step := mapping(t, rawStep, "codeql step")
+		if step["name"] != "Analyze CodeQL database" {
+			continue
+		}
+		with := mapping(t, step["with"], "CodeQL analyze inputs")
+		if with["category"] != "github-ci/${{ matrix.language }}" {
+			t.Fatalf("CodeQL category = %#v, want stable language category", with["category"])
+		}
+		return
+	}
+	t.Fatal("CodeQL analyze step is missing")
+}
+
 func TestGeneratedWorkflowsUseFoldedEgressAllowLists(t *testing.T) {
 	for _, name := range []string{
 		"../../.github/workflows/go.yml",

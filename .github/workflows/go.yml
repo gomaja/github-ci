@@ -550,6 +550,7 @@ jobs:
         if: ${{ matrix.language != 'go' || needs.preflight.outputs.has-go == 'true' }}
         uses: github/codeql-action/analyze@ff2f1c621b7f889edc0d3c761ac2e6a3f8cdb0dd
         with:
+          category: github-ci/${{ matrix.language }}
           checkout_path: source
           output: ${{ runner.temp }}/github-ci-codeql
           upload: always
