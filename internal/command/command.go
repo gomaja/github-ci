@@ -169,16 +169,26 @@ func runVerifyAcceptance(ctx context.Context, args []string, stderr io.Writer) i
 		writeError(stderr, fmt.Errorf("verify release acceptance: %w", err))
 		return exitError
 	}
-	data, err := acceptance.MarshalRecord(record)
-	if err != nil {
-		writeError(stderr, fmt.Errorf("marshal release acceptance: %w", err))
-		return exitError
-	}
-	if err := writeBytesAtomic(*output, data); err != nil {
-		writeError(stderr, fmt.Errorf("write release acceptance: %w", err))
+	return writeAcceptanceResult(*output, record, stderr)
+}
+
+func writeAcceptanceResult(output string, record acceptance.Record, stderr io.Writer) int {
+	if err := writeAcceptanceRecord(output, record); err != nil {
+		writeError(stderr, err)
 		return exitError
 	}
 	return exitSuccess
+}
+
+func writeAcceptanceRecord(output string, record acceptance.Record) error {
+	data, err := acceptance.MarshalRecord(record)
+	if err != nil {
+		return fmt.Errorf("marshal release acceptance: %w", err)
+	}
+	if err := writeBytesAtomic(output, data); err != nil {
+		return fmt.Errorf("write release acceptance: %w", err)
+	}
+	return nil
 }
 
 func runVerifyAcceptanceRecord(args []string, stderr io.Writer) int {

@@ -316,21 +316,18 @@ func verifyCanaryGeneratedPaths(ctx context.Context, client Client, repositoryNa
 		}
 		insideGeneratedPath := false
 		for _, generatedPath := range generatedPaths {
-			inside := generatedPath == "." || entry.Path == generatedPath || strings.HasPrefix(entry.Path, generatedPath+"/")
-			if !inside {
-				continue
+			if generatedPathContains(generatedPath, entry.Path) {
+				foundPaths[generatedPath] = true
+				insideGeneratedPath = true
 			}
-			foundPaths[generatedPath] = true
-			insideGeneratedPath = true
 		}
-		if !insideGeneratedPath {
-			continue
-		}
-		if err := validateGitTreePath(entry.Path); err != nil {
-			return err
-		}
-		if strings.HasSuffix(entry.Path, ".go") && entry.Type == "blob" && (entry.Mode == "100644" || entry.Mode == "100755") {
-			generatedGo = true
+		if insideGeneratedPath {
+			if err := validateGitTreePath(entry.Path); err != nil {
+				return err
+			}
+			if strings.HasSuffix(entry.Path, ".go") && entry.Type == "blob" && (entry.Mode == "100644" || entry.Mode == "100755") {
+				generatedGo = true
+			}
 		}
 	}
 	for _, generatedPath := range generatedPaths {
@@ -342,6 +339,10 @@ func verifyCanaryGeneratedPaths(ctx context.Context, client Client, repositoryNa
 		return errors.New("canary generated path must contain a regular tracked Go source blob")
 	}
 	return nil
+}
+
+func generatedPathContains(generatedPath, entryPath string) bool {
+	return generatedPath == "." || entryPath == generatedPath || strings.HasPrefix(entryPath, generatedPath+"/")
 }
 
 func validateGitTreePath(value string) error {
@@ -388,7 +389,7 @@ func verifyForkPullRequest(ctx context.Context, client Client, baseRepository st
 	}
 	var match int64
 	for _, pull := range pulls {
-		if pull.Number <= 0 || pull.Head.SHA != run.HeadSHA || pull.Head.Repo.FullName != run.HeadRepository.FullName || pull.Head.Repo.Private || !pull.Head.Repo.Fork || pull.Base.Repo.FullName != baseRepository || pull.Base.Repo.Private || pull.Base.Repo.Fork {
+		if !matchesForkPull(pull, baseRepository, run) {
 			continue
 		}
 		if match != 0 {
@@ -400,4 +401,8 @@ func verifyForkPullRequest(ctx context.Context, client Client, baseRepository st
 		return 0, errors.New("fork run is not associated with a public pull request from a different repository")
 	}
 	return match, nil
+}
+
+func matchesForkPull(pull pullRequest, baseRepository string, run workflowRun) bool {
+	return pull.Number > 0 && pull.Head.SHA == run.HeadSHA && pull.Head.Repo.FullName == run.HeadRepository.FullName && !pull.Head.Repo.Private && pull.Head.Repo.Fork && pull.Base.Repo.FullName == baseRepository && !pull.Base.Repo.Private && !pull.Base.Repo.Fork
 }

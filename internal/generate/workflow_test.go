@@ -674,12 +674,15 @@ func TestDeepExecutorContract(t *testing.T) {
 		`load_go_invocation "$GO_PLAN_PATH" "$index" build`,
 		`load_go_invocation "$GO_PLAN_PATH" "$index" test`,
 		`load_go_invocation "$GO_PLAN_PATH" "$index" gopls`,
+		`list_arguments=(env GOWORK=off go list '-f={{.ImportPath}}')`,
+		`execute_with_plan_environment "$directory" env GOWORK=off gremlins unleash`,
 		`^Fuzz[[:alnum:]_]*$`, `-fuzz="^${target}$"`, `-fuzztime="$FUZZ_TIME"`,
-		`--integration`, `--workers 2`, `--timeout-coefficient 20`, `--arithmetic-base`,
+		`--workers 4`, `--test-cpu 1`, `--timeout-coefficient 100`, `--output-statuses lctvs`, `--arithmetic-base`,
 		`--conditionals-boundary`, `--conditionals-negation`, `--increment-decrement`,
 		`--invert-assignments`, `--invert-bitwise`, `--invert-bwassign`,
 		`--invert-logical`, `--invert-loopctrl`, `--invert-negatives`,
-		`--remove-self-assignments`, `--output "$report" .`,
+		`--remove-self-assignments`, `--output "$report" "$package"`,
+		`for package_index in "${!concrete_packages[@]}"`,
 		`validate-gremlins --report "$report" --module "$module_path"`,
 		`validate-gremlins-no-results --log "$transcript" --module "$module_path" --output "$evidence"`,
 	} {
@@ -689,6 +692,9 @@ func TestDeepExecutorContract(t *testing.T) {
 	}
 	if strings.Contains(text, "./...") {
 		t.Error("deep executor reconstructs a root package scope")
+	}
+	if strings.Contains(text, "--integration") {
+		t.Error("deep executor reruns the entire module test suite for each package mutation")
 	}
 	if count := strings.Count(text, `for index in "${!GO_PLAN_MODULE_PATHS[@]}"`); count != 3 {
 		t.Errorf("deep executor module loops = %d, want 3", count)

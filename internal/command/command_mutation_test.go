@@ -12,9 +12,39 @@ import (
 	"testing"
 	"testing/fstest"
 
+	"github.com/gomaja/github-ci/internal/acceptance"
 	"github.com/gomaja/github-ci/internal/evidence"
 	"github.com/gomaja/github-ci/internal/gate"
 )
+
+func TestWriteAcceptanceRecordCoversEveryPhase(t *testing.T) {
+	record := acceptance.Record{
+		SchemaVersion: "1", CandidateSHA: strings.Repeat("a", 40), CanaryRepository: "acme/go-canary",
+		Runs: []acceptance.RunRecord{
+			{Kind: acceptance.RunStandard, ID: 101, Repository: "acme/go-canary", HeadRepository: "acme/go-canary", Event: "workflow_dispatch", HeadSHA: strings.Repeat("b", 40), WorkflowPath: ".github/workflows/github-ci.yml", WorkflowSHA: strings.Repeat("a", 40), GateJob: "gate / gate"},
+			{Kind: acceptance.RunDeep, ID: 102, Repository: "acme/go-canary", HeadRepository: "acme/go-canary", Event: "workflow_dispatch", HeadSHA: strings.Repeat("b", 40), WorkflowPath: ".github/workflows/github-ci-deep.yml", WorkflowSHA: strings.Repeat("a", 40), GateJob: "assurance / gate"},
+			{Kind: acceptance.RunFork, ID: 103, Repository: "acme/go-canary", HeadRepository: "forker/go-canary", Event: "pull_request", HeadSHA: strings.Repeat("c", 40), WorkflowPath: ".github/workflows/github-ci.yml", WorkflowSHA: strings.Repeat("a", 40), GateJob: "gate / gate", PullRequest: 7},
+		},
+		ConfigSHA256: strings.Repeat("d", 64),
+	}
+	output := filepath.Join(t.TempDir(), "acceptance.json")
+	if err := writeAcceptanceRecord(output, record); err != nil {
+		t.Fatalf("writeAcceptanceRecord() error = %v", err)
+	}
+	if err := writeAcceptanceRecord(filepath.Join(t.TempDir(), "invalid.json"), acceptance.Record{}); err == nil || !strings.Contains(err.Error(), "marshal release acceptance") {
+		t.Fatalf("writeAcceptanceRecord(invalid record) error = %v", err)
+	}
+	if err := writeAcceptanceRecord(t.TempDir(), record); err == nil || !strings.Contains(err.Error(), "write release acceptance") {
+		t.Fatalf("writeAcceptanceRecord(directory) error = %v", err)
+	}
+	var stderr bytes.Buffer
+	if code := writeAcceptanceResult(filepath.Join(t.TempDir(), "record.json"), record, &stderr); code != exitSuccess || stderr.Len() != 0 {
+		t.Fatalf("writeAcceptanceResult(success) = %d, %q", code, stderr.String())
+	}
+	if code := writeAcceptanceResult(filepath.Join(t.TempDir(), "invalid.json"), acceptance.Record{}, &stderr); code != exitError || !strings.Contains(stderr.String(), "marshal release acceptance") {
+		t.Fatalf("writeAcceptanceResult(invalid) = %d, %q", code, stderr.String())
+	}
+}
 
 func TestTrackedShellFileMatchesRecognizesNonExecutableShebang(t *testing.T) {
 	tracked := fstest.MapFS{

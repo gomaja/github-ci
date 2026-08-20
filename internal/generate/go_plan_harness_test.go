@@ -362,6 +362,70 @@ func TestRunDeepGoExecutesPlannedPortabilityAndTaggedFuzz(t *testing.T) {
 	assertCapturedGoArguments(t, capture, []string{"-mod=vendor", "-tags=sqlite,integration", "./cmd/...", "./internal/...", "-bench=.", "-benchtime=1s"})
 }
 
+func TestRunDeepGoMutatesEachConcretePlannedPackage(t *testing.T) {
+	root := repositoryRoot(t)
+	temporary := t.TempDir()
+	source := filepath.Join(temporary, "source")
+	if err := os.MkdirAll(source, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	goPlan := writeGoExecutionPlan(t, temporary)
+	fakeBin := filepath.Join(temporary, "bin")
+	capture := filepath.Join(temporary, "capture")
+	writeFakeGoTools(t, fakeBin)
+	if err := os.MkdirAll(capture, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	fakeCLI := writeFakeDeepCLI(t, temporary)
+	runCommand(t, root, []string{
+		"CAPTURE_DIR=" + capture,
+		"CENTRAL_DIR=" + root,
+		"GITHUB_CI_CLI=" + fakeCLI,
+		"GO_PLAN_PATH=" + goPlan,
+		"MUTATION_DIR=" + filepath.Join(temporary, "mutation"),
+		"PATH=" + fakeBin + string(os.PathListSeparator) + os.Getenv("PATH"),
+		"SOURCE_DIR=" + source,
+	}, "bash", filepath.Join(root, "scripts", "run-deep-go.sh"), "mutation-context")
+
+	invocations := capturedToolInvocations(t, capture, "gremlins")
+	if len(invocations) != 2 {
+		t.Fatalf("gremlins invocations = %#v, want root and nested packages", invocations)
+	}
+	for _, invocation := range invocations {
+		assertCapturedGremlinsInvocation(t, invocation)
+	}
+}
+
+func assertCapturedGremlinsInvocation(t *testing.T, invocation capturedInvocation) {
+	t.Helper()
+	if !reflect.DeepEqual(invocation.environment, []string{"GOFLAGS=-mod=vendor -tags=sqlite,integration", "GOMAXPROCS=3"}) {
+		t.Fatalf("gremlins environment = %#v", invocation.environment)
+	}
+	arguments := invocation.arguments
+	if slices.Contains(arguments, "example.com/fixture") || slices.Contains(arguments, "example.com/fixture/internal/fixture") || slices.Contains(arguments, "--integration") {
+		t.Fatalf("gremlins arguments = %#v, want concrete relative package", arguments)
+	}
+	if !slices.Contains(arguments, "--workers") || !slices.Contains(arguments, "4") || !slices.Contains(arguments, "--test-cpu") || !slices.Contains(arguments, "1") {
+		t.Fatalf("gremlins arguments = %#v, want bounded four-worker execution", arguments)
+	}
+	if !slices.Contains(arguments, "--output-statuses") || !slices.Contains(arguments, "lctvs") {
+		t.Fatalf("gremlins arguments = %#v, want blocking-only live output", arguments)
+	}
+	if !slices.Contains(arguments, "--timeout-coefficient") || !slices.Contains(arguments, "100") {
+		t.Fatalf("gremlins arguments = %#v, want bounded timeout coefficient", arguments)
+	}
+	if slices.Contains(arguments, ".") {
+		exclude := slices.Index(arguments, "--exclude-files")
+		if exclude < 0 || exclude+1 >= len(arguments) || arguments[exclude+1] != `[/\\]` {
+			t.Fatalf("root gremlins arguments = %#v, want nested-path exclusion", arguments)
+		}
+		return
+	}
+	if !slices.Contains(arguments, "./internal/fixture") || slices.Contains(arguments, "--exclude-files") {
+		t.Fatalf("nested gremlins arguments = %#v, want only the concrete nested package", arguments)
+	}
+}
+
 func TestRunDeepGoFailsClosedWhenDiscoveryReturnsPartialOutput(t *testing.T) {
 	root := repositoryRoot(t)
 	for _, variable := range []string{"FAIL_GO_LIST", "FAIL_FUZZ_LIST"} {
@@ -488,6 +552,26 @@ esac
 	return name
 }
 
+func writeFakeDeepCLI(t *testing.T, root string) string {
+	t.Helper()
+	script := `#!/usr/bin/env bash
+set -euo pipefail
+[[ "${1:-}" == validate-gremlins-no-results ]]
+while (($#)); do
+  if [[ "$1" == --output ]]; then output=$2; shift 2; else shift; fi
+done
+[[ -n "${output:-}" ]]
+mkdir -p "$(dirname "$output")"
+printf '{}\n' >"$output"
+`
+	name := filepath.Join(root, "fake-deep-cli")
+	writeFixtureFile(t, root, "fake-deep-cli", script)
+	if err := os.Chmod(name, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return name
+}
+
 func writeFakeGoTools(t *testing.T, directory string) {
 	t.Helper()
 	if err := os.MkdirAll(directory, 0o755); err != nil {
@@ -502,7 +586,14 @@ case "$tool" in
   go)
     if [[ "${1:-}" == version ]]; then printf 'go version go1.26.6 fixture/amd64\n'; fi
     if [[ "${1:-}" == list ]]; then
-      printf 'example.com/fixture\n'
+	  if [[ " $* " == *" -m "* ]]; then
+	    printf 'example.com/fixture\n'
+	  elif [[ " $* " == *" -f={{.ImportPath}} "* ]]; then
+	    if [[ "${GOWORK:-}" != off ]]; then exit 44; fi
+	    printf 'example.com/fixture\nexample.com/fixture/internal/fixture\n'
+	  else
+	    printf 'example.com/fixture\n'
+	  fi
       [[ "${FAIL_GO_LIST:-false}" != true ]] || exit 42
     fi
     for argument in "$@"; do
@@ -550,14 +641,51 @@ case "$tool" in
     printf '<testsuites tests="1" failures="%s" errors="0"></testsuites>\n' "$failures" >"$junit"
     exit "$status"
     ;;
+  gremlins)
+	if [[ "${GOWORK:-}" != off ]]; then exit 45; fi
+    printf 'No results to report.\n'
+    ;;
 esac
 `
-	for _, tool := range []string{"go", "gofmt", "goimports", "gopls", "staticcheck", "golangci-lint", "govulncheck", "gotestsum"} {
+	for _, tool := range []string{"go", "gofmt", "goimports", "gopls", "staticcheck", "golangci-lint", "govulncheck", "gotestsum", "gremlins"} {
 		name := filepath.Join(directory, tool)
 		if err := os.WriteFile(name, []byte(script), 0o755); err != nil {
 			t.Fatalf("write fake %s: %v", tool, err)
 		}
 	}
+}
+
+type capturedInvocation struct {
+	environment []string
+	arguments   []string
+}
+
+func capturedToolInvocations(t *testing.T, directory, tool string) []capturedInvocation {
+	t.Helper()
+	files, err := filepath.Glob(filepath.Join(directory, tool+".*"))
+	if err != nil || len(files) == 0 {
+		t.Fatalf("captured %s files = %#v, %v", tool, files, err)
+	}
+	result := make([]capturedInvocation, 0, len(files))
+	for _, file := range files {
+		data, readErr := os.ReadFile(file)
+		if readErr != nil {
+			t.Fatal(readErr)
+		}
+		fields := strings.Split(strings.TrimSuffix(string(data), "\x00"), "\x00")
+		if len(fields) < 3 {
+			t.Fatalf("captured %s fields = %#v", tool, fields)
+		}
+		environment := []string{}
+		if fields[0] != "" {
+			environment = append(environment, "GOFLAGS="+fields[0])
+		}
+		if fields[1] != "" {
+			environment = append(environment, "GOMAXPROCS="+fields[1])
+		}
+		result = append(result, capturedInvocation{environment: environment, arguments: fields[2:]})
+	}
+	return result
 }
 
 func assertCapturedInvocation(t *testing.T, directory, tool string, want goexecution.Invocation, normalize func([]string) []string) {

@@ -25,13 +25,13 @@ var (
 )
 
 const (
-	maxModules         = 128
-	maxPackages        = 256
-	maxBuildTags       = 64
-	maxGeneratedPaths  = 128
-	maxTestTimeout     = 45 * time.Minute
-	maxPackageParallel = 64
-	maxRaceParallel    = 16
+	maxModules                       = 128
+	maxPackages                      = 256
+	maxBuildTags                     = 64
+	maxGeneratedPaths                = 128
+	maxTestTimeout     time.Duration = 2_700_000_000_000 // 45 minutes.
+	maxPackageParallel               = 64
+	maxRaceParallel                  = 16
 )
 
 // Profile identifies the fixed assurance profile applied to a consumer.

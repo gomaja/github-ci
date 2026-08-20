@@ -28,7 +28,8 @@ func TestAcceptanceRecordCanonicalRoundTrip(t *testing.T) {
 	}{
 		{name: "empty", want: "empty"},
 		{name: "unknown", data: strings.Replace(string(data), `"schema_version":"1"`, `"schema_version":"1","unknown":true`, 1), sha: testCandidateSHA, want: "unknown field"},
-		{name: "trailing", data: string(data) + `{}`, sha: testCandidateSHA, want: "trailing"},
+		{name: "trailing", data: string(data) + `{}`, sha: testCandidateSHA, want: "acceptance record contains a trailing JSON value"},
+		{name: "malformed trailing", data: string(data) + `{`, sha: testCandidateSHA, want: "decode trailing acceptance record: unexpected EOF"},
 		{name: "pretty", data: strings.ReplaceAll(string(data), `,"`, ",\n\t\""), sha: testCandidateSHA, want: "canonical"},
 		{name: "wrong candidate", data: string(data), sha: strings.Repeat("d", 40), want: "does not match"},
 	}
@@ -53,6 +54,9 @@ func TestValidateAcceptanceRecordRejectsBrokenBinding(t *testing.T) {
 		{name: "fork repository", mutate: func(record *Record) { record.Runs[2].HeadRepository = testCanary }, want: "different repository"},
 		{name: "consumer mismatch", mutate: func(record *Record) { record.Runs[1].HeadSHA = strings.Repeat("d", 40) }, want: "same consumer commit"},
 		{name: "wrong workflow", mutate: func(record *Record) { record.Runs[0].WorkflowPath = ".github/workflows/other.yml" }, want: "scenario"},
+		{name: "central repository is not a canary", mutate: func(record *Record) { record.CanaryRepository = "gomaja/github-ci" }, want: "different owner/repository"},
+		{name: "zero run id", mutate: func(record *Record) { record.Runs[0].ID = 0 }, want: "id must be positive"},
+		{name: "zero pull request", mutate: func(record *Record) { record.Runs[2].PullRequest = 0 }, want: "identify a pull request"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -62,6 +66,13 @@ func TestValidateAcceptanceRecordRejectsBrokenBinding(t *testing.T) {
 				t.Fatalf("ValidateRecord() error = %v, want %q", err, test.want)
 			}
 		})
+	}
+}
+
+func TestDecodeAcceptanceRecordEnforcesSizeLimit(t *testing.T) {
+	_, err := DecodeRecord(strings.NewReader(strings.Repeat(" ", maxRecordSize+1)), testCandidateSHA)
+	if err == nil || err.Error() != "acceptance record exceeds 1048576 byte limit" {
+		t.Fatalf("DecodeRecord(oversized) error = %v", err)
 	}
 }
 

@@ -2,11 +2,32 @@ package config
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"regexp"
 	"strings"
 	"testing"
 )
+
+func TestConsumerAcceptsExactCollectionLimits(t *testing.T) {
+	generated := make([]string, maxGeneratedPaths)
+	modules := make([]GoModule, maxModules)
+	for index := range generated {
+		generated[index] = fmt.Sprintf("generated/path%d", index)
+	}
+	for index := range modules {
+		modules[index].Path = Module(fmt.Sprintf("module%d", index))
+	}
+	consumer := Consumer{
+		SchemaVersion:  schemaVersion,
+		Profile:        ProfileGoStrict,
+		Go:             &Go{Modules: modules},
+		GeneratedPaths: generated,
+	}
+	if err := consumer.Validate(); err != nil {
+		t.Fatalf("Validate() at exact collection limits error = %v", err)
+	}
+}
 
 func TestDecodeConsumer(t *testing.T) {
 	valid, err := os.Open("../../testdata/config/consumer-valid.yaml")

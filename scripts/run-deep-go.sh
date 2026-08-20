@@ -113,35 +113,69 @@ run_mutation_context() {
 	: "${MUTATION_DIR:?}"
 	mkdir -p "$MUTATION_DIR"
 
-	local index directory module_path report transcript evidence
+	local index directory module_path report transcript evidence package package_index argument list_output relative_package
+	local -a list_arguments concrete_packages mutation_scope_arguments
 	for index in "${!GO_PLAN_MODULE_PATHS[@]}"; do
 		directory=$(module_directory "$index")
-		load_go_invocation "$GO_PLAN_PATH" "$index" gopls
+		load_module_packages "$index"
+		load_go_invocation "$GO_PLAN_PATH" "$index" build
 		module_path=$(execute_with_plan_environment "$directory" env GOWORK=off go list -m -f '{{.Path}}')
-		report="$MUTATION_DIR/module-${index}.json"
-		transcript="$MUTATION_DIR/module-${index}.log"
-		evidence="$MUTATION_DIR/module-${index}-no-results.json"
-		execute_with_plan_environment "$directory" gremlins unleash \
-			--integration \
-			--workers 2 \
-			--timeout-coefficient 20 \
-			--arithmetic-base \
-			--conditionals-boundary \
-			--conditionals-negation \
-			--increment-decrement \
-			--invert-assignments \
-			--invert-bitwise \
-			--invert-bwassign \
-			--invert-logical \
-			--invert-loopctrl \
-			--invert-negatives \
-			--remove-self-assignments \
-			--output "$report" . 2>&1 | tee "$transcript"
-		if [[ -f "$report" ]]; then
-			"$GITHUB_CI_CLI" validate-gremlins --report "$report" --module "$module_path"
-		else
-			"$GITHUB_CI_CLI" validate-gremlins-no-results --log "$transcript" --module "$module_path" --output "$evidence"
+		list_arguments=(env GOWORK=off go list '-f={{.ImportPath}}')
+		for argument in "${GO_PLAN_ARGUMENTS[@]:2}"; do
+			list_arguments+=("$argument")
+		done
+		if ! list_output=$(execute_with_plan_environment "$directory" "${list_arguments[@]}"); then
+			return 1
 		fi
+		concrete_packages=()
+		while IFS= read -r package; do
+			[[ -z "$package" ]] && continue
+			if [[ "$package" == "$module_path" ]]; then
+				relative_package=.
+			elif [[ "$package" == "$module_path/"* ]]; then
+				relative_package="./${package#"$module_path/"}"
+			else
+				printf 'package %q is outside module %q\n' "$package" "$module_path" >&2
+				return 1
+			fi
+			concrete_packages+=("$relative_package")
+		done <<<"$list_output"
+		((${#concrete_packages[@]} > 0))
+		load_go_invocation "$GO_PLAN_PATH" "$index" gopls
+
+		for package_index in "${!concrete_packages[@]}"; do
+			package=${concrete_packages[$package_index]}
+			mutation_scope_arguments=()
+			if [[ "$package" == . ]]; then
+				mutation_scope_arguments=(--exclude-files '[/\\]')
+			fi
+			report="$MUTATION_DIR/module-${index}-package-${package_index}.json"
+			transcript="$MUTATION_DIR/module-${index}-package-${package_index}.log"
+			evidence="$MUTATION_DIR/module-${index}-package-${package_index}-no-results.json"
+			execute_with_plan_environment "$directory" env GOWORK=off gremlins unleash \
+				--workers 4 \
+				--test-cpu 1 \
+				--timeout-coefficient 100 \
+				--output-statuses lctvs \
+				--arithmetic-base \
+				--conditionals-boundary \
+				--conditionals-negation \
+				--increment-decrement \
+				--invert-assignments \
+				--invert-bitwise \
+				--invert-bwassign \
+				--invert-logical \
+				--invert-loopctrl \
+				--invert-negatives \
+				--remove-self-assignments \
+				${mutation_scope_arguments[@]+"${mutation_scope_arguments[@]}"} \
+				--output "$report" "$package" 2>&1 | tee "$transcript"
+			if [[ -f "$report" ]]; then
+				"$GITHUB_CI_CLI" validate-gremlins --report "$report" --module "$module_path"
+			else
+				"$GITHUB_CI_CLI" validate-gremlins-no-results --log "$transcript" --module "$module_path" --output "$evidence"
+			fi
+		done
 	done
 }
 

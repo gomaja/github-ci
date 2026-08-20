@@ -13,7 +13,7 @@ import (
 const (
 	// SchemaVersion is the release acceptance evidence contract version.
 	SchemaVersion       = "1"
-	maxRecordSize       = 1 << 20
+	maxRecordSize       = 1_048_576
 	standardCallerPath  = ".github/workflows/github-ci.yml"
 	scheduledCallerPath = ".github/workflows/github-ci-deep.yml"
 	standardGateName    = "gate / gate"

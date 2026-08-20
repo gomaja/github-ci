@@ -18,16 +18,17 @@ import (
 
 const (
 	// GitHubAPIVersion pins the REST response contract decoded by this package.
-	GitHubAPIVersion  = "2026-03-10"
-	maxGitHubResponse = 8 << 20
-	jobsPerPage       = 100
-	maxJobs           = 10_000
-	pullsPerPage      = 100
-	maxPullRequests   = 10_000
-	maxGitTreeEntries = 100_000
-	fieldName         = "name"
-	fieldPath         = "path"
-	jsonNull          = "null"
+	GitHubAPIVersion                 = "2026-03-10"
+	maxGitHubResponse                = 8_388_608
+	jobsPerPage                      = 100
+	maxJobs                          = 10_000
+	pullsPerPage                     = 100
+	maxPullRequests                  = 10_000
+	maxGitTreeEntries                = 100_000
+	defaultHTTPTimeout time.Duration = 30_000_000_000 // 30 seconds.
+	fieldName                        = "name"
+	fieldPath                        = "path"
+	jsonNull                         = "null"
 )
 
 // Client reads immutable public canary evidence from the GitHub REST API.
@@ -252,10 +253,13 @@ func (client Client) getJobs(ctx context.Context, repositoryName string, run wor
 			seen[job.ID] = struct{}{}
 			jobs = append(jobs, job)
 		}
+		if len(jobs) > total {
+			return nil, errors.New("jobs pagination does not match total_count")
+		}
 		if len(jobs) == total {
 			return jobs, nil
 		}
-		if len(jobs) > total || len(page.Jobs) != jobsPerPage {
+		if len(page.Jobs) != jobsPerPage {
 			return nil, errors.New("jobs pagination does not match total_count")
 		}
 	}
@@ -483,8 +487,8 @@ func (client Client) getTree(ctx context.Context, repositoryName, ref string) (g
 	if err := requireEOF(decoder); err != nil {
 		return gitTree{}, fmt.Errorf("decode Git tree entries: %w", err)
 	}
-	if len(raw) > maxGitTreeEntries {
-		return gitTree{}, fmt.Errorf("git tree exceeds %d entries", maxGitTreeEntries)
+	if err := validateGitTreeEntryCount(len(raw)); err != nil {
+		return gitTree{}, err
 	}
 	tree.Entries = make([]gitTreeEntry, 0, len(raw))
 	for index, item := range raw {
@@ -495,6 +499,13 @@ func (client Client) getTree(ctx context.Context, repositoryName, ref string) (g
 		tree.Entries = append(tree.Entries, entry)
 	}
 	return tree, nil
+}
+
+func validateGitTreeEntryCount(count int) error {
+	if count > maxGitTreeEntries {
+		return fmt.Errorf("git tree exceeds %d entries", maxGitTreeEntries)
+	}
+	return nil
 }
 
 func (client Client) get(ctx context.Context, endpoint string, query url.Values) ([]byte, error) {
@@ -516,7 +527,7 @@ func (client Client) get(ctx context.Context, endpoint string, query url.Values)
 	}
 	httpClient := client.HTTP
 	if httpClient == nil {
-		httpClient = &http.Client{Timeout: 30 * time.Second}
+		httpClient = &http.Client{Timeout: defaultHTTPTimeout}
 	}
 	copyClient := *httpClient
 	copyClient.CheckRedirect = func(_ *http.Request, _ []*http.Request) error {
