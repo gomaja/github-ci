@@ -3,6 +3,7 @@ package main
 
 import (
 	"fmt"
+	"io"
 	"os"
 )
 
@@ -16,8 +17,13 @@ const Model = "schema-2"
 `
 
 func main() {
-	if err := os.WriteFile("generated/model.go", []byte(generatedModel), 0o600); err != nil {
-		_, _ = fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
+	os.Exit(run("generated/model.go", os.Stderr))
+}
+
+func run(path string, stderr io.Writer) int {
+	if err := os.WriteFile(path, []byte(generatedModel), 0o600); err != nil {
+		_, _ = fmt.Fprintln(stderr, err)
+		return 1
 	}
+	return 0
 }

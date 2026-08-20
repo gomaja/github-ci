@@ -21,6 +21,109 @@ const (
 	testFork         = "forker/go-canary"
 )
 
+func TestValidateInputRejectsEachInvalidIdentity(t *testing.T) {
+	valid := Input{
+		CandidateSHA: testCandidateSHA, CanaryRepository: testCanary,
+		StandardRunID: 101, DeepRunID: 102, ForkRunID: 103,
+	}
+	tests := []struct {
+		name   string
+		mutate func(*Input)
+		want   string
+	}{
+		{name: "candidate SHA", mutate: func(input *Input) { input.CandidateSHA = "main" }, want: "40-character"},
+		{name: "repository syntax", mutate: func(input *Input) { input.CanaryRepository = "invalid" }, want: "different owner/repository"},
+		{name: "central repository", mutate: func(input *Input) { input.CanaryRepository = "gomaja/github-ci" }, want: "different owner/repository"},
+		{name: "zero standard run", mutate: func(input *Input) { input.StandardRunID = 0 }, want: "positive"},
+		{name: "zero deep run", mutate: func(input *Input) { input.DeepRunID = 0 }, want: "positive"},
+		{name: "zero fork run", mutate: func(input *Input) { input.ForkRunID = 0 }, want: "positive"},
+		{name: "standard equals deep", mutate: func(input *Input) { input.DeepRunID = input.StandardRunID }, want: "distinct"},
+		{name: "standard equals fork", mutate: func(input *Input) { input.ForkRunID = input.StandardRunID }, want: "distinct"},
+		{name: "deep equals fork", mutate: func(input *Input) { input.ForkRunID = input.DeepRunID }, want: "distinct"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			input := valid
+			test.mutate(&input)
+			if err := validateInput(input); err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("validateInput() error = %v, want %q", err, test.want)
+			}
+		})
+	}
+}
+
+func TestValidateWorkflowRunRejectsZeroAttemptAtIdentityBoundary(t *testing.T) {
+	run := workflowRun{
+		ID: 101, Name: "github-ci", Event: manualDispatchEvent, Status: "completed", Conclusion: "success",
+		HeadBranch: "main", HeadSHA: testConsumerSHA, Path: standardCallerPath,
+		Repository: repository{FullName: testCanary}, HeadRepository: repository{FullName: testCanary},
+	}
+	expected := scenario{kind: RunStandard, runID: 101, workflowPath: standardCallerPath, event: manualDispatchEvent}
+	err := validateWorkflowRun(run, Input{CanaryRepository: testCanary}, expected)
+	if err == nil || err.Error() != "workflow run attempt, head branch, or head SHA is invalid" {
+		t.Fatalf("validateWorkflowRun(zero attempt) error = %v", err)
+	}
+}
+
+func TestGeneratedPathMatchingCoversEveryBoundary(t *testing.T) {
+	tests := []struct {
+		path string
+		root string
+		want bool
+	}{
+		{path: "generated/model.go", root: ".", want: true},
+		{path: "generated", root: "generated", want: true},
+		{path: "generated/model.go", root: "generated", want: true},
+		{path: "generated-other/model.go", root: "generated", want: false},
+	}
+	for _, test := range tests {
+		if got := generatedPathContains(test.root, test.path); got != test.want {
+			t.Errorf("generatedPathContains(%q, %q) = %t, want %t", test.root, test.path, got, test.want)
+		}
+	}
+}
+
+func TestValidateGitTreePathRejectsEmptyAndAbsoluteIndependently(t *testing.T) {
+	for _, value := range []string{"", "/generated/model.go"} {
+		if err := validateGitTreePath(value); err == nil || !strings.Contains(err.Error(), "nonempty relative path") {
+			t.Fatalf("validateGitTreePath(%q) error = %v", value, err)
+		}
+	}
+}
+
+func TestForkPullMatcherRejectsEveryIdentityBoundary(t *testing.T) {
+	run := workflowRun{HeadSHA: testForkSHA, HeadRepository: repository{FullName: testFork}}
+	valid := pullRequest{Number: 7}
+	valid.Head.SHA = testForkSHA
+	valid.Head.Repo = repository{FullName: testFork, Fork: true}
+	valid.Base.Repo = repository{FullName: testCanary}
+	tests := []struct {
+		name   string
+		mutate func(*pullRequest)
+	}{
+		{name: "zero number", mutate: func(pull *pullRequest) { pull.Number = 0 }},
+		{name: "head SHA", mutate: func(pull *pullRequest) { pull.Head.SHA = testConsumerSHA }},
+		{name: "head repository", mutate: func(pull *pullRequest) { pull.Head.Repo.FullName = testCanary }},
+		{name: "private head", mutate: func(pull *pullRequest) { pull.Head.Repo.Private = true }},
+		{name: "non-fork head", mutate: func(pull *pullRequest) { pull.Head.Repo.Fork = false }},
+		{name: "base repository", mutate: func(pull *pullRequest) { pull.Base.Repo.FullName = testFork }},
+		{name: "private base", mutate: func(pull *pullRequest) { pull.Base.Repo.Private = true }},
+		{name: "fork base", mutate: func(pull *pullRequest) { pull.Base.Repo.Fork = true }},
+	}
+	if !matchesForkPull(valid, testCanary, run) {
+		t.Fatal("matchesForkPull() rejected valid pull")
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			pull := valid
+			test.mutate(&pull)
+			if matchesForkPull(pull, testCanary, run) {
+				t.Fatal("matchesForkPull() accepted invalid pull")
+			}
+		})
+	}
+}
+
 func TestVerifyBindsSuccessfulRunsCallerConfigAndFork(t *testing.T) {
 	fixture := newAcceptanceFixture()
 	record, err := fixture.verify(t)
@@ -53,6 +156,15 @@ func TestVerifyAcceptsExplicitPackageLocalCoverage(t *testing.T) {
 	fixture.forkConfig = fixture.config
 	if _, err := fixture.verify(t); err != nil {
 		t.Fatalf("Verify() with package-local coverage error = %v", err)
+	}
+}
+
+func TestVerifyAcceptsGoStrictProfile(t *testing.T) {
+	fixture := newAcceptanceFixture()
+	fixture.config = strings.Replace(fixture.config, "profile: go-library", "profile: go-strict", 1)
+	fixture.forkConfig = fixture.config
+	if _, err := fixture.verify(t); err != nil {
+		t.Fatalf("Verify() with go-strict profile error = %v", err)
 	}
 }
 
@@ -136,16 +248,44 @@ func TestVerifyRejectsEveryUnprovenCondition(t *testing.T) {
 		{name: "missing archived state", mutate: func(f *acceptanceFixture) { delete(f.repository, "archived") }, want: `missing "archived"`},
 		{name: "missing disabled state", mutate: func(f *acceptanceFixture) { delete(f.repository, "disabled") }, want: `missing "disabled"`},
 		{name: "missing visibility state", mutate: func(f *acceptanceFixture) { delete(f.repository, "visibility") }, want: `missing "visibility"`},
+		{name: "repository identity mismatch", mutate: func(f *acceptanceFixture) { f.repository["full_name"] = "acme/other" }, want: "active public"},
 		{name: "forked canary repository", mutate: func(f *acceptanceFixture) { f.repository["fork"] = true }, want: "active public"},
 		{name: "private repository", mutate: func(f *acceptanceFixture) { f.repository["private"] = true }, want: "public"},
 		{name: "archived repository", mutate: func(f *acceptanceFixture) { f.repository["archived"] = true }, want: "active public"},
+		{name: "disabled repository", mutate: func(f *acceptanceFixture) { f.repository["disabled"] = true }, want: "active public"},
+		{name: "wrong visibility", mutate: func(f *acceptanceFixture) { f.repository["visibility"] = "internal" }, want: "active public"},
+		{name: "wrong run id", mutate: func(f *acceptanceFixture) { f.runs[101]["id"] = int64(999) }, want: "identity"},
+		{name: "empty run name", mutate: func(f *acceptanceFixture) { f.runs[101]["name"] = "" }, want: "identity"},
+		{name: "wrong run repository", mutate: func(f *acceptanceFixture) {
+			fixtureObject(f.runs[101]["repository"])["full_name"] = "acme/other"
+		}, want: "identity"},
 		{name: "wrong standard event", mutate: func(f *acceptanceFixture) { f.runs[101]["event"] = "push" }, want: "event"},
 		{name: "failed run", mutate: func(f *acceptanceFixture) { f.runs[101]["conclusion"] = "failure" }, want: "successful"},
 		{name: "cancelled run", mutate: func(f *acceptanceFixture) { f.runs[101]["conclusion"] = "cancelled" }, want: "successful"},
 		{name: "in-progress run", mutate: func(f *acceptanceFixture) { f.runs[101]["status"] = "in_progress" }, want: "completed"},
+		{name: "zero run attempt", mutate: func(f *acceptanceFixture) { f.runs[101]["run_attempt"] = int64(0) }, want: "attempt"},
+		{name: "empty head branch", mutate: func(f *acceptanceFixture) { f.runs[101]["head_branch"] = "" }, want: "head branch"},
+		{name: "head branch line break", mutate: func(f *acceptanceFixture) { f.runs[101]["head_branch"] = "main\nother" }, want: "head branch"},
+		{name: "invalid head SHA", mutate: func(f *acceptanceFixture) { f.runs[101]["head_sha"] = "main" }, want: "head SHA"},
+		{name: "private head repository", mutate: func(f *acceptanceFixture) {
+			fixtureObject(f.runs[101]["head_repository"])["private"] = true
+		}, want: "public and valid"},
+		{name: "invalid head repository identity", mutate: func(f *acceptanceFixture) {
+			fixtureObject(f.runs[101]["head_repository"])["full_name"] = "invalid"
+		}, want: "public and valid"},
+		{name: "fork head is not a fork", mutate: func(f *acceptanceFixture) {
+			fixtureObject(f.runs[103]["head_repository"])["fork"] = false
+		}, want: "must be a fork"},
+		{name: "non-fork head repository mismatch", mutate: func(f *acceptanceFixture) {
+			fixtureObject(f.runs[101]["head_repository"])["full_name"] = "acme/other"
+		}, want: "does not match the canary"},
 		{name: "missing gate", mutate: func(f *acceptanceFixture) { f.jobs[101][0]["name"] = "gate / evidence" }, want: "gate"},
 		{name: "failed gate", mutate: func(f *acceptanceFixture) { f.jobs[101][0]["conclusion"] = "failure" }, want: "gate"},
 		{name: "gate from other run", mutate: func(f *acceptanceFixture) { f.jobs[101][0]["run_id"] = int64(999) }, want: "gate"},
+		{name: "zero gate job id", mutate: func(f *acceptanceFixture) { f.jobs[101][0]["id"] = int64(0) }, want: "gate"},
+		{name: "gate from other attempt", mutate: func(f *acceptanceFixture) { f.jobs[101][0]["run_attempt"] = int64(2) }, want: "gate"},
+		{name: "gate for other commit", mutate: func(f *acceptanceFixture) { f.jobs[101][0]["head_sha"] = testForkSHA }, want: "gate"},
+		{name: "in-progress gate", mutate: func(f *acceptanceFixture) { f.jobs[101][0]["status"] = "in_progress" }, want: "gate"},
 		{name: "duplicate gate", mutate: func(f *acceptanceFixture) {
 			f.jobs[101] = append(f.jobs[101], f.job(1004, 101, "gate / gate", testConsumerSHA))
 		}, want: "exactly one"},
@@ -155,7 +295,32 @@ func TestVerifyRejectsEveryUnprovenCondition(t *testing.T) {
 		{name: "mutable workflow ref", mutate: func(f *acceptanceFixture) {
 			f.standardCaller = strings.Replace(f.standardCaller, testCandidateSHA, "main", 1)
 		}, want: "40-character"},
+		{name: "empty caller use", mutate: func(f *acceptanceFixture) {
+			f.standardCaller = strings.Replace(f.standardCaller, "uses: gomaja/github-ci/.github/workflows/go.yml@"+testCandidateSHA, "uses: ''", 1)
+		}, want: "does not invoke"},
+		{name: "multiple caller documents", mutate: func(f *acceptanceFixture) { f.standardCaller += "---\n{}\n" }, want: "multiple YAML documents"},
 		{name: "same-repository fork", mutate: func(f *acceptanceFixture) { f.pullHeadRepository = testCanary }, want: "different repository"},
+		{name: "zero pull request number", mutate: func(f *acceptanceFixture) { setPullFixture(f, func(pull map[string]any) { pull["number"] = int64(0) }) }, want: "associated"},
+		{name: "pull head SHA mismatch", mutate: func(f *acceptanceFixture) {
+			setPullFixture(f, func(pull map[string]any) { fixtureObject(pull["head"])["sha"] = testConsumerSHA })
+		}, want: "associated"},
+		{name: "private pull head", mutate: func(f *acceptanceFixture) {
+			setPullFixture(f, func(pull map[string]any) { fixtureObject(fixtureObject(pull["head"])["repo"])["private"] = true })
+		}, want: "associated"},
+		{name: "pull head is not a fork", mutate: func(f *acceptanceFixture) {
+			setPullFixture(f, func(pull map[string]any) { fixtureObject(fixtureObject(pull["head"])["repo"])["fork"] = false })
+		}, want: "associated"},
+		{name: "pull base repository mismatch", mutate: func(f *acceptanceFixture) {
+			setPullFixture(f, func(pull map[string]any) {
+				fixtureObject(fixtureObject(pull["base"])["repo"])["full_name"] = "acme/other"
+			})
+		}, want: "associated"},
+		{name: "private pull base", mutate: func(f *acceptanceFixture) {
+			setPullFixture(f, func(pull map[string]any) { fixtureObject(fixtureObject(pull["base"])["repo"])["private"] = true })
+		}, want: "associated"},
+		{name: "pull base is a fork", mutate: func(f *acceptanceFixture) {
+			setPullFixture(f, func(pull map[string]any) { fixtureObject(fixtureObject(pull["base"])["repo"])["fork"] = true })
+		}, want: "associated"},
 		{name: "schema 1", mutate: func(f *acceptanceFixture) {
 			f.config = strings.Replace(f.config, "schema-version: 2", "schema-version: 1", 1)
 		}, want: "schema-version must be 2"},
@@ -165,6 +330,13 @@ func TestVerifyRejectsEveryUnprovenCondition(t *testing.T) {
 		{name: "one tag", mutate: func(f *acceptanceFixture) {
 			f.config = strings.Replace(f.config, "[canary_a, canary_b]", "[canary_a]", 1)
 		}, want: "at least two build tags"},
+		{name: "repository-only canary", mutate: func(f *acceptanceFixture) {
+			f.config = "schema-version: 2\nprofile: repository-only\ngenerated-paths: [generated]\n"
+		}, want: "Go assurance profile"},
+		{name: "empty package scope", mutate: func(f *acceptanceFixture) {
+			f.config = strings.Replace(f.config, "packages: [./cmd/...]", "packages: []", 1)
+		}, want: "packages must not be empty"},
+		{name: "missing package scope", mutate: func(f *acceptanceFixture) { f.config = strings.Replace(f.config, "    packages: [./cmd/...]\n", "", 1) }, want: "package scope"},
 		{name: "absent generated path", mutate: func(f *acceptanceFixture) {
 			f.config = strings.Replace(f.config, "generated-paths:\n  - generated\n", "", 1)
 		}, want: "generated path"},
@@ -192,6 +364,18 @@ func TestVerifyRejectsEveryUnprovenCondition(t *testing.T) {
 		{name: "untracked module", mutate: func(f *acceptanceFixture) {
 			f.status["/repos/"+testCanary+"/contents/tools/go.mod"] = http.StatusNotFound
 		}, want: "tracked go.mod"},
+		{name: "module content is a directory", mutate: func(f *acceptanceFixture) {
+			path := "/repos/" + testCanary + "/contents/tools/go.mod"
+			f.raw[path] = `[{"type":"file","encoding":"base64","size":0,"name":"a","path":"tools/go.mod","sha":"dddddddddddddddddddddddddddddddddddddddd","content":""},{"type":"file","encoding":"base64","size":0,"name":"b","path":"tools/other","sha":"dddddddddddddddddddddddddddddddddddddddd","content":""}]`
+		}, want: "tracked go.mod"},
+		{name: "module content has wrong type", mutate: func(f *acceptanceFixture) {
+			path := "/repos/" + testCanary + "/contents/tools/go.mod"
+			f.raw[path] = `{"type":"dir","encoding":"base64","size":0,"name":"go.mod","path":"tools/go.mod","sha":"dddddddddddddddddddddddddddddddddddddddd","content":""}`
+		}, want: "tracked go.mod"},
+		{name: "module content has wrong path", mutate: func(f *acceptanceFixture) {
+			path := "/repos/" + testCanary + "/contents/tools/go.mod"
+			f.raw[path] = `{"type":"file","encoding":"base64","size":0,"name":"go.mod","path":"other/go.mod","sha":"dddddddddddddddddddddddddddddddddddddddd","content":""}`
+		}, want: "tracked go.mod"},
 		{name: "default-only package scope", mutate: func(f *acceptanceFixture) { f.config = strings.Replace(f.config, "[./cmd/...]", "[./...]", 1) }, want: "non-default package scope"},
 		{name: "missing coverage control", mutate: func(f *acceptanceFixture) {
 			f.config = strings.Replace(f.config, "    coverage-packages: [./...]\n", "", 1)
@@ -211,6 +395,12 @@ func TestVerifyRejectsEveryUnprovenCondition(t *testing.T) {
 			}
 		})
 	}
+}
+
+func setPullFixture(fixture *acceptanceFixture, mutate func(map[string]any)) {
+	pull := pullRequestFixture(7)
+	mutate(pull)
+	fixture.pullPages = map[int][]map[string]any{1: {pull}}
 }
 
 func TestVerifyFetchesEveryJobsPageAndRejectsPaginationGap(t *testing.T) {
