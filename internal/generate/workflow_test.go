@@ -674,6 +674,8 @@ func TestDeepExecutorContract(t *testing.T) {
 		`load_go_invocation "$GO_PLAN_PATH" "$index" build`,
 		`load_go_invocation "$GO_PLAN_PATH" "$index" test`,
 		`load_go_invocation "$GO_PLAN_PATH" "$index" gopls`,
+		`list_arguments=(env GOWORK=off go list '-f={{.ImportPath}}')`,
+		`execute_with_plan_environment "$directory" env GOWORK=off gremlins unleash`,
 		`^Fuzz[[:alnum:]_]*$`, `-fuzz="^${target}$"`, `-fuzztime="$FUZZ_TIME"`,
 		`--workers 4`, `--test-cpu 1`, `--timeout-coefficient 100`, `--output-statuses lctvs`, `--arithmetic-base`,
 		`--conditionals-boundary`, `--conditionals-negation`, `--increment-decrement`,

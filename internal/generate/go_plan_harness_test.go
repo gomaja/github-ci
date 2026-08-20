@@ -589,6 +589,7 @@ case "$tool" in
 	  if [[ " $* " == *" -m "* ]]; then
 	    printf 'example.com/fixture\n'
 	  elif [[ " $* " == *" -f={{.ImportPath}} "* ]]; then
+	    if [[ "${GOWORK:-}" != off ]]; then exit 44; fi
 	    printf 'example.com/fixture\nexample.com/fixture/internal/fixture\n'
 	  else
 	    printf 'example.com/fixture\n'
@@ -641,6 +642,7 @@ case "$tool" in
     exit "$status"
     ;;
   gremlins)
+	if [[ "${GOWORK:-}" != off ]]; then exit 45; fi
     printf 'No results to report.\n'
     ;;
 esac

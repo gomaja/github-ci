@@ -120,7 +120,7 @@ run_mutation_context() {
 		load_module_packages "$index"
 		load_go_invocation "$GO_PLAN_PATH" "$index" build
 		module_path=$(execute_with_plan_environment "$directory" env GOWORK=off go list -m -f '{{.Path}}')
-		list_arguments=(go list '-f={{.ImportPath}}')
+		list_arguments=(env GOWORK=off go list '-f={{.ImportPath}}')
 		for argument in "${GO_PLAN_ARGUMENTS[@]:2}"; do
 			list_arguments+=("$argument")
 		done
@@ -152,7 +152,7 @@ run_mutation_context() {
 			report="$MUTATION_DIR/module-${index}-package-${package_index}.json"
 			transcript="$MUTATION_DIR/module-${index}-package-${package_index}.log"
 			evidence="$MUTATION_DIR/module-${index}-package-${package_index}-no-results.json"
-			execute_with_plan_environment "$directory" gremlins unleash \
+			execute_with_plan_environment "$directory" env GOWORK=off gremlins unleash \
 				--workers 4 \
 				--test-cpu 1 \
 				--timeout-coefficient 100 \
