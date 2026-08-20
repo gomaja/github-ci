@@ -109,6 +109,29 @@ func TestBootstrapBuildsFromItsActionBoundRepository(t *testing.T) {
 	}
 }
 
+func TestBootstrapInstallsGo127CompatibleAnalyzers(t *testing.T) {
+	data, err := os.ReadFile("../../actions/bootstrap/action.yml")
+	if err != nil {
+		t.Fatalf("read bootstrap action: %v", err)
+	}
+	text := string(data)
+	for _, required := range []string{
+		"github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.13.0",
+		`grep -F '2.13.0'`,
+		"honnef.co/go/tools/cmd/staticcheck@v0.8.0-rc.1",
+		`grep -F '2026.2rc1 (v0.8.0-rc.1)'`,
+	} {
+		if !strings.Contains(text, required) {
+			t.Errorf("bootstrap action is missing %q", required)
+		}
+	}
+	for _, obsolete := range []string{"golangci-lint@v2.12.2", "staticcheck@v0.7.0"} {
+		if strings.Contains(text, obsolete) {
+			t.Errorf("bootstrap action retains obsolete analyzer lock %q", obsolete)
+		}
+	}
+}
+
 func TestStandardAndDeepWorkflowsUploadDistinctArtifacts(t *testing.T) {
 	standard := uploadedArtifactNames(t, "../../.github/workflows/go.yml")
 	deep := uploadedArtifactNames(t, "../../.github/workflows/deep.yml")
