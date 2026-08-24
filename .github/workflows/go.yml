@@ -528,7 +528,7 @@ jobs:
           path: ${{ runner.temp }}/github-ci-plan
       - name: Initialize CodeQL
         if: ${{ matrix.language != 'go' || needs.preflight.outputs.has-go == 'true' }}
-        uses: github/codeql-action/init@ff2f1c621b7f889edc0d3c761ac2e6a3f8cdb0dd
+        uses: github/codeql-action/init@db488ddef3bf6cb639b32c2e9a7c0a7ea8271d28
         with:
           languages: ${{ matrix.language }}
           build-mode: ${{ matrix.build-mode }}
@@ -548,7 +548,7 @@ jobs:
         run: bash "$CENTRAL_DIR/scripts/run-go-group.sh" codeql-build
       - name: Analyze CodeQL database
         if: ${{ matrix.language != 'go' || needs.preflight.outputs.has-go == 'true' }}
-        uses: github/codeql-action/analyze@ff2f1c621b7f889edc0d3c761ac2e6a3f8cdb0dd
+        uses: github/codeql-action/analyze@db488ddef3bf6cb639b32c2e9a7c0a7ea8271d28
         with:
           category: github-ci/${{ matrix.language }}
           checkout_path: source
