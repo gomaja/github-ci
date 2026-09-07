@@ -23,7 +23,7 @@ jobs:
     timeout-minutes: 15
     steps:
       - name: Harden runner
-        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c
+        uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1
         with:
           egress-policy: block
           disable-telemetry: true
@@ -105,7 +105,7 @@ jobs:
     timeout-minutes: 30
     steps:
       - name: Harden runner
-        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c
+        uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1
         with:
           egress-policy: block
           disable-telemetry: true
@@ -180,7 +180,7 @@ jobs:
     timeout-minutes: 45
     steps:
       - name: Harden runner
-        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c
+        uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1
         with:
           egress-policy: block
           disable-telemetry: true
@@ -255,7 +255,7 @@ jobs:
     timeout-minutes: 60
     steps:
       - name: Harden runner
-        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c
+        uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1
         with:
           egress-policy: block
           disable-telemetry: true
@@ -330,7 +330,7 @@ jobs:
     timeout-minutes: 60
     steps:
       - name: Harden runner
-        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c
+        uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1
         with:
           egress-policy: block
           disable-telemetry: true
@@ -410,7 +410,7 @@ jobs:
     timeout-minutes: 45
     steps:
       - name: Harden runner
-        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c
+        uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1
         with:
           egress-policy: block
           disable-telemetry: true
@@ -490,7 +490,7 @@ jobs:
     timeout-minutes: 60
     steps:
       - name: Harden runner
-        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c
+        uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1
         with:
           egress-policy: block
           disable-telemetry: true
@@ -528,7 +528,7 @@ jobs:
           path: ${{ runner.temp }}/github-ci-plan
       - name: Initialize CodeQL
         if: ${{ matrix.language != 'go' || needs.preflight.outputs.has-go == 'true' }}
-        uses: github/codeql-action/init@ff2f1c621b7f889edc0d3c761ac2e6a3f8cdb0dd
+        uses: github/codeql-action/init@cdf488f595d80d6e07e03d4674febd5ab45fa938
         with:
           languages: ${{ matrix.language }}
           build-mode: ${{ matrix.build-mode }}
@@ -548,7 +548,7 @@ jobs:
         run: bash "$CENTRAL_DIR/scripts/run-go-group.sh" codeql-build
       - name: Analyze CodeQL database
         if: ${{ matrix.language != 'go' || needs.preflight.outputs.has-go == 'true' }}
-        uses: github/codeql-action/analyze@ff2f1c621b7f889edc0d3c761ac2e6a3f8cdb0dd
+        uses: github/codeql-action/analyze@cdf488f595d80d6e07e03d4674febd5ab45fa938
         with:
           category: github-ci/${{ matrix.language }}
           checkout_path: source
@@ -583,7 +583,7 @@ jobs:
     timeout-minutes: 20
     steps:
       - name: Harden runner
-        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c
+        uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1
         with:
           egress-policy: block
           disable-telemetry: true
@@ -664,7 +664,7 @@ jobs:
     timeout-minutes: 60
     steps:
       - name: Harden runner
-        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c
+        uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1
         with:
           egress-policy: block
           disable-telemetry: true
@@ -742,7 +742,7 @@ jobs:
     timeout-minutes: 60
     steps:
       - name: Harden runner
-        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c
+        uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1
         with:
           egress-policy: block
           disable-telemetry: true
@@ -813,7 +813,7 @@ jobs:
     timeout-minutes: 60
     steps:
       - name: Harden runner
-        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c
+        uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1
         with:
           egress-policy: block
           disable-telemetry: true
@@ -899,7 +899,7 @@ jobs:
     timeout-minutes: 30
     steps:
       - name: Harden runner
-        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c
+        uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1
         with:
           egress-policy: block
           disable-telemetry: true
@@ -973,7 +973,7 @@ jobs:
     timeout-minutes: 15
     steps:
       - name: Harden runner
-        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c
+        uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1
         with:
           egress-policy: block
           disable-telemetry: true
@@ -1059,7 +1059,7 @@ jobs:
     timeout-minutes: 15
     steps:
       - name: Harden runner
-        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c
+        uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1
         with:
           egress-policy: block
           disable-telemetry: true
