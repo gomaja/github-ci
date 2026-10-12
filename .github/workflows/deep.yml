@@ -25,7 +25,7 @@ jobs:
     timeout-minutes: 15
     steps:
       - name: Harden runner
-        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c
+        uses: step-security/harden-runner@ccd8616d44fd3846e67624a50d5aad6d37bf2d25
         with:
           egress-policy: block
           disable-telemetry: true
@@ -71,7 +71,7 @@ jobs:
           "$CLI" preflight --repository "$SOURCE_DIR" --config "$CONFIG_PATH" --policy "$POLICY_PATH" --subject-sha "$SUBJECT_SHA" --output "$PLAN_PATH"
           "$CLI" go-plan --repository "$SOURCE_DIR" --config "$CONFIG_PATH" >"$GO_PLAN_PATH"
       - name: Upload validated Go plan
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: github-ci-deep-plan
           path: ${{ runner.temp }}/github-ci-plan
@@ -90,7 +90,7 @@ jobs:
     timeout-minutes: 45
     steps:
       - name: Harden runner
-        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c
+        uses: step-security/harden-runner@ccd8616d44fd3846e67624a50d5aad6d37bf2d25
         with:
           egress-policy: block
           disable-telemetry: true
@@ -121,7 +121,7 @@ jobs:
           go-version: ${{ matrix.go-version }}
           cache: false
       - name: Download validated Go plan
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
         with:
           name: github-ci-deep-plan
           path: ${{ runner.temp }}/github-ci-plan
@@ -140,7 +140,7 @@ jobs:
     timeout-minutes: 60
     steps:
       - name: Harden runner
-        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c
+        uses: step-security/harden-runner@ccd8616d44fd3846e67624a50d5aad6d37bf2d25
         with:
           egress-policy: block
           disable-telemetry: true
@@ -172,7 +172,7 @@ jobs:
           go-version: 1.27.0
           cache: false
       - name: Download validated Go plan
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
         with:
           name: github-ci-deep-plan
           path: ${{ runner.temp }}/github-ci-plan
@@ -192,7 +192,7 @@ jobs:
     timeout-minutes: 90
     steps:
       - name: Harden runner
-        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c
+        uses: step-security/harden-runner@ccd8616d44fd3846e67624a50d5aad6d37bf2d25
         with:
           egress-policy: block
           disable-telemetry: true
@@ -223,7 +223,7 @@ jobs:
           go-version: 1.27.0
           install-tools: "false"
       - name: Download validated Go plan
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
         with:
           name: github-ci-deep-plan
           path: ${{ runner.temp }}/github-ci-plan
@@ -244,7 +244,7 @@ jobs:
         run: bash "$CENTRAL_DIR/scripts/run-deep-go.sh" mutation-context
       - name: Upload mutation evidence
         if: ${{ always() }}
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: github-ci-mutation
           path: ${{ runner.temp }}/github-ci-mutation
@@ -258,7 +258,7 @@ jobs:
     timeout-minutes: 45
     steps:
       - name: Harden runner
-        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c
+        uses: step-security/harden-runner@ccd8616d44fd3846e67624a50d5aad6d37bf2d25
         with:
           egress-policy: block
           disable-telemetry: true
@@ -290,7 +290,7 @@ jobs:
           go-version: 1.27.0
           install-tools: "false"
       - name: Download validated Go plan
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
         with:
           name: github-ci-deep-plan
           path: ${{ runner.temp }}/github-ci-plan
