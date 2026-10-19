@@ -23,7 +23,7 @@ jobs:
     timeout-minutes: 15
     steps:
       - name: Harden runner
-        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c
+        uses: step-security/harden-runner@ccd8616d44fd3846e67624a50d5aad6d37bf2d25
         with:
           egress-policy: block
           disable-telemetry: true
@@ -90,7 +90,7 @@ jobs:
           fi
           printf 'profile=%s\nhas-go=%s\n' "$profile" "$has_go" >>"$GITHUB_OUTPUT"
       - name: Upload applicability plan
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: github-ci-plan
           path: ${{ runner.temp }}/github-ci-plan
@@ -105,7 +105,7 @@ jobs:
     timeout-minutes: 30
     steps:
       - name: Harden runner
-        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c
+        uses: step-security/harden-runner@ccd8616d44fd3846e67624a50d5aad6d37bf2d25
         with:
           egress-policy: block
           disable-telemetry: true
@@ -148,7 +148,7 @@ jobs:
         with:
           go-version: 1.27.0
       - name: Download applicability plan
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
         with:
           name: github-ci-plan
           path: ${{ runner.temp }}/github-ci-plan
@@ -165,7 +165,7 @@ jobs:
         run: bash "$CENTRAL_DIR/scripts/run-go-group.sh" formatting
       - name: Upload formatting evidence
         if: ${{ always() }}
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: github-ci-go-formatting-evidence
           path: ${{ runner.temp }}/github-ci-evidence
@@ -180,7 +180,7 @@ jobs:
     timeout-minutes: 45
     steps:
       - name: Harden runner
-        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c
+        uses: step-security/harden-runner@ccd8616d44fd3846e67624a50d5aad6d37bf2d25
         with:
           egress-policy: block
           disable-telemetry: true
@@ -223,7 +223,7 @@ jobs:
         with:
           go-version: 1.27.0
       - name: Download applicability plan
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
         with:
           name: github-ci-plan
           path: ${{ runner.temp }}/github-ci-plan
@@ -240,7 +240,7 @@ jobs:
         run: bash "$CENTRAL_DIR/scripts/run-go-group.sh" core
       - name: Upload core evidence
         if: ${{ always() }}
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: github-ci-go-core-evidence
           path: ${{ runner.temp }}/github-ci-evidence
@@ -255,7 +255,7 @@ jobs:
     timeout-minutes: 60
     steps:
       - name: Harden runner
-        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c
+        uses: step-security/harden-runner@ccd8616d44fd3846e67624a50d5aad6d37bf2d25
         with:
           egress-policy: block
           disable-telemetry: true
@@ -298,7 +298,7 @@ jobs:
         with:
           go-version: 1.27.0
       - name: Download applicability plan
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
         with:
           name: github-ci-plan
           path: ${{ runner.temp }}/github-ci-plan
@@ -315,7 +315,7 @@ jobs:
         run: bash "$CENTRAL_DIR/scripts/run-go-group.sh" tests
       - name: Upload test evidence
         if: ${{ always() }}
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: github-ci-go-test-evidence
           path: ${{ runner.temp }}/github-ci-evidence
@@ -330,7 +330,7 @@ jobs:
     timeout-minutes: 60
     steps:
       - name: Harden runner
-        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c
+        uses: step-security/harden-runner@ccd8616d44fd3846e67624a50d5aad6d37bf2d25
         with:
           egress-policy: block
           disable-telemetry: true
@@ -374,7 +374,7 @@ jobs:
         with:
           go-version: 1.27.0
       - name: Download applicability plan
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
         with:
           name: github-ci-plan
           path: ${{ runner.temp }}/github-ci-plan
@@ -391,7 +391,7 @@ jobs:
         run: bash "$CENTRAL_DIR/scripts/run-go-group.sh" analysis
       - name: Upload static-analysis evidence
         if: ${{ always() }}
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: github-ci-go-analysis-evidence
           path: ${{ runner.temp }}/github-ci-evidence
@@ -410,7 +410,7 @@ jobs:
     timeout-minutes: 45
     steps:
       - name: Harden runner
-        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c
+        uses: step-security/harden-runner@ccd8616d44fd3846e67624a50d5aad6d37bf2d25
         with:
           egress-policy: block
           disable-telemetry: true
@@ -454,7 +454,7 @@ jobs:
           go-version: ${{ matrix.go-version }}
           install-tools: "false"
       - name: Download execution plans
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
         with:
           name: github-ci-plan
           path: ${{ runner.temp }}/github-ci-plan
@@ -490,7 +490,7 @@ jobs:
     timeout-minutes: 60
     steps:
       - name: Harden runner
-        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c
+        uses: step-security/harden-runner@ccd8616d44fd3846e67624a50d5aad6d37bf2d25
         with:
           egress-policy: block
           disable-telemetry: true
@@ -522,13 +522,13 @@ jobs:
           go-version: 1.26.7
           install-tools: "false"
       - name: Download applicability plan
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
         with:
           name: github-ci-plan
           path: ${{ runner.temp }}/github-ci-plan
       - name: Initialize CodeQL
         if: ${{ matrix.language != 'go' || needs.preflight.outputs.has-go == 'true' }}
-        uses: github/codeql-action/init@ff2f1c621b7f889edc0d3c761ac2e6a3f8cdb0dd
+        uses: github/codeql-action/init@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee
         with:
           languages: ${{ matrix.language }}
           build-mode: ${{ matrix.build-mode }}
@@ -548,7 +548,7 @@ jobs:
         run: bash "$CENTRAL_DIR/scripts/run-go-group.sh" codeql-build
       - name: Analyze CodeQL database
         if: ${{ matrix.language != 'go' || needs.preflight.outputs.has-go == 'true' }}
-        uses: github/codeql-action/analyze@ff2f1c621b7f889edc0d3c761ac2e6a3f8cdb0dd
+        uses: github/codeql-action/analyze@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee
         with:
           category: github-ci/${{ matrix.language }}
           checkout_path: source
@@ -569,7 +569,7 @@ jobs:
         run: bash "$CENTRAL_DIR/scripts/record-external.sh"
       - name: Upload CodeQL evidence
         if: ${{ always() && (matrix.language != 'go' || needs.preflight.outputs.has-go == 'true') }}
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: github-ci-codeql-${{ matrix.language }}-evidence
           path: ${{ runner.temp }}/github-ci-evidence
@@ -583,7 +583,7 @@ jobs:
     timeout-minutes: 20
     steps:
       - name: Harden runner
-        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c
+        uses: step-security/harden-runner@ccd8616d44fd3846e67624a50d5aad6d37bf2d25
         with:
           egress-policy: block
           disable-telemetry: true
@@ -610,7 +610,7 @@ jobs:
           go-version: 1.27.0
           install-tools: "false"
       - name: Download applicability plan
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
         with:
           name: github-ci-plan
           path: ${{ runner.temp }}/github-ci-plan
@@ -650,7 +650,7 @@ jobs:
         run: bash "$CENTRAL_DIR/scripts/record-external.sh"
       - name: Upload dependency-review evidence
         if: ${{ always() }}
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: github-ci-dependency-review-evidence
           path: ${{ runner.temp }}/github-ci-evidence
@@ -664,7 +664,7 @@ jobs:
     timeout-minutes: 60
     steps:
       - name: Harden runner
-        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c
+        uses: step-security/harden-runner@ccd8616d44fd3846e67624a50d5aad6d37bf2d25
         with:
           egress-policy: block
           disable-telemetry: true
@@ -704,7 +704,7 @@ jobs:
           go-version: 1.27.0
           install-tools: "false"
       - name: Download applicability plan
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
         with:
           name: github-ci-plan
           path: ${{ runner.temp }}/github-ci-plan
@@ -728,7 +728,7 @@ jobs:
         run: bash "$CENTRAL_DIR/scripts/run-scanners.sh" security
       - name: Upload security evidence
         if: ${{ always() }}
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: github-ci-security-evidence
           path: ${{ runner.temp }}/github-ci-evidence
@@ -742,7 +742,7 @@ jobs:
     timeout-minutes: 60
     steps:
       - name: Harden runner
-        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c
+        uses: step-security/harden-runner@ccd8616d44fd3846e67624a50d5aad6d37bf2d25
         with:
           egress-policy: block
           disable-telemetry: true
@@ -776,7 +776,7 @@ jobs:
           go-version: 1.27.0
           install-tools: "false"
       - name: Download applicability plan
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
         with:
           name: github-ci-plan
           path: ${{ runner.temp }}/github-ci-plan
@@ -799,7 +799,7 @@ jobs:
         run: bash "$CENTRAL_DIR/scripts/run-scanners.sh" supply-chain
       - name: Upload supply-chain evidence
         if: ${{ always() }}
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: github-ci-supply-chain-evidence
           path: ${{ runner.temp }}/github-ci-evidence
@@ -813,7 +813,7 @@ jobs:
     timeout-minutes: 60
     steps:
       - name: Harden runner
-        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c
+        uses: step-security/harden-runner@ccd8616d44fd3846e67624a50d5aad6d37bf2d25
         with:
           egress-policy: block
           disable-telemetry: true
@@ -850,7 +850,7 @@ jobs:
           go-version: 1.27.0
           install-tools: "false"
       - name: Download applicability plan
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
         with:
           name: github-ci-plan
           path: ${{ runner.temp }}/github-ci-plan
@@ -882,7 +882,7 @@ jobs:
         run: bash "$CENTRAL_DIR/scripts/run-scanners.sh" repository
       - name: Upload repository evidence
         if: ${{ always() }}
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: github-ci-repository-evidence
           path: ${{ runner.temp }}/github-ci-evidence
@@ -899,7 +899,7 @@ jobs:
     timeout-minutes: 30
     steps:
       - name: Harden runner
-        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c
+        uses: step-security/harden-runner@ccd8616d44fd3846e67624a50d5aad6d37bf2d25
         with:
           egress-policy: block
           disable-telemetry: true
@@ -933,12 +933,12 @@ jobs:
           go-version: 1.27.0
           install-tools: "false"
       - name: Download applicability plan
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
         with:
           name: github-ci-plan
           path: ${{ runner.temp }}/github-ci-plan
       - name: Run scorecard/repository
-        uses: ossf/scorecard-action@2d1146689b8cda280b9bc96326124645441f03bc
+        uses: ossf/scorecard-action@fa7117db83c52d787ae5a89f350999701505d78e
         with:
           results_file: scorecard.sarif
           results_format: sarif
@@ -958,7 +958,7 @@ jobs:
         run: bash "$CENTRAL_DIR/scripts/record-external.sh"
       - name: Upload Scorecard evidence
         if: ${{ always() }}
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: github-ci-scorecard-evidence
           path: ${{ runner.temp }}/github-ci-evidence
@@ -973,7 +973,7 @@ jobs:
     timeout-minutes: 15
     steps:
       - name: Harden runner
-        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c
+        uses: step-security/harden-runner@ccd8616d44fd3846e67624a50d5aad6d37bf2d25
         with:
           egress-policy: block
           disable-telemetry: true
@@ -1013,13 +1013,13 @@ jobs:
           install-tools: "false"
       - name: Download applicability plan
         if: ${{ always() }}
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
         with:
           name: github-ci-plan
           path: ${{ runner.temp }}/github-ci-bundle/plan
       - name: Download producer evidence
         if: ${{ always() }}
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
         with:
           pattern: github-ci-*-evidence
           path: ${{ runner.temp }}/github-ci-bundle
@@ -1044,7 +1044,7 @@ jobs:
         run: bash "$GITHUB_WORKSPACE/github-ci/scripts/build-go-manifest.sh" "$EVIDENCE_DIR/manifest.json"
       - name: Upload evidence bundle
         if: ${{ always() }}
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: github-ci-evidence
           path: ${{ runner.temp }}/github-ci-bundle
@@ -1059,7 +1059,7 @@ jobs:
     timeout-minutes: 15
     steps:
       - name: Harden runner
-        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c
+        uses: step-security/harden-runner@ccd8616d44fd3846e67624a50d5aad6d37bf2d25
         with:
           egress-policy: block
           disable-telemetry: true
@@ -1103,7 +1103,7 @@ jobs:
           go-version: 1.27.0
           install-tools: "false"
       - name: Download evidence bundle
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
         with:
           name: github-ci-evidence
           path: ${{ runner.temp }}/github-ci-bundle
@@ -1128,7 +1128,7 @@ jobs:
           printf '%s\n' "$status" > "$STATUS_PATH"
       - name: Upload aggregate result
         if: ${{ always() }}
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: github-ci-gate
           path: ${{ runner.temp }}/github-ci-result
